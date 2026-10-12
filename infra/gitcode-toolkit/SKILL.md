@@ -87,6 +87,7 @@ Token 获取优先级：用户直接在消息中提供 → 环境变量 `GITCODE
 | Log+文件 | commit 元信息提取、文件读取 | [log-and-show.md](references/log-and-show.md) | — |
 | Remote+分支 | remote 管理、分支查询、推送 | [remote-and-branch.md](references/remote-and-branch.md) | — |
 | PR 上下文 | 一键获取 clone + diff + log | — | `python scripts/fetch_pr_context.py --repo <owner/repo> --pr <N>` |
+| PR 行内评论 | diff_comment 行号定位、提交、回查、删除 | [pr-inline-comment-workflow.md](references/pr-inline-comment-workflow.md) | — |
 
 ### 可选参考（MAY）
 
@@ -171,6 +172,7 @@ python3 tests/lib/skill_validator.py validate-skill infra/gitcode-toolkit/SKILL.
 | [token-config.md](references/token-config.md) | Token 获取优先级 | **MUST** |
 | [pr-creation-workflow.md](references/pr-creation-workflow.md) | PR 创建 8 步完整流程（含 git 身份校验） | SHOULD |
 | [issue-comment-workflow.md](references/issue-comment-workflow.md) | Issue 评论的目标解析、POST/GET、幂等和安全边界 | SHOULD |
+| [pr-inline-comment-workflow.md](references/pr-inline-comment-workflow.md) | PR 行内评论（diff_comment）的行号定位、提交、回查与删除 | SHOULD |
 | [authorization-contract.md](references/authorization-contract.md) | 外部写操作的通用精确确认与回查边界 | MUST |
 | [issue-creation-workflow.md](references/issue-creation-workflow.md) | Issue 创建 7 步流程（含预设模板） | SHOULD |
 | [clone-and-checkout.md](references/clone-and-checkout.md) | 克隆、浅克隆、PR 分支检出、merge-base | SHOULD |

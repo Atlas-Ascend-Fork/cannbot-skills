@@ -88,7 +88,7 @@ curl 'https://api.gitcode.com/api/v5/repos/{owner}/{repo}/pulls/{number}/comment
 
 ### 提交行内评论
 
-针对具体代码行提交评论：
+针对具体代码行提交评论（与整体评论共用同一端点，唯一区别是携带有效 `position`；参数名错误会静默降级为普通评论）：
 
 ```bash
 POST /repos/{owner}/{repo}/pulls/{number}/comments
@@ -113,9 +113,12 @@ curl -X POST 'https://api.gitcode.com/api/v5/repos/{owner}/{repo}/pulls/{number}
 | `commit_id` | | string | 提交 SHA（可选，默认使用最新） |
 | `in_reply_to` | | int | 回复的评论 ID（用于回复） |
 
+> 行号核对、防重、回查与删除的完整流程见
+> [pr-inline-comment-workflow.md](pr-inline-comment-workflow.md)。
+
 ### 提交整体评论
 
-不针对特定代码行的评论：
+不针对特定代码行的评论（同一端点不带 `position` 即为此类，落在 PR 讨论页）：
 
 ```bash
 POST /repos/{owner}/{repo}/pulls/{number}/comments
