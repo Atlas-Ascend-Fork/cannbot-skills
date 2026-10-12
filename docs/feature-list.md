@@ -21,7 +21,7 @@
 | **ascendc-tiling-design** | Tiling 和 Kernel 设计方法论，按算子类别分类 | — |
 | **ascendc-precision-debug** | 精度调试，症状-原因速查、常见陷阱 | — |
 | **ascendc-runtime-debug** | 运行时错误调试，错误码解析（161xxx/361xxx/561xxx） | — |
-| **ascendc-crash-debug** | 卡死/崩溃调试，Kernel 挂起、Coredump 分析 | — |
+| **ascendc-crash-debug** | 卡死/崩溃/内存错误调试；AIC/AIV Error 需要定位具体指令时按症状路由到反汇编工具 | — |
 | **ascendc-sync-audit** | 信号同步检验与修正，SetFlag/WaitFlag/CrossCore 配对、缺失、错序、flagId 冲突 | — |
 | **ascendc-ut-develop** | UT 单元测试用例开发与覆盖率增强 | — |
 | **ascendc-st-design** | aclnn 接口测试用例设计、L0 / L1 测试用例生成 | — |
@@ -289,7 +289,7 @@
 | **tool-exception-dump** | AI Core Error 系统化诊断工作流（34 步）：环境与输入检查、场景判定与报错行定位、错误类型解码、单算子复现、证据链汇聚与修复建议，输出六段式证据链诊断报告，与 msaicerr-toolkit/asys-toolkit 分工协作 | — |
 | **tool-npu-compute** | 使用 npu-compute 选择和采集 NPU 性能指标、确认采集结果、解包 `.npu-rep`，并分析带宽、流水线、存储访问、缓存和资源冲突等数据；支持由多个采集项组成的指标集合（Set）和可单独选择的采集项（Section） | [查看](skills-usage.md#tool-npu-compute) |
 | **tool-npu-check** | `memcheck` 设备全局内存（GM）访问检查、`synccheck` 同步操作配对检查、命令执行及检查报告解读 | — |
-| **npu-objdump-toolkit** | npu-objdump/msobjdump 算子编译产物分析：查看 kernel 元数据与完整 ELF 信息、列出或提取内嵌 device ELF、使用 `--sass` 反汇编 Ascend AICore 指令并定位工具调用问题 | — |
+| **npu-objdump-toolkit** | npu-objdump/msobjdump 算子编译产物分析：查看元数据与 ELF、提取 device ELF、反汇编 Ascend AICore 指令，并将异常 PC 定位到 OPP 对象、MIX AIC/AIV 物理符号和窄指令窗口 | — |
 
 ## 社区 Plugins
 

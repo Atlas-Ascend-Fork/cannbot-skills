@@ -44,6 +44,9 @@
 #### 新特性 New Features
 - 【安装部署】install-helper `v1.2.0` 新增 cannbot 仓插件兼容安装（委托转发架构）：托管 `@cannbot-plugin/cannbot` 安装器并委托执行，产物布局与直装一致；补齐卸载/列表/状态生命周期；同名插件 cannbot 优先；适配安装器 1.8.0 与目录更名。四轮 beta 试点后发布。
 
+#### 特性增强 Feature Enhancement
+- 【npu-objdump-toolkit】新增异常 PC 精确反汇编：支持直接分析已确认的 device ELF，或筛选 OPP 候选并核对对象身份（TilingKey 为可选过滤条件），核验 CCU/MTE/IFU/CUBE/VEC ERR_INFO 与同域偏移，区分 MIX AIC/AIV 物理符号，并使用匹配 CANN 的 `llvm-objdump` 输出窄指令窗口；`ascendc-crash-debug` 按 AIC/AIV Error 症状路由到该能力。
+
 #### 缺陷修复 Bug Fixes
 - 【cake】`ascend-call-generation/references/average_pooling2d/average_pooling2d.cpp` 补 `kernel_size > 0` 的 `TORCH_CHECK`（issue #706）。该函数经 `TORCH_LIBRARY_IMPL` 与 `PYBIND11_MODULE` 两个入口注册为对外接口，`kernel_size` 原样赋给 `actual_stride` 后作为 `height / actual_stride`、`width / actual_stride` 的除数，调用方传 0 时在主机侧触发整数除零（SIGFPE）。本文件是生成 PyTorch 调用层的参考样例，校验缺失会随样例被复制进生成结果。
 

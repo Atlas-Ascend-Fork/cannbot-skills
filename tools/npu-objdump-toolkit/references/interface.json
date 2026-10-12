@@ -2,7 +2,7 @@
   "schema_version": 1,
   "tool": "msobjdump",
   "provenance": {
-    "asc_tools_commit": "d06e515",
+    "asc_tools_commit": "b0a13ab",
     "generated_by": "tools/npu-objdump-toolkit/scripts/gen_interface.py",
     "note": "接口面语义快照（参数、字段映射、跟踪文案）。变更需重新生成并随 PR 评审；不做整文件哈希，无关重构不触发。"
   },
@@ -10,7 +10,7 @@
     "primary": "npu-objdump",
     "compat": "msobjdump",
     "module": "python3 -m msobjdump",
-    "note": "安装包主命令为 npu-objdump，msobjdump 为兼容软链，参数与行为一致；旧安装（如 CANN 9.2.0）只有 msobjdump。"
+    "note": "asc-tools 当前 master 的开源构建安装 npu-objdump 主入口，并创建指向它的 msobjdump 兼容软链；已发布安装（如 CANN 9.2.0）可能只有 msobjdump。"
   },
   "cli": {
     "prog": "msobjdump",

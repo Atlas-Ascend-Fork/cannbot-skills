@@ -66,8 +66,8 @@ COMMANDS = {
     "compat": "msobjdump",
     "module": "python3 -m msobjdump",
     "note": (
-        "安装包主命令为 npu-objdump，msobjdump 为兼容软链，参数与行为一致；"
-        "旧安装（如 CANN 9.2.0）只有 msobjdump。"
+        "asc-tools 当前 master 的开源构建安装 npu-objdump 主入口，并创建指向它的 "
+        "msobjdump 兼容软链；已发布安装（如 CANN 9.2.0）可能只有 msobjdump。"
     ),
 }
 

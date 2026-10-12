@@ -229,10 +229,10 @@
     },
     {
       "id": 25,
-      "title": "npu-objdump 主命令与 msobjdump 兼容软链",
+      "title": "asc-tools master 的 npu-objdump 入口与兼容软链",
       "config": {},
       "prompt": "机器上同时有 npu-objdump 和 msobjdump 两个命令。它们是什么关系？用 npu-objdump --sass demo 可以吗？",
-      "expected_output": "说明 npu-objdump 是安装包主命令，msobjdump 是指向它的兼容软链接，参数与行为一致，npu-objdump --sass demo 与 msobjdump --sass demo 等价。不把两者当成不同工具分别解释。",
+      "expected_output": "说明 asc-tools 当前 master 的开源构建把 npu-objdump 安装为主入口，并创建指向它的 msobjdump 兼容软链接，因此同一安装内两者参数与行为一致，npu-objdump --sass demo 与 msobjdump --sass demo 等价。不要据此声称所有已发布 CANN 包都包含 npu-objdump；CANN 9.2.0 等旧安装可能只有 msobjdump。",
       "files": [],
       "expectations": []
     },
@@ -242,6 +242,29 @@
       "config": {},
       "prompt": "接口探测状态为 ok，但结果里有 \"optional capability not present in this install: --sass\"。我接下来想反汇编指令，能用吗？",
       "expected_output": "解释当前安装的 msobjdump 早于 --sass 引入版本，该能力不可用；optional 缺失不算故障，状态仍是 ok，按安装版实际能力回答（dump/list/extract 正常），说明需升级到包含 --sass 的版本后使用，不编造替代参数。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 27,
+      "title": "MIX 对象按 AIC/AIV 物理符号精确反汇编",
+      "config": {
+        "distractor_skills": [
+          "ascendc-crash-debug",
+          "ascendc-runtime-debug"
+        ]
+      },
+      "prompt": "CANN 环境已经加载。我有 FlashAttentionScoreGrad 的 kernelName、TilingKey 和 AIV core type，需要从 opp_kernel 的多个同名 .o 中确认实际对象，再只反汇编对应的 AIV 物理符号和 PC 附近指令。请给出可执行步骤，不做根因分析。",
+      "expected_output": "激活 npu-objdump-toolkit；用 scripts/locate_kernel.py 按算子、SoC、TilingKey 生成候选，并用运行时身份或 SHA256 消歧；用实际 npu-objdump/msobjdump 入口查看元数据，按 AIV 选择真实存在的 _mix_aiv 符号；对确认后的独立 device ELF 使用 scripts/disassemble_pc.py，底层执行匹配 CANN 的 llvm-objdump，按 --symbol/--symbol-offset 或对象 PC 截取窄窗口。不能假定 CANN 9.2.0 存在 npu-objdump 或 msobjdump --sass，也不能把文件名匹配当作对象身份确认。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 28,
+      "title": "ERR_INFO PC 与直接相减的同域核验",
+      "config": {},
+      "prompt": "EXCP DS 已确认是 MTE，MTE_ERR_INFO=0xd9000000e9。另一路计算得到 current_pc-start_pc=0x7a4，start_pc=0x36000。请核验两种算法是否一致，并说明怎样把结果交给精确反汇编。",
+      "expected_output": "按 MTE 规则组合 [39:32] 和 [7:0] 得到 0xd9e9，乘 4 得字节 PC 0x367a4；在同一地址域用 pc_base 0x36000 归一化后得到 0x7a4，因此与直接相减结果一致。可用 scripts/decode_err_info_pc.py 保留中间值，再按 PC 类型使用 scripts/disassemble_pc.py；若寄存器格式、对象身份或基址未确认，必须标记证据缺口，不能仅凭数值相等断言故障指令。",
       "files": [],
       "expectations": []
     }

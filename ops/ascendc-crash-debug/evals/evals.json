@@ -117,6 +117,25 @@
       "expected_output": "回复应说明 Buffer 冲突与死锁的排查：检查 AllocTensor/FreeTensor 是否配对（循环内 Alloc 后必须 Free）；检查 EnQue/DeQue 队列同步是否匹配；关注多核同步缺失（CrossCoreWaitFlag 无对应 SetFlag）与 PipeBarrier 滥用等常见死锁模式。",
       "expectations": [],
       "files": []
+    },
+    {
+      "id": 8,
+      "title": "AIC/AIV 异常 PC 路由到反汇编工具",
+      "config": {
+        "max_tokens": 160000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "distractor_skills": [
+          "ascendc-precision-debug",
+          "ascendc-runtime-debug"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "Ascend C 算子运行时出现 AIV Error，日志已经有 kernelName、TilingKey、EXCP DS、MTE_ERR_INFO 和异常 PC。我现在要定位到实际 OPP 对象中的具体 AIV 指令，应该从哪个调试 skill 进入，并调用什么反汇编能力？不需要执行命令。",
+      "expected_output": "按崩溃/非法访问症状进入 ascendc-crash-debug；保留同一次故障的 kernelName、TilingKey、AIV core type、EXCP DS、ERR_INFO 和 PC。需要从异常 PC 定位具体指令时调用 npu-objdump-toolkit 的异常 PC 精确反汇编，由它完成 OPP 对象筛选、ERR_INFO PC 核验、_mix_aiv 物理符号选择，并使用匹配 CANN 的 llvm-objdump 生成窄指令窗口。不转入稳定数值误差或普通 561xxx 运行时错误流程。",
+      "expectations": [],
+      "files": []
     }
   ],
   "skill_name": "ascendc-crash-debug"
