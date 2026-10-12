@@ -23,7 +23,7 @@ ListTensorDesc:
 ```cpp
 int32_t INPUT_IDX = 0;
 auto computeNodeInfoPtr = tilingContext_->GetComputeNodeInfo();
-auto idxInstanceInfoPtr = computeNodeInfoPtr.GetInputInstanceInfo(INPUT_IDX);
+auto idxInstanceInfoPtr = computeNodeInfoPtr->GetInputInstanceInfo(INPUT_IDX);
 uint64_t tensorNum = idxInstanceInfoPtr->GetInstanceNum();
 
 for (uint64_t i = 0; i < tensorNum; i++) {

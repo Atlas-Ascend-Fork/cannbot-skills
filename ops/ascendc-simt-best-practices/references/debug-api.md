@@ -4,15 +4,13 @@
 
 # 调测接口
 
-头文件: `#include "simt_api/asc_simt.h"`
+SIMT VF 函数内使用的调试接口（各接口头文件不同，`simt_api/asc_simt.h` **不包含**下列接口）：
 
-SIMT VF函数内使用的调试接口。
-
-| 函数 | 功能 | 原型 | 详情 |
-|------|------|------|------|
-| `printf` | 格式化输出(仅VF内) | `void printf(const __gm__ char* fmt, ...)` | `debug/printf-176.md` |
-| `assert` | 运行时断言检查 | `void assert(bool condition)` | `debug/assert-177.md` |
-| `__trap` | 立即终止当前线程执行 | `void __trap()` | `debug/__trap.md` |
+| 函数 | 功能 | 原型 | 头文件 |
+|------|------|------|--------|
+| `printf` | 格式化输出(仅VF内) | `template <class... Args> void printf(const __gm__ char* fmt, Args&&... args)` | `#include "utils/debug/asc_printf.h"` |
+| `assert` | 运行时断言检查 | `assert(expr)` | `#include "utils/debug/asc_assert.h"` |
+| `__trap` | 立即终止当前线程执行 | `__simt_callee__ inline void __trap()` | `#include "utils/debug/asc_assert.h"` |
 
 **注意**: printf/assert仅用于调试，生产环境应去除。SIMT VF外使用 `AscendC::Simt::printf` 或 `PRINTF`。
 

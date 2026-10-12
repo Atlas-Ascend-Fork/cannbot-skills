@@ -11,7 +11,7 @@
           "glm-5": 110000
         },
         "ascend_platforms": [
-          "A2"
+          "A5"
         ],
         "eval_mode": "text"
       },
@@ -30,7 +30,7 @@
           "glm-5": 110000
         },
         "ascend_platforms": [
-          "A2"
+          "A5"
         ],
         "eval_mode": "text"
       },

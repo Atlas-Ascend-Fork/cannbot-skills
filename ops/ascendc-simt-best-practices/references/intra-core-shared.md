@@ -2,7 +2,7 @@
 
 ## 概述
 
-类似 CUDA 中的 shared_memory，SIMT 核内多线程之间交换数据需要使用 UB buffer。
+SIMT 核内多线程之间交换数据需要使用 UB buffer。
 
 ## 使用步骤
 
@@ -67,4 +67,4 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_THREAD_NUM) inline void ComputeExpertFi
   - FP32 直接加；**FP16/BF16 需先转 float 再加**
   - **INT8/UINT8/INT16 需先写到 workspace 再搬回**（原子加不支持窄整型直接累加）
 - 共享内存大小受 UB 可用空间限制
-- buffer 大小需在 tiling 侧预留（通过 `SetLocalMemorySize`）
+- 核内共享 buffer 占用 UB，须与 Data Cache 空间一并预算（`ubSize − Data Cache`）；UB/DCache 分配与 `SetDynUBufSize` 属切分设计，见 [`ascendc-simt-tiling-design`](../../ascendc-simt-tiling-design/SKILL.md)。

@@ -1,6 +1,6 @@
 ---
 name: ascendc-simt-best-practices
-description: "AscendC SIMT 最佳实践与 API 导航。提供 SIMT 算子开发的实践经验总结和专有 API 分类索引：VF函数声明与调用、线程排布模式、索引计算API、数据搬入搬出、计算指令映射、多核同步、核内共享内存、TensorList处理、调测接口、内置宏等。触发：开发SIMT算子kernel代码、设计SIMT编程模式、查询SIMT API分类或线程排布时。"
+description: "AscendC SIMT 最佳实践与 API 导航。提供 SIMT 算子开发的实践经验总结和专有 API 分类索引：VF函数声明与调用、线程排布模式、索引计算API、数据搬入搬出、计算指令映射、多核同步、核内共享内存、TensorList处理、调测接口、内置宏、编译运行。触发：开发SIMT算子kernel代码、设计SIMT编程模式、查询SIMT API分类或线程排布。"
 ---
 
 # AscendC SIMT 最佳实践
@@ -33,15 +33,16 @@ description: "AscendC SIMT 最佳实践与 API 导航。提供 SIMT 算子开发
 
 | 编程阶段 | 核心主题 | 参考文档 | 关键要点 |
 |---------|---------|---------|---------|
-| **函数定义** | VF 函数声明 | [vf-declaration.md](references/vf-declaration.md) | `__simt_vf__` 标记、LAUNCH_BOUND、参数类型 |
-| **函数调用** | VF_CALL 启动 | [vf-call.md](references/vf-call.md) | Dim3 线程数、GM_ADDR 直接转换 |
-| **线程排布** | 统一 for 循环模式 | [thread-stride-pattern.md](references/thread-stride-pattern.md) | blockIdx*threadNum+threadIdx 初始、threadNum*blockNum 步进 |
-| **索引计算** | API 与全局索引 | [index-calculation.md](references/index-calculation.md) | GetThreadIdx/GetThreadNum/GetBlockIdx/GetBlockNum |
-| **数据搬运** | GM 直接 / UB 中转 | [data-transfer.md](references/data-transfer.md) | 简单场景直接 GM、共享数据用 UB 中转 |
+| **函数定义** | VF 函数声明 | [vf-declaration.md](references/vf-declaration.md) | `__simt_vf__` 标记、LAUNCH_BOUND、参数类型、三层结构 |
+| **函数调用** | VF_CALL 启动 | [vf-call.md](references/vf-call.md) | Dim3 线程数、Add 完整示例、参数传递 3 方式、GM_ADDR 直接转换 |
+| **线程排布** | 两种排布模式 | [thread-stride-pattern.md](references/thread-stride-pattern.md) | 模式一全局 grid-stride、模式二核内分块+线程步进、索引分解、3 种线程↔数据映射粒度（含每 warp 一输出/warp 协作） |
+| **索引计算** | API 与全局索引 | [index-calculation.md](references/index-calculation.md) | GetThreadIdx/GetBlockIdx 系列、全局索引与 stride、magic 快除与官方 magic/shift 公式、索引位宽 32/64 自适应 |
+| **数据搬运** | GM 直接 / UB 中转 | [data-transfer.md](references/data-transfer.md) | 选型决策流、GM 直读/UB 中转/缓存复用、细粒度随机访存机理|
+| **随机访存** | 写侧（散写）策略 | [random-access-patterns.md](references/random-access-patterns.md) | 同址写冲突（数据竞争）；按 dtype 原子能力与确定性选原子直写 / workspace 三段式 / 排序归并去重 / 按目标分区；**重复度高或需确定性 → 排序归并**|
 | **计算指令** | C++ 运算符映射 | [compute-operators.md](references/compute-operators.md) | 优先运算符写法、显式 API 仅特殊需求 |
-| **多核同步** | workspace + SyncAll | [multi-core-sync.md](references/multi-core-sync.md) | SetScheduleMode(1)、SyncAll 全核同步 |
-| **核内共享** | UB buffer 共享 | [intra-core-shared.md](references/intra-core-shared.md) | TBuf VECCALC、__ubuf__ 指针、原子操作 |
-| **动态输入** | TensorList 解析 | [tensorlist-handling.md](references/tensorlist-handling.md) | VF 内解析 / ListTensorDesc 外部解析 |
+| **多核同步** | workspace + SyncAll | [multi-core-sync.md](references/multi-core-sync.md) | 多核 workspace 交换、VF 间同步、同步原语全景、event 依赖链、SetScheduleMode(1) |
+| **核内共享** | UB buffer 共享 | [intra-core-shared.md](references/intra-core-shared.md) | TBuf VECCALC、__ubuf__/__local_mem__ 指针、线程间竞争与原子、UB 使用约束 |
+| **动态输入** | TensorList 解析 | [tensorlist-handling.md](references/tensorlist-handling.md) | ListTensorDesc 布局、Host 侧获取、Device 侧两种解析方式、选型建议 |
 
 ---
 
@@ -85,15 +86,16 @@ for (uint64_t i = AscendC::Simt::GetBlockIdx() * AscendC::Simt::GetThreadNum() +
 
 **编程最佳实践：**
 
-- **vf-declaration.md** -- VF 函数声明规范：`__simt_vf__` 标记、LAUNCH_BOUND 约束、参数类型支持表
-- **vf-call.md** -- VF_CALL 启动语法与完整示例：Add 算子模板、GM_ADDR 直接转换 vs GlobalTensor 中转
-- **thread-stride-pattern.md** -- 线程排布统一 for 循环模式：索引计算分解、Select 算子示例
-- **index-calculation.md** -- 索引计算 API 完整列表：GetThreadIdx/GetThreadNum/GetBlockIdx/GetBlockNum 返回类型与用法、头文件引用
-- **data-transfer.md** -- 数据搬入搬出方案选择：GM 直接计算 vs UB 中转、tiling 侧 SetLocalMemorySize
+- **vf-declaration.md** -- VF 函数声明规范：`__simt_vf__` 标记、`__simt_callee__`→`__simt_vf__`→`__aicore__` 三层结构、参数类型支持表、LAUNCH_BOUND 编译期常量约束（线程数分档见 tiling-design）
+- **vf-call.md** -- VF_CALL 启动语法与完整示例：Add 算子模板、参数传递 3 方式、GM_ADDR 直接转换
+- **thread-stride-pattern.md** -- 线程排布两种模式：模式一全局 grid-stride、模式二核内分块+线程步进（分核与对齐见 tiling-design）、索引分解、3 种线程↔数据映射粒度（一线程一元素 / 一线程一段一行 / 每 warp 一输出，含 warp 协作归约）、Select 示例
+- **index-calculation.md** -- 索引计算 API：GetThreadIdx/GetThreadNum/GetBlockIdx/GetBlockNum、全局索引与 stride、Simt::UintDiv magic 快除与官方 magic/shift 公式、索引位宽选择（默认 32 位/按需 64 位；位宽判定与 tilingKey 编码见 tiling-design，kernel 侧 ADDR_T 模板化）
+- **data-transfer.md** -- 数据搬入搬出方案选择（聚焦连续/规则访问）：选型决策流、GM 直接计算、UB 中转与缓存复用（UB/DCache 分配见 tiling-design）；含细粒度随机访存机理（读侧 / 写侧）与判据
+- **random-access-patterns.md** -- 细粒度随机访存（写侧 / 散写）：同址写冲突（数据竞争）机理，按 dtype 原子能力与确定性需求的策略选择（原子直写 / workspace 升位宽三段式 / 排序归并去重 / 按目标分区）；重复度高或需确定性时以「先分组后单写者」消除原子串行化；分层归约（片上聚合 → 整块汇总）降低原子竞争；读侧处方边界（UB 驻留仅在工作块可规整且 ≤UB 时成立，全域无局部性随机读归设计级布局评估）
 - **compute-operators.md** -- 计算指令映射：C++ 运算符优先写法、显式 API 适用场景
-- **multi-core-sync.md** -- 多核同步机制：workspace 交换、SyncAll、SetScheduleMode(1)、VF_CALL 间同步限制
-- **intra-core-shared.md** -- 核内共享内存：TBuf 申请、__ubuf__ 指针传递、原子操作注意事项
-- **tensorlist-handling.md** -- TensorList 动态输入处理：ListTensorDesc 内存布局、Host/Device 侧解析、VF 内解析 vs 外部解析选择建议
+- **multi-core-sync.md** -- 多核同步机制：多核 workspace 交换、VF 间同步、同步原语全景、SIMT 与 Vector/DMA 的 event 依赖链、SetScheduleMode(1)
+- **intra-core-shared.md** -- 核内共享内存：TBuf VECCALC 申请、`__ubuf__`/`__local_mem__` 指针传递与等价性、按索引写 UB 示例、线程间竞争与原子 dtype 注意事项
+- **tensorlist-handling.md** -- TensorList 动态输入处理：ListTensorDesc 内存布局、Host 侧获取 shape/dtype、Device 侧两种解析方式、选型建议
 
 **API 导航与速查：**
 
