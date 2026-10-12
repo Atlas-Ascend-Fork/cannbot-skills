@@ -1,0 +1,84 @@
+{
+  "skill_name": "cann-error-code-standard",
+  "eval_mode": "text",
+  "evals": [
+    {
+      "id": 1,
+      "title": "资料收录不等于目标版本可调用",
+      "config": {
+        "max_tokens": 30000,
+        "ascend_platforms": ["A2"],
+        "eval_mode": "text"
+      },
+      "prompt": "错误码在cann-error-code-standard的JSON里，能否直接认定目标CANN版本可以调用？",
+      "expected_output": "不能。JSON命中只证明官方资料收录。还需核对目标版本公开注册表、Arglist、模块入口和实际宏定义；调用点还要解析CMake/include链，最终行为需要目标安装包和负向日志验证。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 2,
+      "title": "按根因选择而非按阶段选择",
+      "config": {
+        "max_tokens": 30000,
+        "ascend_platforms": ["A2"],
+        "eval_mode": "text"
+      },
+      "prompt": "Tiling代码发现输入rank错误，是否应该因为发生在Tiling阶段而使用EZ1008？",
+      "expected_output": "不应该按阶段机械选码。根因是用户输入rank错误，应从正式参数语义中选择rank/shape dim相关候选，并携带参数名、actual和expected或reason。只有合法输入下Tiling本身执行失败才考虑EZ1008，且使用前仍需核对目标版本注册和Arglist。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 3,
+      "title": "下层首错唯一性",
+      "config": {
+        "max_tokens": 30000,
+        "ascend_platforms": ["A2"],
+        "eval_mode": "text"
+      },
+      "prompt": "Runtime已经针对失败打印正式EE错误码，算子包装层还需要再报一个EZ9999吗？",
+      "expected_output": "不需要。根因层只首报一次，包装层仅补充stage、API、原始rc和关联信息并原样透传返回值；不能再生成EZ9999等泛化摘要。应通过负向日志验证下层正式首错存在且全链路只有一个ErrorManager首错。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 4,
+      "title": "机器可读基准引用",
+      "config": {
+        "max_tokens": 30000,
+        "ascend_platforms": ["A2"],
+        "eval_mode": "text"
+      },
+      "prompt": "一个代码静态检查skill想判断错误码是否被官方资料收录，应引用哪个文件，如何解释结果？",
+      "expected_output": "应引用ops/cann-error-code-standard/references/documented-error-codes.json并按codes[].code读取，保留url作为来源证据。命中状态只能命名为资料收录，不得等价成目标版本已注册；注册、Arglist和实际include来源需要单独状态。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 5,
+      "title": "基准来源边界",
+      "config": {
+        "max_tokens": 30000,
+        "ascend_platforms": ["A2"],
+        "eval_mode": "text"
+      },
+      "prompt": "能否把个人目录里的Excel扫描结果直接合并到cann-error-code-standard作为新错误码？",
+      "expected_output": "不能。文档码表只允许来自CANN官方公开资料；目标版本公开源码和用户指定安装包用于注册与运行验证。个人Excel、临时扫描结果、未公开实现和内部链接不能成为真源或写入Skill。更新码表时要锁定版本、保留官方URL、同步Markdown与JSON并检查唯一性和计数。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 6,
+      "title": "文档无匹配时按组件检索",
+      "config": {
+        "max_tokens": 30000,
+        "ascend_platforms": ["A2"],
+        "eval_mode": "text"
+      },
+      "prompt": "官方文档清单里没有匹配语义，但调用失败来自HCCL。下一步如何使用源码索引？",
+      "expected_output": "先在component-error-code-source-index.md按HCCL定位hcomm的公开注册实现，再在目标分支或commit核对候选码、模板、Arglist、公开属性和调用入口。源码命中不等于文档正式码，也不能把其他组件相似码借给HCCL；若已有下层首错则当前层只透传，若源码有码但资料缺失则标记资料缺口，仍无匹配时提出正式码类别而不编造编号。",
+      "expectations": [],
+      "files": []
+    }
+  ]
+}
