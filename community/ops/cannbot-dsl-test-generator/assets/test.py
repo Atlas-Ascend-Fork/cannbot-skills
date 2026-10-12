@@ -13,11 +13,13 @@
 """Fixed CANNBotDSL runner for testcase.csv blackbox/whitebox/TDD rows."""
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import NamedTuple, Any
 import csv
 import importlib
 import importlib.util
 import json
+import multiprocessing
 import os
 import sys
 from pathlib import Path
@@ -29,6 +31,8 @@ from cannbotdsl_case_contract import case_calls, check_inputs, check_probe
 TEST_DIR = Path(__file__).resolve().parent
 OP_NAME = "__CANNBOTDSL_OP_NAME__"  # Bound from spec.op.name by prepare_golden.py.
 CASEBOOK = TEST_DIR / "testcase.csv"
+_WORKER_INVOCATION = None
+_WORKER_ERROR = None
 
 
 def _result_path(sheet, case_id):
@@ -205,6 +209,90 @@ def _invoke(invocation, inputs, output_map, expected_error_code=None):
     )
 
 
+def _positive_int(value):
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return number
+
+
+def _load_invocation(golden, device):
+    module_name = os.environ.get("CANNBOTDSL_OP_MODULE")
+    if not module_name:
+        raise RuntimeError("CANNBOTDSL_OP_MODULE is unset")
+    entry_name = os.environ.get("CANNBOTDSL_OP_ENTRY", "run")
+    run = getattr(importlib.import_module(module_name), entry_name)
+    return Invocation(run, golden, device)
+
+
+def _init_worker(device):
+    # Keep module/probe state private and amortize imports across many rows.
+    global _WORKER_INVOCATION, _WORKER_ERROR
+    _WORKER_INVOCATION, _WORKER_ERROR = None, None
+    try:
+        # Avoid multiplying the CPU Golden's intra-op threads by the pool size.
+        torch.set_num_threads(1)
+        _WORKER_INVOCATION = _load_invocation(_golden(), device)
+    except Exception as exc:
+        _WORKER_ERROR = str(exc)
+
+
+def _case_result(row, device, invocation=None, load_error=None):
+    try:
+        if invocation is None:
+            raise RuntimeError(load_error)
+        status, detail = _run_case(row, invocation)
+    except Exception as exc:
+        status, detail = "failed", str(exc)
+    return {
+        "sheet": row["sheet"],
+        "case_id": row["case_id"],
+        "device": device,
+        "status": status,
+        "detail": detail,
+    }
+
+
+def _worker_case(row, device):
+    return _case_result(row, device, _WORKER_INVOCATION, _WORKER_ERROR)
+
+
+def _run_rows(rows, golden, device, workers):
+    workers = min(workers, len(rows))
+    if workers == 1:
+        invocation, load_error = None, None
+        try:
+            invocation = _load_invocation(golden, device)
+        except Exception as exc:
+            load_error = str(exc)
+        return [_case_result(row, device, invocation, load_error) for row in rows]
+
+    results = [None] * len(rows)
+    # Never fork an initialized accelerator runtime. Only recipes cross processes;
+    # tensors, Golden and target/probe modules stay in their worker.
+    with ProcessPoolExecutor(
+        max_workers=workers,
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=_init_worker,
+        initargs=(device,),
+    ) as executor:
+        pending = {}
+        for index, row in enumerate(rows):
+            try:
+                pending[executor.submit(_worker_case, row, device)] = index
+            except RuntimeError as exc:
+                results[index] = _case_result(row, device, load_error=str(exc))
+        for future in as_completed(pending):
+            index = pending[future]
+            try:
+                results[index] = future.result()
+            except Exception as exc:
+                results[index] = _case_result(
+                    rows[index], device, load_error=f"worker failed: {exc}"
+                )
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -213,6 +301,12 @@ def main():
     parser.add_argument("--case-id")
     parser.add_argument("--device", required=True)
     parser.add_argument("--require-accelerator", action="store_true")
+    parser.add_argument(
+        "--workers",
+        type=_positive_int,
+        default=4,
+        help="concurrent case processes (default: 4); use 1 for serial execution",
+    )
     args = parser.parse_args()
     if args.require_accelerator and torch.device(args.device).type == "cpu":
         print(
@@ -225,32 +319,7 @@ def main():
     except (RuntimeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
-    module_name = os.environ.get("CANNBOTDSL_OP_MODULE")
-    entry_name = os.environ.get("CANNBOTDSL_OP_ENTRY", "run")
-    run = None
-    load_error = "CANNBOTDSL_OP_MODULE is unset"
-    if module_name:
-        try:
-            run = getattr(importlib.import_module(module_name), entry_name)
-        except (ImportError, AttributeError) as exc:
-            load_error = str(exc)
-    results = []
-    for row in rows:
-        try:
-            if run is None:
-                raise RuntimeError(load_error)
-            status, detail = _run_case(row, Invocation(run, golden, args.device))
-        except Exception as exc:
-            status, detail = "failed", str(exc)
-        results.append(
-            {
-                "sheet": row["sheet"],
-                "case_id": row["case_id"],
-                "device": args.device,
-                "status": status,
-                "detail": detail,
-            }
-        )
+    results = _run_rows(rows, golden, args.device, args.workers)
     result_path = _result_path(args.sheet, args.case_id)
     with result_path.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(
