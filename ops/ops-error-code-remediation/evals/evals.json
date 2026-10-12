@@ -1,0 +1,141 @@
+{
+  "skill_name": "ops-error-code-remediation",
+  "eval_mode": "text",
+  "evals": [
+    {
+      "id": 1,
+      "title": "待废弃shape错误码整改",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "一个Ascend C算子仍在调用OP_LOGE_WITH_INVALID_INPUT_SHAPE并产生EZ0001。请说明如何分析和整改，以及整改后要验证什么。只需给出方案，不要实际修改代码。",
+      "expected_output": "回复应说明EZ0001属于当前治理范围内的待废弃码，不能只替换编号。需要先确认目标版本实际log.h和宏定义；从算子原型获取语义参数名，不能继续使用input index；单Tensor且expected明确时路由到EZ0008/OP_LOGE_FOR_INVALID_SHAPE，约束更适合reason时使用EZ0009，多Tensor关系使用EZ0010。整改后需要核对注册项和Arglist、编译最小受影响target，并补负向shape测试，断言返回值、正式错误码、参数名、actual/expected或reason以及首错唯一性。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 2,
+      "title": "op_common内部码按根因分类",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "算子host代码中大量使用op_common::OP_LOGE(context, ...)并最终打印EZ9999。应该如何整改？是否可以全部改成EZ1009？",
+      "expected_output": "回复应先读取cann-error-code-standard，明确不能把EZ9999机械替换为EZ1009。沿CMake/include链确认实际OP_LOGE定义和REPORT_INNER_ERR_MSG叶子，再逐调用点读取上下文并按根因分类：参数类选择对应正式语义；合法输入下Tiling失败才考虑EZ1008；InferShape失败考虑EZ1014；确实没有匹配kernel或SoC组合不支持才考虑EZ1009；Runtime/ACL等下层已首报时外层只PLOG并透传。所有候选仍需核对目标版本注册和Arglist，无匹配正式语义时只提出类别，不编造编号。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 3,
+      "title": "下层首错透传与去重",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "aclrtMemcpyAsync返回失败，Runtime层已经打印了具体EE错误码，但算子外层又通过OP_LOGE打印EZ9999。该调用链如何整改和测试？",
+      "expected_output": "回复应说明根因层只首报一次：保留Runtime层具体EE首错，算子外层改为OP_LOGE_WITHOUT_REPORT或等价仅日志入口，补充stage、API、原始rc和关联信息，并原样透传公开返回值。不得再生成EZ9999或EZ9903摘要。测试应使用现有mock或fault injection触发下层失败，断言下层正式错误码存在、外层PLOG上下文存在、公开返回值兼容且整个故障只有一个ErrorManager首错。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 4,
+      "title": "已完成算子全量审计",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "请说明如何使用ops-error-code-remediation审计一个已经完成开发的算子，包括实际log.h来源、失败返回和最终报告。",
+      "expected_output": "回复应使用audit_operator_error_codes.py并提供root、cmake-root、cann-root和Markdown输出路径。说明脚本解析target_include_directories/include_directories、递归include和宏别名，记录实际宏定义来源、include链、最终码、资料状态、返回表达式及FORMAL_REPORTED_RETURN、INTERNAL_E9_RETURN、LOWER_LAYER_RETURN、RETURN_WITHOUT_REPORT、UNRESOLVED_RETURN等标记。最终只维护一份Markdown；静态审计后还要补齐编译验证、测试用例和最终是否可关闭结论。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 5,
+      "title": "同名log.h与编译分支确认",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "仓库和CANN安装包里都有log/log.h，两个头文件都定义了OP_LOGE。整改前应该如何确认算子实际使用哪一个实现？",
+      "expected_output": "回复应说明不能根据文件名或搜索顺序猜测。先读取算子所属CMake target及target_include_directories/include_directories，展开CMAKE_CURRENT_SOURCE_DIR、ASCEND_CANN_PACKAGE_PATH等变量，递归解析源文件include链和宏别名；记录definition_path和include_chain。生成头、条件编译或变量无法静态展开时，补充include-dir，并从真实编译命令提取-I/-isystem/-D，必要时使用编译器-E/-H验证。静态分析与编译器结果冲突时以目标target真实编译结果为准。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 6,
+      "title": "编译验证与负向测试闭环",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "错误码整改完成后，如何控制编译和测试成本，同时证明整改有效？",
+      "expected_output": "回复应先从修改文件反查真实CMake target，复用仓库构建入口，只编译最小受影响target；公共头、公共宏或注册表变化时才扩大到直接依赖，默认不做全仓重编译。测试优先扩展同算子现有UT/ST和fixture，按不同根因与上报路由补代表性负向用例，不按调用点复制。断言公开返回值、正式码、必要诊断字段和首错唯一性；仅涉及设备或真实Runtime路径时运行设备ST。缺少环境时记录命令和首个阻塞证据并标记未验证，不能宣称通过。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 7,
+      "title": "使用边界与只读分析",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "我只想知道一条运行日志里的EZ9999是什么意思，不需要查看源码或整改代码。是否应该使用ops-error-code-remediation？",
+      "expected_output": "回复应明确该skill不适用于只解释一条运行日志且不涉及源码或调用链分析的请求。可以解释EZ9999属于泛化内部错误码、单凭该码通常无法定位根因，并建议结合plog、首错和调用上下文进一步分析；但不应未经授权扫描、修改源码、构建或补测试。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 8,
+      "title": "新增算子错误码设计与校验",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "正在开发一个新的CANN算子，请为op_host、op_api和op_kernel的失败路径设计合理合法的错误码提示，并说明如何验证。",
+      "expected_output": "回复应先读取cann-error-code-standard，再遍历新增算子的参数校验、InferShape、Tiling、workspace或内存、执行器创建、Kernel选择及Runtime等下层API失败出口，区分根因层首报和包装层透传。选码前核对基准清单、目标版本注册表、Arglist、实际log.h来源和opbase已有语义宏；优先复用已注册正式码，不得编造编号或用泛化内部码兜底。错误信息包含What、Where、Why和What Next，并按场景提供参数名、actual/expected、required/actual bytes或原始rc。验证覆盖最小受影响编译、代表性负向UT/ST、公开返回值兼容、正式码与字段正确及首错唯一性，最终写入同一份Markdown报告。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 9,
+      "title": "E9入口全量覆盖与对账",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "扫描结果里既有OP_CHECK_NULL_WITH_CONTEXT、TR_EXECUTE、ReportErrorMessage(ACLNN_ERR_RUNTIME_ERROR, ...)，也有多行OP_LOGE(ACL_ERROR_FAILURE, ...)。如何证明这些E*9***候选都进入了最终审计，而不是只被候选脚本发现？",
+      "expected_output": "回复应读取trigger-coverage.md，说明候选扫描器和审计器共用scripts/error_code_triggers.py；审计器在相同边界下执行候选—审计对账，空指针封装、Tiling执行包装、混合大小写Report*Message、多行OP_LOGE和errno映射都必须进入调用与返回明细。ACLNN_ERR_RUNTIME_ERROR静态映射EZ9903，ACL_ERROR_FAILURE映射EZ9999，但仍须以目标实现为准。未进入审计明细的候选必须为0，否则静态审计不通过；修改入口识别后运行test_error_code_trigger_coverage.py，最终仍需include/注册/Arglist、编译和负向测试验证。",
+      "expectations": [],
+      "files": []
+    }
+  ]
+}
