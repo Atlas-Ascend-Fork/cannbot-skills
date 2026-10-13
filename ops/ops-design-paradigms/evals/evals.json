@@ -1,0 +1,126 @@
+{
+  "eval_mode": "text",
+  "evals": [
+    {
+      "id": 1,
+      "title": "技能定位与输入要求",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "请加载并使用 ops-design-paradigms 技能回答以下问题（可阅读该技能文档，但不要实际运行脚本或修改代码）。这个技能是做什么的、能为我提供哪些帮助？使用它需要哪些输入？如果我只提供了算子的数学公式，还没有确定开发语言和目标平台，它会怎么处理？不需要执行任何工具调用。",
+      "expected_output": "1. 应说明该技能根据算子语义和开发语言提供范式知识，支持 Broadcast、Reduction 等范式方案设计、实现选择与问题定位，内容分为语言中立的算法模型和语言专用的实现约束。\n2. 应列出输入要求：算子规格或等价的数学语义与范式信息、明确的开发语言（ascendc 或 dsl）、目标平台，以及待解决的设计或实现问题。\n3. 应指出缺少语言或范式信息时返回具体缺项，确认后再选择专用参考，不擅自猜测或默认选择。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 2,
+      "title": "Contraction+Reduction+Broadcast 组合命中 FA 范式",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "请加载并使用 ops-design-paradigms 技能回答（可阅读该技能文档，但不要实际运行脚本或修改代码）。我的算子 spec.yaml 里 op.paradigms 同时包含 Contraction、Reduction、Broadcast 三个标签，数学公式是 softmax(Q·K^T/sqrt(d))·V。请问我应该按什么路径获取设计知识？是把三个范式的资料叠加着读吗？",
+      "expected_output": "1. 应指出组合标签命中时先核对实际公式：公式包含注意力分数计算、行归一化与加权值聚合时，读取 FA 组合范式（references/paradigms/FA/patterns.md），而不是把三个范式的资料逐项叠加。\n2. 应说明标签匹配按集合包含关系判断，顺序及额外标签不影响匹配；其余组合按范式索引表（routes.yaml）逐项查找。\n3. 应提及 FA 入口的执行要求：语言无关（方案中不出现编程语言或硬件 API 符号），按 S1→S7 步骤推进并遵循按需加载协议，芯片规格缺失时向用户补齐、无法提供则标注待提供，不猜测。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 3,
+      "title": "Broadcast 范式的语言路由与适配层互斥",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "请加载并使用 ops-design-paradigms 技能回答（可阅读该技能文档，但不要实际运行脚本或修改代码）。我要设计一个 Broadcast 范式算子，开发语言是 CANNBotDSL。(1) 我应该读取哪些资料？(2) 同组同事在用 AscendC 开发同类算子，他给的 AscendC kernel 模板和 API 约束笔记我能不能直接参考？(3) 如果我还没确定语言，技能会怎么走？",
+      "expected_output": "1. 应说明范式路由命中 Broadcast 入口 patterns.md 后，语言为 dsl 时加载通用知识层 + DSL 适配层（adapters/dsl/index.md）；范式路由由 op.paradigms 决定，语言路由由开发语言决定，两层分离。\n2. 应指出互斥规则：一次任务只加载命中语言的适配层，其他语言的适配层不加载、不参考其 API 与代码模板，因此不能直接参考 AscendC 适配层资料。\n3. 应指出语言缺失或未知时先报告输入缺口，不默认选择 Ascend C，确认语言后再选适配层。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 4,
+      "title": "Reduction 范式 DSL 无专用适配层的兜底",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "请加载并使用 ops-design-paradigms 技能回答（可阅读该技能文档，但不要实际运行脚本或修改代码）。我要用 CANNBotDSL 实现一个多轴归约算子（含 Tuple Reduce 场景）。听说 Reduction 范式只有 AscendC 适配层，那我做 DSL 开发还能用这个技能吗？通用层的 A/R 轴、二分缓存树这些算法知识对我可用吗？能力谓词怎么确认？",
+      "expected_output": "1. 应说明 Reduction 通用知识层（A/R 轴标记、模板分类、二分缓存树、切分、同步模型等）是语言中立的，DSL 开发可以读取。\n2. 应指出当前无 Reduction DSL 专用适配层：DSL 使用 references/paradigms/general-methodology-dsl.md 通用方法，DSL API 和设备能力由调用方提供。\n3. 应说明能力谓词没有专用映射时必须从调用方提供的 DSL API 与设备证据确认，未知项保留待验证；DSL 样例仅用于核实语言用法，不提供当前算子的算法或资源默认值。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 5,
+      "title": "未注册范式的通用方法论兜底",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "请加载并使用 ops-design-paradigms 技能回答（可阅读该技能文档，但不要实际运行脚本或修改代码）。我的算子 op.paradigms 标的是 Sort，但我在这个技能的范式索引表里没找到 Sort 的路由。用 AscendC 开发时这个技能对我还有用吗？我该按什么方法做 Tiling 设计？",
+      "expected_output": "1. 应指出未注册范式（范式索引表中无匹配）使用对应语言的通用方法：AscendC 使用 references/paradigms/general-methodology.md 作为兜底方法论，范式注册状态从范式索引表查找，不通过扫描目录推断。\n2. 应概述通用方法论要素：多核切分策略（负载均衡、数据局部性、尾块处理）、UB 切分与 chunk 规划（按目标芯片 UB 容量预算）、buffer 规划（inQueue/outQueue/中间 buffer、double buffer、总和校验）、分支场景覆盖（dtype/shape/对齐/边界/架构差异）、TilingKey 与 Tiling 字段设计。\n3. 应说明命中专用范式时优先专用范式知识，本文档仅作为通用基线。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 6,
+      "title": "DSL 问题不使用 regbase 专属资料与叶子文档限额",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "请加载并使用 ops-design-paradigms 技能回答（可阅读该技能文档，但不要实际运行脚本或修改代码）。我在做 DSL 算子开发，遇到精度和 API 使用问题，打算把这个技能的 knowledge/pitfalls/ 和 knowledge/api/ 目录整个读一遍。这个用法对吗？另外进入 knowledge 分类目录后该怎么挑文档，有没有数量限制？",
+      "expected_output": "1. 应指出 knowledge/ 与 reference-ops/ 属于 Ascend C regbase 资料，DSL 问题仅使用相关通用层和 DSL 适配资料，不能把 regbase 专属知识目录整个读一遍。\n2. 应说明进入 api/、patterns/、pitfalls/、dev-experience/ 时先读该目录的 index.md，按 purpose、read_when、keywords 选取叶子文档；单个子问题最多展开 5 份，仍未解决则拆分为更小的子问题。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 7,
+      "title": "开源算子表的使用与复用判断",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "请加载并使用 ops-design-paradigms 技能回答（可阅读该技能文档，但不要实际运行脚本或修改代码）。我在写 AscendC regbase 算子，想从开源仓找一个已有实现直接照抄改改。请问该怎么定位候选实现？找到算子名和 dtype 都匹配的目录后，是不是就可以直接融合进我的工程？",
+      "expected_output": "1. 应说明通过 references/reference-ops/open_source_operator_table.md 按算子名与基础类型定位候选算子目录，查看代码路径找到最接近的实现子树。\n2. 应指出命中只表示「值得阅读的候选」，不证明可直接复用，也不证明目录一定包含目标形态的实现；能否复用必须结合具体代码、规格和平台约束判断。\n3. 应说明实现参考用于核对 API 与组织方式，名称或类型匹配不能证明可以直接复制或融合，算法与参数须依据当前算子规格重新判断；设计输出应能追溯到规格和参考资料。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 8,
+      "title": "能力谓词待验证项与平台兼容性结论边界",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "请加载并使用 ops-design-paradigms 技能回答（可阅读该技能文档，但不要实际运行脚本或修改代码）。我在技能的 DSL capability-mapping 里看到一条标注「待验证」的能力谓词，恰好我的设计要用到它；另外文档里有些经验是从其他平台（如 ascend910b/membase）总结的，我想直接把它们当作 ascend950/regbase 的已验证结论写进方案。这两件事可行吗？",
+      "expected_output": "1. 应指出能力谓词以对应语言的 capability-mapping.md 为依据；标注「待验证」的项必须作为假设和验证义务输出，不能当作已确认事实直接写入结论。\n2. 应指出必须明确资料对应的平台：兼容性经验不能直接作为 ascend950/regbase 的已验证结论；ascend910b/membase 资料只在明确的兼容性问题中参考并核对适用平台。\n3. 应说明设计输出应能追溯到规格和参考资料，缺少 API、资源或运行证据时报告具体缺口。",
+      "expectations": [],
+      "files": []
+    }
+  ],
+  "skill_name": "ops-design-paradigms"
+}
