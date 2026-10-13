@@ -1,0 +1,76 @@
+{
+  "skill_name": "cannbot-dsl-test-generator",
+  "eval_mode": "text",
+  "evals": [
+    {
+      "id": 1,
+      "title": "仅从冻结规格生成黑盒用例",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "timeout": 600,
+        "eval_mode": "file_based"
+      },
+      "prompt": "使用 cannbot-dsl-test-generator 的黑盒模块。读取本 skill 的 evals/fixtures/add-spec.yaml，作为唯一冻结规格，在 test/ 生成并校验 testcase.csv；使用 --inventory 审查因子，覆盖该规格声明的核心、边界和异常路径。当前尚无设计文档或 Unit，因此仅生成 blackbox 分组，不生成 Golden、白盒或 TDD，也不运行被测算子。",
+      "expected_output": "应依据给定规格实际生成固定列序的 testcase.csv，只有 blackbox 行；case_id 唯一、source=sheet、design_ref 能回指规格、condition 表明 L0/L1/L2；active 行有 inputs_json，可执行异常语义与规格一致，排除行有具体理由。使用黑盒校验入口检查覆盖，不将缺失的 DESIGN/Unit 当作黑盒阶段阻塞，不调用目标算子。",
+      "files": [],
+      "expectations": [
+        {
+          "type": "file_exists",
+          "pattern": "test/testcase.csv"
+        },
+        {
+          "type": "file_contains",
+          "pattern": "test/testcase.csv : \"blackbox\";\"inputs_json\";\"design_ref\""
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "生成独立 CPU Golden 与固定入口",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "timeout": 600,
+        "eval_mode": "file_based"
+      },
+      "prompt": "使用 cannbot-dsl-test-generator 的 Golden/入口模块。读取本 skill evals/fixtures/add-spec.yaml 和 evals/fixtures/add-design.md，在 test/ 编写完整独立 CPU add_golden.py，并运行 prepare_golden.py 校验、安装固定 test_add.py 及所需辅助模块。用一个小 CPU 样例核对加法结果；本次不用 NPU，不生成白盒/TDD，不实现目标算子。",
+      "expected_output": "Golden 应消费规格与给定数学/接口设计，使用独立 CPU 参考加法，元数据和容差一致，DESIGN_REFS 可追溯设计条目；不得导入被测算子、cannbotdsl 或 torch_npu。应实际通过 Golden 静态校验并生成固定入口、辅助模块和结果目录，绑定 spec.op.name=add，不能从 TEST_DIR 的父目录推断算子名。小 CPU 复核与静态校验结论分开，不能宣称设备验证通过。",
+      "files": [],
+      "expectations": [
+        {
+          "type": "file_exists",
+          "pattern": "test/add_golden.py"
+        },
+        {
+          "type": "file_exists",
+          "pattern": "test/test_add.py"
+        },
+        {
+          "type": "file_contains",
+          "pattern": "test/add_golden.py : \"DESIGN_REFS\""
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "TDD 关联不等于真实触发",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "timeout": 600,
+        "eval_mode": "text"
+      },
+      "prompt": "使用 cannbot-dsl-test-generator 复核 TDD 覆盖：某 Unit 义务要求去重后的有效列数跨越 128 元素块边界，CSV 行已关联正确 obligation_id，但输入有 256 个重复索引，实际只有 4 个有效列。当前 Golden 数值通过。指出覆盖结论和下一步处理，只分析给定材料，不修改冻结规格、设计、Unit 或阈值。",
+      "expected_output": "应判定义务尚未真实覆盖，不能因 obligation_id 存在、原始参数长度大或 Golden 通过宣布多块触发。须检查物化输入的有效工作量，构造去重后跨块且能区分错误实现的公开输入与结构断言/采集来源；若现有契约表达不了义务则返回具体缺口，不能用 excluded 或放宽阈值掩盖。",
+      "files": [],
+      "expectations": []
+    }
+  ]
+}

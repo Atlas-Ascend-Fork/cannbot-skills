@@ -1,0 +1,54 @@
+{
+  "skill_name": "cannbot-dsl-env-check",
+  "eval_mode": "text",
+  "evals": [
+    {
+      "id": 1,
+      "title": "导入失败与依赖链阻断",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "timeout": 600,
+        "eval_mode": "text"
+      },
+      "prompt": "使用 cannbot-dsl-env-check 分析以下已获得的探针结果：当前 Python 导入 cannbotdsl 失败，错误为 ModuleNotFoundError；NPU 运行环境能识别一张可用设备。请给出门禁、执行模式、后续翻译/编译阶段状态和首个修复方向，仅分析已有证据，不运行或安装任何软件。",
+      "expected_output": "应判定编译门禁 FAIL、执行模式 blocked；翻译和编译依赖导入，应标 SKIP；NPU 可见不能替代 DSL 导入或编译成功。定位当前解释器和 wheel/Python 依赖关系，不擅自安装、切换环境或声称已验证算子。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 2,
+      "title": "无 NPU 时的编译能力保留",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "timeout": 600,
+        "eval_mode": "text"
+      },
+      "prompt": "使用 cannbot-dsl-env-check 分析：DSL 导入、翻译和生成真实 .so 均 PASS；torch_npu 的运行探针返回 NPU_UNAVAILABLE。哪些工作可以继续，哪些结论不能给出？仅解释给定诊断，不执行探针。",
+      "expected_output": "应判定 gate.status=PASS、execution.mode=compile_only，允许生成和编译，禁止 NPU 精度及性能验证；指出未运行 DSL kernel，不能宣称精度、性能或真机行为已验证，不将独立 NPU 失败传播成翻译或编译失败。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 3,
+      "title": "使用当前进程可见设备选择默认卡",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "timeout": 600,
+        "eval_mode": "text"
+      },
+      "prompt": "使用 cannbot-dsl-env-check 解读给定结果：四项探针均 PASS；runtime_visible.devices 顺序为逻辑卡 1（设备名称已获取）、逻辑卡 3（设备名称已获取）；物理列表另有卡 0，但当前进程不可见。产物根目录由调用方指定为 artifacts/env。说明执行模式、默认选卡及产物路径，不运行探针，也不要推测核数或带宽。",
+      "expected_output": "应判定 full，默认选择当前进程可见列表中首张带名称的逻辑卡 1，不选物理卡 0；产物位于 artifacts/env/environment/environment.yaml 与 env_selected_soc.yaml；full 只代表可进入后续真机验证，环境检查本身不证明算子正确性；不凭型号推导硬件容量。",
+      "files": [],
+      "expectations": []
+    }
+  ]
+}

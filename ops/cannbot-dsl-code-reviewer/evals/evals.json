@@ -1,0 +1,59 @@
+{
+  "skill_name": "cannbot-dsl-code-reviewer",
+  "eval_mode": "text",
+  "evals": [
+    {
+      "id": 1,
+      "title": "根据真实代码行报告魔数",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "timeout": 600,
+        "eval_mode": "file_based"
+      },
+      "prompt": "使用 cannbot-dsl-code-reviewer 检视本 skill 的 evals/fixtures/readability.py（算子 Host 侧块划分辅助函数），写入 review.md。只检查命名、魔数和结构可读性，不执行该文件，也不评判未提供的 DSL API 正确性。每项发现应引用实际文件及行号，给最短代码片段、分级和具体修复建议。",
+      "expected_output": "应实际读取文件与 helper 上下文，对反复出现的 128 块大小等真实可读性问题提供准确行号及证据，建议用表达元素数的具名常量或参数统一表达。依据规则区分 FAIL/SUSPICIOUS/待确认，不编造数值或设备错误，不因无关的通用函数名猜测 bug。报告含真实片段、依据和可落实建议。",
+      "files": [],
+      "expectations": [
+        {
+          "type": "file_exists",
+          "pattern": "review.md"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "有语义依据的常量不误报",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "timeout": 600,
+        "eval_mode": "text"
+      },
+      "prompt": "使用 cannbot-dsl-code-reviewer 复核下面的可读性意见：源码使用 BLOCK_ELEMENTS=128，函数参数名为 element_count、block_index，所有偏移都用 block_index*BLOCK_ELEMENTS；设计明确该值是已确认的块大小。有人仅因出现数字 128 就判魔数 FAIL。请基于给定上下文给出结论，不运行代码。",
+      "expected_output": "应依据具名常量及明确设计来源排除机械的魔数误报，不能仅凭出现数字判 FAIL。说明仍需实际读相关引用来确认职责及一致性，但在给定证据下这条指控不成立，保持可读性检视范围，不声称已验证正确性或硬件性能。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 3,
+      "title": "缺少源码时不下确定性结论",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "timeout": 600,
+        "eval_mode": "text"
+      },
+      "prompt": "使用 cannbot-dsl-code-reviewer 处理检视请求：只提供了名为 tmp 的变量和一条规则示例，没有源码文件、准确行号或调用上下文，要求直接出 FAIL 报告。请说明目前能给出的结论及需要的最小证据，不自行创建虚构代码。",
+      "expected_output": "不能把变量名片段或规则示例当真实源码证据，不能编造行号/代码并判 FAIL；应说明待确认、请求或定位实际源码与最小调用上下文，按真实职责再判断命名问题。无证据不能转写成确定发现，也不能声称完成完整检视。",
+      "files": [],
+      "expectations": []
+    }
+  ]
+}

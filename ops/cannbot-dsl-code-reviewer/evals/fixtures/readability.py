@@ -1,4 +1,3 @@
-#!/bin/bash
 # ----------------------------------------------------------------------------------------------------------
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
 # This program is free software, you can redistribute it and/or modify it under the terms and conditions of
@@ -9,26 +8,14 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------------------------------------
 
-# CANNBotDSL 环境检查入口。业务逻辑由 env_check.py 实现。
-set -eu
 
-if [ "$#" -ne 2 ] || [ "$1" != "--output-dir" ] || [ -z "$2" ]; then
-    echo "用法: $0 --output-dir <artifact-root>" >&2
-    exit 2
-fi
-OUTPUT_DIR=$2
+def block_ranges(element_count):
+    block_count = (element_count + 127) // 128
+    for block_index in range(block_count):
+        start_element = block_index * 128
+        end_element = min(start_element + 128, element_count)
+        yield start_element, end_element
 
-PY=${PYTHON:-python3}
-if ! command -v "$PY" >/dev/null 2>&1; then
-    echo "错误: 找不到 Python 解释器：$PY" >&2
-    exit 2
-fi
-if ! "$PY" -c 'import yaml' >/dev/null 2>&1; then
-    echo "错误: 当前解释器缺少 PyYAML：$PY" >&2
-    echo "安装: $PY -m pip install pyyaml" >&2
-    exit 2
-fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "$PY" "$SCRIPT_DIR/env_check.py" \
-    --output-dir "$OUTPUT_DIR"
+def run(element_count):
+    return list(block_ranges(element_count))

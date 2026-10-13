@@ -1,0 +1,54 @@
+{
+  "skill_name": "cannbot-dsl-best-practice",
+  "eval_mode": "text",
+  "evals": [
+    {
+      "id": 1,
+      "title": "公共骨架与导出入口",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "timeout": 600,
+        "eval_mode": "text"
+      },
+      "prompt": "使用 cannbot-dsl-best-practice 为一个需要公开 Python 运行入口及 Native 导出的 DSL 算子提出代码组织建议。当前没有具体 API/设备版本证据，目标是明确元数据校验、资源管理、编译复用、启动和导出之间的职责。请依据整体实现参考回答，标明需要进一步核实的接口，不生成可编译代码。",
+      "expected_output": "应读取整体实现参考，说明公开运行与必备 @export/Native 导出及公共实现骨架，Host 元数据校验、分配和启动与目标 DSL 计算分工；编译结果复用和本次输入绑定相区分，程序管理与资源生命周期明确。没有来源的 API 签名或设备能力需标待核实，不把结构伪码当成编译通过的实现。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 2,
+      "title": "缓冲复用需要最后读取完成证据",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "timeout": 600,
+        "eval_mode": "text"
+      },
+      "prompt": "使用 cannbot-dsl-best-practice 分析局部问题：生产者计划复用双缓冲 slot，但消费者的读取可能尚未结束；当前只有生产者写完成事件，没有最后一次读取完成证据。请选择相关参考，说明需要补什么依赖及什么测试能暴露问题，不修改代码、不凭空指定设备屏障 API。",
+      "expected_output": "应组合 Channel/Buffer 与同步参考，区分写完成、可见、读取完成和 slot 可复用；复用需在最后消费者读完成后，不能仅靠写完成事件或阶段名称证明。建议按实际生产/消费及复用代次构造可观察验证，核实目标 API 的同步语义，不推广示例缓冲深度为硬件默认。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 3,
+      "title": "包装层额外设备操作的边界",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "timeout": 600,
+        "eval_mode": "text"
+      },
+      "prompt": "使用 cannbot-dsl-best-practice 复核实现建议：包装层先用 torch.zeros_like 分配并清零设备输出，随后启动 DSL kernel，最后返回 output+0；另有独立 CPU Golden。设计要求一次有效调用只启动目标 kernel。请给出符合生产代码参考的调整方向与必要复验，不实际运行或改代码。",
+      "expected_output": "应沿公开入口及 helper 检查额外设备任务，指出清零和 output+0 属于包装层额外执行；采用未初始化分配并由目标 DSL kernel 覆盖有效输出，确认首次读取与同步约束，不把 CPU 初始化再搬设备当绕过办法。独立 CPU Golden 可用 PyTorch但不补算公开结果，调整需回归受影响数值/结构义务；不以数学等价替代设计承诺。",
+      "files": [],
+      "expectations": []
+    }
+  ]
+}

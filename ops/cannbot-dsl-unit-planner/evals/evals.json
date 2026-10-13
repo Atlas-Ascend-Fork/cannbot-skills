@@ -1,0 +1,63 @@
+{
+  "skill_name": "cannbot-dsl-unit-planner",
+  "eval_mode": "text",
+  "evals": [
+    {
+      "id": 1,
+      "title": "按纵向能力规划数值闭环",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "timeout": 600,
+        "eval_mode": "file_based"
+      },
+      "prompt": "使用 cannbot-dsl-unit-planner。规格：一维同形状 float32 张量加法 z=x+y，长度 1..512，形状不符应拒绝，独立 CPU Golden 可提供数值参考。设计资料：按 128 元素块处理，先支持长度 128 的连续输入，再覆盖尾块和多块；公开入口需完成校验、真实计算与写回，不允许占位输出；目标实现文件为 operators/add/add.py，其他能力暂无已确认需求。请在 units/ 按本 skill 的 Unit 格式产出有依据的 U*.yaml，不实现算子、不编写测试 Case。",
+      "expected_output": "首个 minimal_operator 应在明确合法子域内贯通入口、校验、真实计算与写回，带独立数值检验义务；后继按尾块、多块等故障面递增，保留前序行为，能力依赖与实际写集分开记录。不能横向拆成搬入/计算/写回，不预分配 Case ID；单一 unit 对象、ID/文件名及 provides/requires/义务引用一致。",
+      "files": [],
+      "expectations": [
+        {
+          "type": "file_exists",
+          "pattern": "units/U01.yaml"
+        },
+        {
+          "type": "file_contains",
+          "pattern": "units/U01.yaml : \"unit:\";\"verification_obligations:\""
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "共享写集不等于能力依赖",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "timeout": 600,
+        "eval_mode": "text"
+      },
+      "prompt": "使用 cannbot-dsl-unit-planner 判断依赖：两个 Unit 分别交付 dtype 校验与一种独立布局适配，都修改 operators/op/op.py；设计证据没有证明后一能力需要前一能力。如何分别记录能力依赖与文件写集？本题只说明规划判据，不生成文件。",
+      "expected_output": "应按 provides/requires 的真实能力消费关系声明 depends_on，不因同文件而虚构能力依赖；写集单独列在源码范围中，供调用方调度时协调重叠写入。应保留各 Unit 可独立验收的边界和前序已交付行为，不擅自实施并发修改。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 3,
+      "title": "关键补证失败后的阻断",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "timeout": 600,
+        "eval_mode": "text"
+      },
+      "prompt": "使用 cannbot-dsl-unit-planner 处理已有规划：U02 首次引入跨核生产/消费同步，设计将该结构列为强制承诺；最小组合探针已失败，但普通数值用例偶然通过，U03 需要消费 U02 提供的能力。当前有人建议在 YAML 写一句实现期再定就放行。请说明规划应该如何修订，不运行探针、不修改实现。",
+      "expected_output": "不能把偶然数值通过当作结构或补证成功，不能放行 U03 消费未成立的 provides。U02 需明确 feasibility_checks、适用输入、可区分成功证据、obligation_ids 或 review_evidence 关联及失败返回点；失败应返回设计修订或调整相关闭环，不能把强制同步承诺降为可选性能优化。",
+      "files": [],
+      "expectations": []
+    }
+  ]
+}

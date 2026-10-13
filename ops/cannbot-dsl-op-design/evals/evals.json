@@ -1,0 +1,75 @@
+{
+  "skill_name": "cannbot-dsl-op-design",
+  "eval_mode": "text",
+  "evals": [
+    {
+      "id": 1,
+      "title": "从自定义规格文件生成分文件设计",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "timeout": 600,
+        "eval_mode": "file_based"
+      },
+      "prompt": "使用 cannbot-dsl-op-design。先将以下调用方规格保存为 inputs/operator-contract.md：算子 add，公开入口 run(x,y) 返回 z；x、y 是同形状连续一维 float32 张量，长度 n 为 1 到 256；数学语义 z[i]=x[i]+y[i]，NaN 按加法传播；形状不同时在分配或启动前拒绝；比较容差 rtol=atol=1e-6。已确认采用独立逐元素路径，不使用跨核协作或异步流水；设备具体容量和 API 组合能力尚无证据。根据该规格在 design/ 生成本 skill 约定的主题文件、INDEX.md 和一份真实执行分支文件。保留未证实能力及确认方法，只做设计，不编写算子源码。",
+      "expected_output": "应实际生成分文件设计与独立 INDEX.md，单路径也有 branches/DESIGN-BRANCH-*.md；数学、接口、长度域、NaN、拒绝路径与验证对应；引用实际 inputs/operator-contract.md，支持调用方自定义文件名；未知设备容量与 API 通路作为待验证项，不能编造容量、吞吐或已编译证据。设计不得保留模板填写说明，不产出算子实现。",
+      "files": [],
+      "expectations": [
+        {
+          "type": "file_exists",
+          "pattern": "design/INDEX.md"
+        },
+        {
+          "type": "file_exists",
+          "pattern": "design/Overview.md"
+        },
+        {
+          "type": "file_exists",
+          "pattern": "design/Interface.md"
+        },
+        {
+          "type": "file_exists",
+          "pattern": "design/Validation.md"
+        },
+        {
+          "type": "file_list",
+          "pattern": "design/branches/DESIGN-BRANCH-*.md"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "范式知识由调用方提供",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "timeout": 600,
+        "eval_mode": "text"
+      },
+      "prompt": "使用 cannbot-dsl-op-design 给出设计职责划分：调用方已经提供算子规格、执行环境证据和一份说明生产/消费顺序的范式资料，要求你据此编写设计。是否需要再由本 skill 维护范式库或固定调用另一个 skill？说明范式资料如何进入具体排布与验证依据，本题不生成文件。",
+      "expected_output": "应消费调用方选定的范式资料并核对算法排布及适用前提，由调用方负责资料来源与能力接线；本 skill 产出算子设计，不维护范式库或生成独立范式文档，不绑定另一个 skill 名称，也不把外部输入强制命名为 spec.yaml。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 3,
+      "title": "能力未验证时的设计证据",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "timeout": 600,
+        "eval_mode": "text"
+      },
+      "prompt": "使用 cannbot-dsl-op-design 复核设计：某 API 可导入且签名匹配，但计划中的 Cube/Vector 组合数据通路、跨阶段缓冲复用和目标输入规模均未验证。当前没有真机结果。设计文档应记录哪些未决项、成功判据和失败返回点？本题只分析，不执行设备验证。",
+      "expected_output": "不能以导入或签名存在证明组合通路可实现；应在 API、Kernel/同步、资源和验证章节对应记录未决事实、适用范围、最小验证场景、可观察成功条件、后续依赖及失败后的设计调整。区分强制承诺、可选实现与候选，资源预算需有来源，不能编造真机通过证据。",
+      "files": [],
+      "expectations": []
+    }
+  ]
+}

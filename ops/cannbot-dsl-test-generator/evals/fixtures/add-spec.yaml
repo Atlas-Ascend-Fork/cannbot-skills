@@ -1,0 +1,22 @@
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+# Licensed under the CANN Open Software License Agreement Version 2.0.
+schema_version: 1
+op: {name: add, error_codes: [shape_mismatch]}
+inputs:
+  - {name: x, role: tensor, dtype_set: [float32], rank_range: [0, 8]}
+  - {name: y, role: tensor, dtype_set: [float32], rank_range: [0, 8]}
+attributes: []
+outputs:
+  - {name: z}
+dtype_policy:
+  supported_combinations:
+    - {inputs: {x: float32, y: float32}, outputs: {z: float32}}
+math_semantics: {formula: "z = x + y"}
+boundary_conditions:
+  - {case: aligned, machine_check: {kind: matches_oracle}}
+  - {case: incompatible, machine_check: {kind: raises_error, error_type: shape_mismatch}}
+extreme_inputs:
+  - {case: nan, machine_check: {kind: nan_propagates}}
+numerical_tolerance:
+  per_dtype:
+    float32: {rtol: 1.0e-6, atol: 1.0e-6, metric: max_relative}
