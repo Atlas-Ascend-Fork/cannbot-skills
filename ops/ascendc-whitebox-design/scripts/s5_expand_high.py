@@ -4,7 +4,7 @@
 # This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 # CANN Open Software License Agreement Version 2.0 (the "License").
 # Please refer to the License for details. You may not use this file except in compliance with the License.
-# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED,
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------------------------------------
@@ -33,26 +33,26 @@ NON_NORMAL_DATA_RANGES = (
 )
 
 
-def load_json(base_dir: Path, rel_path: str) -> Any:
-    with (base_dir / rel_path).open("r", encoding="utf-8") as fh:
-        return json.load(fh)
+def load_json(root: Path, path: str) -> Any:
+    with (root / path).open("r", encoding="utf-8") as f:
+        return json.load(f)
 
 
-def dump_json(base_dir: Path, rel_path: str, payload: Any) -> None:
-    with (base_dir / rel_path).open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
+def dump_json(root: Path, path: str, data: Any) -> None:
+    with (root / path).open("w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
 
 
-def clone_case(source_case: dict[str, Any]) -> dict[str, Any]:
-    return copy.deepcopy(source_case)
+def clone_case(case: dict[str, Any]) -> dict[str, Any]:
+    return copy.deepcopy(case)
 
 
-def mapped_inputs(source_case: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    case_inputs = source_case.get("inputs")
-    if not isinstance(case_inputs, dict):
-        raise ValueError(f"{source_case.get('id', '<unknown>')}: inputs must be an object")
-    return case_inputs
+def mapped_inputs(case: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    inputs = case.get("inputs")
+    if not isinstance(inputs, dict):
+        raise ValueError(f"{case.get('id', '<unknown>')}: inputs must be an object")
+    return inputs
 
 
 def validate_supported(ranges: Any, label: str) -> list[str]:
@@ -165,15 +165,15 @@ def make_range_variants(case: dict[str, Any], policy: dict[str, Any]) -> list[di
     return variants
 
 
-def assert_unique_ids(case_list: list[dict[str, Any]], label: str) -> None:
-    seen_ids: set[str] = set()
-    for entry in case_list:
-        current_id = entry.get("id")
-        if not isinstance(current_id, str):
+def assert_unique_ids(cases: list[dict[str, Any]], label: str) -> None:
+    seen: set[str] = set()
+    for case in cases:
+        case_id = case.get("id")
+        if not isinstance(case_id, str):
             raise ValueError(f"{label}: case id must be a string")
-        if current_id in seen_ids:
-            raise ValueError(f"duplicate id in {label}: {current_id}")
-        seen_ids.add(current_id)
+        if case_id in seen:
+            raise ValueError(f"duplicate id in {label}: {case_id}")
+        seen.add(case_id)
 
 
 def build_high_cases(root: Path, low_cases: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:

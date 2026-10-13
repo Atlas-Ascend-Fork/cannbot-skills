@@ -2,7 +2,7 @@
 
 Kernel 模式由 `run_ttk_kernel_module.py` 固定执行。常规流程不要求 LLM 手写 CSV、逐字段复核 CSV 或手动拼接 `python3 -m ttk kernel` 命令。
 
-TTK 模块默认信任已通过 Mapper-v1 Step 5.5 校验的 `S5_cases_low.json` / `S5_cases_high.json`。Kernel 模式不重新校验 Mapper-v1 schema，仅在 CSV 生成失败、CSV 行数不一致、CSV 格式校验失败或 TTK kernel 基本执行链路失败时报告失败。
+TTK 模块默认信任已通过 Mapper-v1 Step 5.5 校验的 `S5_cases_low.json` / `S5_cases_high.json`。Kernel 模式不重新校验 Mapper-v1 schema，仅在 CSV 必需输入缺失、CSV 生成失败、CSV 行数不一致、CSV 格式校验失败、precheck 报告缺失或 precheck 命令失败或 TTK kernel 基本执行链路失败时报告失败。
 
 ## 输入
 
@@ -12,8 +12,11 @@ TTK 模块默认信任已通过 Mapper-v1 Step 5.5 校验的 `S5_cases_low.json`
 | `S5_cases_high.json` | Step 5 final high cases，生成 high CSV。 |
 | `{op_name}` | 作为 CSV `op_name` 列。 |
 | `{ops_test_kit_path}` | 执行 `python3 -m ttk kernel` 的 TTK 工具路径。 |
+| `{whitebox_dir}` | 白盒产物目录，存放 S5 final cases 与生成的 CSV/报告产物。 |
+| `{op_path}` | 算子源码根目录（CLI 必填参数）。 |
+| `{skill_base}` | 技能根目录绝对路径，用于定位固定脚本。 |
 
-Step 5 final case 的 schema 由 Mapper-v1 Step 5 文档定义，并已由 Step 5.5 最终校验脚本检查字段完整性。Kernel CSV 生成脚本直接读取 `attributes`、`const_inputs`、`inputs`、`outputs` 和 `meta`。
+Step 5 final case 的 schema 由 Mapper-v1 Step 5 文档定义，并已由 Step 5.5 最终校验脚本检查字段完整性。Kernel CSV 生成脚本直接读取顶层 `id`、`source` 和 `attributes`、`const_inputs`、`inputs`、`outputs`、`meta`（id 用于 testcase_name 与 remark，source 用于 remark）。
 
 ## 输出
 
@@ -29,10 +32,10 @@ Step 5 final case 的 schema 由 Mapper-v1 Step 5 文档定义，并已由 Step 
 ## Wrapper 流程
 
 1. 调用 `scripts/ttk_generate_kernel_csv.py` 生成 low/high CSV。
-2. 调用 `scripts/ttk_validate_csv.py` 校验 low/high CSV，并对账 CSV 行数与 low/high case 数量。
+2. 调用 `scripts/ttk_validate_csv.py` 校验 low/high CSV 字段格式。CSV 行数与 low/high case 数量的对账在步骤 1 完成（reason `csv_row_count_mismatch`）。
 3. 调用 `scripts/ttk_precheck_env.py` 生成 `ttk_precheck_report.json`。
-4. `kernel_gate.status == "passed"` 时，串行执行 low/high 各 1 个 `python3 -m ttk kernel --golden-mode Disable` 用例。
-5. 解析 result CSV 和日志关键状态，生成 `ttk_module_report.json`。
+4. `kernel_gate.status == "passed"` 时，串行执行 low/high 各 1 个 `python3 -m ttk kernel -i {csv} -o {result} -t {testcase_name} --pc 1 --seed 42 --golden-mode Disable` 用例。
+5. 内联分析 result CSV，生成 `ttk_module_report.json`。
 
 `ttk_precheck_env.py` 只检查 TTK/CANN 环境是否能启动 kernel 命令，不检查 case JSON schema，不检查额外函数注册。
 
@@ -44,8 +47,8 @@ CSV 列顺序必须与 `02-kernel-fields.md` 的 Kernel CSV 列顺序完全一�
 
 | 规则 | 说明 |
 |---|---|
-| `attributes` | 直接合并 Step 5 final case 的 `attributes` 和 `const_inputs`。 |
-| `inputs` | 从 Step 5 final case 的 input descriptor 生成 shape、dtype、format 和 data range。 |
+| `attributes` | 直接合并 Step 5 final case 的 `attributes` 和 `const_inputs`；不用于 Tensor/TensorList 输入的取值覆盖。 |
+| `inputs` | 从 Step 5 final case 的 input descriptor 全量生成 shape、dtype、format 和 data range（含元素数固定的输入）；其取值由 `input_data_ranges` 生成。 |
 | `outputs` | 从 Step 5 final case 的 output descriptor 全量生成 shape、dtype、format 和 tolerance。 |
 | `shape = null` | JSON `null` 写为 Python literal `None`，并保留 dtype、format 和位置结构。 |
 | `output_inplace_indexes` | 固定写 `()`；必要的同名 inplace 由 TTK op_info 自动推导。 |
@@ -114,7 +117,7 @@ TensorList 嵌套格式以 `02-kernel-fields.md` 为准。固定脚本负责将 
 
 ## 结果判定
 
-常规流程只读取 `ttk_module_report.json` 判断模块结果。
+常规流程只读取 `ttk_module_report.json` 判断模块结果；最终验收结论以 `acceptance.accepted` / `acceptance.status` 字段为准（见 00-execution-order.md §状态判断）。下表为顶层 `status` 字段含义：
 
 | status | 含义 |
 |---|---|
@@ -126,15 +129,17 @@ TTK kernel low/high 单用例串行执行，禁止并行执行，避免 TTK prof
 
 TTK kernel 验收不写单用例日志文件。执行结果以命令返回码和 result CSV 为准，命令 stdout/stderr tail 保存在 `ttk_module_report.json` 对应 step 中。
 
-`--golden-mode Disable` 下，result CSV 内联分析要求目标 `testcase_name` 行存在，`dyn_precision` 为 `SUPPRESSED`，且 `memory_oob_status` 为空或 `PASS`。`dyn_precision` 对应 ttk-info.log 中的 `DYN_GOLD`，用于确认 DYN 链路未出现 `INVALID_TILING` 等前置错误；`precision_status` 不参与功能验收门禁。
+`--golden-mode Disable` 下，result CSV 内联分析要求目标 `testcase_name` 行存在，必需字段 `testcase_name` / `dyn_precision` / `memory_oob_status` 存在，`dyn_precision` 为 `SUPPRESSED`，且 `memory_oob_status` 为空或 `PASS`。`dyn_precision` 对应 ttk-info.log 中的 `DYN_GOLD`，用于确认 DYN 链路未出现 `INVALID_TILING` 等前置错误；`precision_status` 不参与功能验收门禁。
 
 ## 失败处理
 
 | 失败点 | 处理 |
 |---|---|
+| CSV 必需输入缺失 | 检查 `S5_cases_low.json` / `S5_cases_high.json` 和 3 个 `ttk_*.py` 固定脚本是否存在。 |
 | CSV 生成失败 | 检查 `ttk_generate_kernel_csv.py` 和 Step 5 final case。 |
 | CSV validator 失败 | 检查 CSV 字段格式和 TensorList 嵌套格式。 |
 | CSV 行数不一致 | 检查 low/high case 文件是否被并发修改，重新生成 CSV。 |
+| precheck 报告缺失或 precheck 命令失败 | 检查 `ttk_precheck_env.py` 执行环境与 whitebox 目录可写性。 |
 | `env_unavailable` | 检查 `ops-test-kit` 路径、CANN 环境变量和 setenv 脚本。 |
 | kernel 命令返回非 0、无 result CSV 或 `dyn_precision` 非 `SUPPRESSED` | 核查 case shape/dtype 是否违反算子约束，并查看 `ttk_module_report.json` 中对应 step 的 stdout/stderr tail。 |
 | 目标 testcase 行缺失 | 检查 wrapper 选择的 testcase_name 与 TTK result CSV 输出是否一致。 |

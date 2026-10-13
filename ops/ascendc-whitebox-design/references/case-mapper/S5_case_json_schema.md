@@ -78,6 +78,7 @@
 - `attributes` 和 `const_inputs` 不得重复写入同名字段。
 - shape、dtype、format、data_range、tiling/router 信息和 mapper 审计字段不得写入 `attributes` 或 `const_inputs`。
 - Tensor/TensorList descriptor 必须写入 `inputs` 或 `outputs`，不得写入 `const_inputs`。
+- 元素数固定的 Tensor 输入按普通 Tensor 输入处理：descriptor 写入 `inputs`（`shape=[n]`），取值由 `data_range` 表达；其值不得写入 `const_inputs`，不得通过 `attributes` 覆盖。
 
 ## 4. Tensor Descriptor
 
@@ -92,7 +93,7 @@ Input 和 output Tensor 公共字段：
 | `kind` | string | 是 | 固定为 `tensor`。 |
 | `dtype` | string | 是 | 非空 dtype 名称；`shape = null` 时仍必须保留。 |
 | `format` | string | 是 | 非空 format，默认 `ND`；`shape = null` 时仍必须保留。 |
-| `shape` | list[int] 或 null | 是 | `null` 表示该位置不输入或不输出；empty tensor 用含 0 维度的 shape 表达。 |
+| `shape` | list[int] 或 null | 是 | `null` 见 §6，仅允许非 `REQUIRED` 参数；空 tensor 用含 0 维度的 shape（如 `[0]`）表达（TL3），不得为空列表 `[]`。 |
 | `param_type` | string | 是 | 接口参数类型，例如 `REQUIRED` 或 `OPTIONAL`。 |
 
 Input Tensor 额外包含：
@@ -120,7 +121,7 @@ Input Tensor 示例：
 }
 ```
 
-`shape = null` 表示该 input 位置不输入；descriptor 不得删除。input `shape = null` 时，`data_range` 仍必须保留。
+`shape = null` 表示该 input 位置不存在（仅限 `param_type != REQUIRED`；`REQUIRED` 输入禁止 `null`，见 §6）。descriptor 不得删除。input `shape = null` 时，`data_range` 仍必须保留。
 
 ### 4.3 Output Tensor
 
@@ -138,11 +139,19 @@ Output Tensor 示例：
 }
 ```
 
-`shape = null` 表示该 output 位置不输出；descriptor 不得删除。Output Tensor 不包含 `data_range`。
+`shape = null` 表示该 output 位置不存在（仅限 `param_type != REQUIRED`）。`REQUIRED` 输出为空（某 branch 不产生该输出数据）时必须写空 tensor `shape = [0]`（TL3，TTK `(0,)`），不得写 `null`（见 §6）。descriptor 不得删除。Output Tensor 不包含 `data_range`。
 
 ## 5. TensorList Descriptor
 
 TensorList descriptor 使用 `kind = "tensor_list"`。TensorList 外层表示接口参数，`tensors[]` 表示 child Tensor 列表。
+
+TensorList 基础要求：
+
+- TL1：`tensor_count` 满足 `1 <= tensor_count <= 50`，且等于 `len(tensors)`。
+- TL2：`tensors` 至少包含 1 个 child；禁止整体为空的 TensorList（不得 `tensor_count = 0` / `tensors = []`）。
+- TL3：空 tensor 用含 0 维度的一维 shape 表达（`[0]`，TTK 写作 `(0,)`）；不得使用空 shape 列表 `[]`。
+
+`shape = null` 的语义见 §6，与空 tensor 严格区分。
 
 ### 5.1 Outer Descriptor
 
@@ -154,8 +163,8 @@ Input 和 output TensorList 外层公共字段：
 | `dtype` | string | 是 | 非空外层 dtype。 |
 | `format` | string | 是 | 非空外层 format，默认 `ND`。 |
 | `param_type` | string | 是 | 固定为 `DYNAMIC`。 |
-| `tensor_count` | int | 是 | 必须等于 `len(tensors)`。 |
-| `tensors` | list[object] | 是 | child Tensor 列表。 |
+| `tensor_count` | int | 是 | 必须等于 `len(tensors)`（TL1）。 |
+| `tensors` | list[object] | 是 | child Tensor 列表（TL2）。 |
 
 Input TensorList 外层额外包含：
 
@@ -163,7 +172,7 @@ Input TensorList 外层额外包含：
 |------|------|------|------|
 | `data_range` | string | 是 | 输入数据范围标签。 |
 
-Output TensorList 外层不得包含 `data_range`。TensorList 外层不得使用顶层 `shape`。TensorList 整体 empty 时统一使用 `tensor_count = 0` 和 `tensors = []`，不要用 `shape = null` 表达。
+Output TensorList 外层不得包含 `data_range`。TensorList 外层不得使用顶层 `shape`。
 
 ### 5.2 Input TensorList
 
@@ -205,7 +214,7 @@ Input TensorList child Tensor 固定包含 5 个字段：
 | `kind` | string | 是 | 固定为 `tensor`。 |
 | `dtype` | string | 是 | 非空 dtype；`shape = null` 时仍必须保留。 |
 | `format` | string | 是 | 非空 format；`shape = null` 时仍必须保留。 |
-| `shape` | list[int] 或 null | 是 | `null` 表示该 child 位置不输入。 |
+| `shape` | list[int] 或 null | 是 | `null` 表示该 child 位置不输入（见 §6）。 |
 | `data_range` | string | 是 | 必须与 TensorList 外层 `data_range` 一致。 |
 
 Input TensorList child Tensor 不包含 `param_type`。child `data_range` 必须与 TensorList 外层 `data_range` 一致。`shape = null` 的 child Tensor 仍计入 `tensor_count`。
@@ -247,27 +256,34 @@ Output TensorList child Tensor 固定包含 4 个字段：
 | `kind` | string | 是 | 固定为 `tensor`。 |
 | `dtype` | string | 是 | 非空 dtype；`shape = null` 时仍必须保留。 |
 | `format` | string | 是 | 非空 format；`shape = null` 时仍必须保留。 |
-| `shape` | list[int] 或 null | 是 | `null` 表示该 child 位置不输出。 |
+| `shape` | list[int] 或 null | 是 | `null` 表示该 child 位置不输出（见 §6）。 |
 
 Output TensorList child Tensor 不包含 `param_type` 或 `data_range`。`shape = null` 的 child Tensor 仍计入 `tensor_count`。
 
-## 6. Shape Null Placeholder
+## 6. Shape Null Placeholder（接口位置不存在）
 
-TTK kernel 模式以 `shape = None` 判定某个输入或输出位置不参与实际传递。Mapper-v1 JSON 使用 JSON `null` 表达该占位。
+`shape = null` 只表示**该接口参数位置本身不存在**（例如接口声明为可选、且该 case 未提供该参数），**不等于**「kernel 某 branch 不产生该输出数据」。两者必须严格区分：
+
+- 位置不存在 → `shape = null`（TTK `None`，不传递）。
+- 位置存在但该 branch 为空输出 → 空 tensor `shape = [0]`（TL3，TTK `(0,)`，传 shapeSize==0 的空张量）。
+
+TTK kernel 模式以 `shape = None` 判定该位置不参与实际传递；Mapper-v1 JSON 使用 JSON `null` 表达该占位。
 
 规则：
 
-- 不输入或不输出时，不删除 descriptor；保留原位置并写 `shape = null`。
+- `shape = null` 仅允许出现在 `param_type != REQUIRED`（如 `OPTIONAL`）的 descriptor 上。**`param_type == REQUIRED` 的 descriptor 禁止 `shape = null`**。
+- `REQUIRED` 输出在某 branch 为空时，必须使用空 tensor `shape = [0]`（TL3），保留该位置并传递空张量；禁止写 `null`，禁止删除 descriptor。
+- 不输入或不输出（位置不存在）时，不删除 descriptor；保留原位置并写 `shape = null`。
 - `shape = null` 时，`dtype` 和 `format` 仍必须保留对应占位值，不能写 `null`。
 - input `shape = null` 时，`data_range` 仍必须保留，建议为 `normal`。
 - TensorList child `shape = null` 时，该 child 仍计入 `tensor_count`。
-- TensorList 整体没有任何 child 时，使用 `tensor_count = 0` 和 `tensors = []`，不要用 `shape = null` 表达。
 
 TTK 依据：
 
 - `shapelike_stc_nested()` 允许 top-level 和 TensorList child shape 为 `None`。
 - `TestcaseOp._construct_op_xput_tensor_dict()` 遇到 `shape is None` 时生成 `None` tensor。
 - TTK profiling 根据 kernel json 的 optional placeholder 配置决定运行时是否过滤 `None`。
+- 对 `REQUIRED` 参数传 `None` 会触发算子参数校验错误（如 `add_rms_norm` 的 `rstd_out_` 缺失，`errCode E80001`）。
 
 ## 7. Data Range
 
@@ -322,7 +338,9 @@ high case 要求：
 
 ## 9. TTK Consumption Contract
 
-Mapper-v1 JSON 使用 `shape = null` 表达不输入或不输出；写入 TTK Kernel CSV / Python 结构时必须转换为 `None`。converter 必须保留 mapper 输出的 input/output 参数顺序和 TensorList child 顺序，不得按名称排序，不得过滤 `shape = null` 的 descriptor 或 child Tensor。
+Mapper-v1 JSON 使用 `shape = null` 表达接口位置不存在（仅限非 `REQUIRED` 参数，见 §6）；`REQUIRED` 参数的空输出使用 `[0]`。写入 TTK Kernel CSV / Python 结构时，JSON `null` 必须转换为 `None`，空 tensor `[0]` 转换为 `(0,)`。converter 必须保留 mapper 输出的 input/output 参数顺序和 TensorList child 顺序，不得按名称排序，不得过滤 `shape = null` 的 descriptor 或 child Tensor。
+
+所有 Tensor/TensorList 输入（含元素数固定的输入）的取值由 `input_data_ranges` 表达；`attributes` 列不用于覆盖任何输入的值。
 
 Mapper-v1 → TTK Kernel CSV 映射：
 
@@ -355,7 +373,6 @@ TensorList CSV 嵌套要求：
 validator 必须检查：
 
 - 顶层只包含 `id/source/attributes/const_inputs/inputs/outputs/meta`。
-- `attributes` 与 `const_inputs` 不得同名重复。
 - Input Tensor 必须包含 `kind/dtype/format/shape/param_type/data_range`。
 - Output Tensor 必须包含 `kind/dtype/format/shape/param_type`。
 - Input TensorList 外层必须包含 `kind/dtype/format/param_type/tensor_count/data_range/tensors`。
@@ -363,11 +380,9 @@ validator 必须检查：
 - Input TensorList child Tensor 必须包含 `kind/dtype/format/shape/data_range`。
 - Output TensorList child Tensor 必须包含 `kind/dtype/format/shape`。
 - 所有 descriptor 的 `dtype` 和 `format` 必须是非空字符串。
-- `shape` 只能是 `list[int]` 或 `null`。
-- TensorList 必须包含 `tensor_count` 和 `tensors`，且 `tensor_count == len(tensors)`。
+- `shape` 只能是 `list[int]` 或 `null`：`null` 遵循 §6（仅限非 `REQUIRED` 参数，`REQUIRED` 禁止 `null`；`REQUIRED` 空输出用 `[0]`），空 tensor 遵循 TL3。
+- TensorList 必须包含 `tensor_count` 和 `tensors`，满足 TL1 与 TL2。
 - TensorList child Tensor 不得包含 `param_type`。
 - outputs 任何层级不得包含 `data_range`。
-- input TensorList 外层和所有 child Tensor 的 `data_range` 必须一致。
 - output TensorList 不得使用顶层 `shape`。
 - input TensorList 不得使用顶层 `shape` 替代 `tensors[]`。
-- 后续脚本不得推导 outputs；outputs 必须由 mapper 完整生成。

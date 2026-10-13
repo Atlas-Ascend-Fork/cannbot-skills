@@ -4,7 +4,7 @@
 # This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 # CANN Open Software License Agreement Version 2.0 (the "License").
 # Please refer to the License for details. You may not use this file except in compliance with the License.
-# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED,
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------------------------------------
@@ -89,7 +89,8 @@ def py_literal(value: Any) -> str:
     if isinstance(value, list):
         return tuple_literal(tuple(value))
     if isinstance(value, dict):
-        return json.dumps(value, ensure_ascii=False)
+        items = ", ".join(f"{py_literal(k)}: {py_literal(v)}" for k, v in value.items())
+        return "{" + items + "}"
     return repr(value)
 
 
@@ -163,7 +164,7 @@ def tensor_dtype_entry(spec: dict[str, Any], name: str) -> str | tuple[str, ...]
     if kind == "tensor_list":
         children = tensor_children(spec, name)
         if not children:
-            return (_string_field(spec, "dtype", name),)
+            return _string_field(spec, "dtype", name)
         return _compressed_or_expanded([_string_field(child, "dtype", f"{name}.tensors[]") for child in children])
     if kind == "tensor":
         return _string_field(spec, "dtype", name)
@@ -175,7 +176,7 @@ def tensor_format_entry(spec: dict[str, Any], name: str) -> str | tuple[str, ...
     if kind == "tensor_list":
         children = tensor_children(spec, name)
         if not children:
-            return (_string_field(spec, "format", name),)
+            return _string_field(spec, "format", name)
         return _compressed_or_expanded([_string_field(child, "format", f"{name}.tensors[]") for child in children])
     if kind == "tensor":
         return _string_field(spec, "format", name)
@@ -259,15 +260,32 @@ def case_attributes(case: dict[str, Any], case_id: str) -> dict[str, Any]:
 
 def build_remark(case: dict[str, Any]) -> str:
     meta = case.get("meta", {}) if isinstance(case.get("meta", {}), dict) else {}
-    parts = [f"original_id={case.get('id', '')}", f"source={case.get('source', '')}"]
-    for key in ("source_kind", "path", "tiling_key", "network_name", "variant_kind"):
+    original_id = meta.get("base_id") if case.get("source") == "range" else case.get("id", "")
+    parts = [f"original_id={original_id}", f"source={case.get('source', '')}"]
+    for key in ("source_kind", "path", "tiling_key", "network_name", "variant_kind", "range_index"):
         if key in meta:
             parts.append(f"{key}={meta[key]}")
     return "; ".join(parts)
 
 
+def validate_no_required_null(case: dict[str, Any], case_id: str) -> None:
+    for section in ("inputs", "outputs"):
+        container = case.get(section)
+        if not isinstance(container, dict):
+            continue
+        for name, spec in container.items():
+            if not isinstance(spec, dict):
+                continue
+            if spec.get("kind") == "tensor" and spec.get("param_type") == "REQUIRED" and spec.get("shape") is None:
+                raise KernelCsvError(
+                    f"case {case_id}: {section}.{name} is REQUIRED but shape=null; "
+                    "use [0] for empty output/tensor (schema §6)"
+                )
+
+
 def build_row(case: dict[str, Any], index: int, op_name: str, rng: random.Random) -> dict[str, str]:
     case_id = str(case.get("id", f"case{index:05d}"))
+    validate_no_required_null(case, case_id)
     inputs = get_tensor_entries(case.get("inputs"), case_id, "inputs")
     outputs = get_tensor_entries(case.get("outputs"), case_id, "outputs")
 

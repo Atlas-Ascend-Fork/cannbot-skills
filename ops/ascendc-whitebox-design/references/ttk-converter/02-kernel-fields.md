@@ -34,7 +34,7 @@ testcase_name, network_name, op_name, input_shapes, input_dtypes, input_formats,
 
 ## TensorList 嵌套结构
 
-当输入/输出为 TensorList（S5_mapping_spec.md 中 param_type=DYNAMIC）时，以下字段使用嵌套格式：外层 tuple = 各输入/输出，内层 tuple = 该 TensorList 的各子 tensor。
+当输入/输出为 TensorList（S5 case descriptor `kind="tensor_list"`，见 `case-mapper/S5_case_json_schema.md`）时，以下字段使用嵌套格式：外层 tuple = 各输入/输出，内层 tuple = 该 TensorList 的各子 tensor。
 
 各字段因值类型不同，DYNAMIC 格式有差异：
 
@@ -44,6 +44,8 @@ testcase_name, network_name, op_name, input_shapes, input_dtypes, input_formats,
 | `input_dtypes` | `("float16", "float32")` | `(("float16",),)` | 压缩：1 dtype 广播到所有子 tensor |
 | `output_shapes` | `((1,2),)` | `(((1,2), (3,4), (5,6)),)` | 展开：每个子 tensor 对应一个 shape |
 | `output_dtypes` | `("float16",)` | `(("float16",),)` | 压缩：1 dtype 广播到所有子 tensor |
+| `input_formats` | `("ND", "ND")` | `(("ND",),)` | 压缩：与 dtypes 相同，子 tensor format 全相同 → 压缩，否则按子 tensor 展开 |
+| `output_formats` | `("ND",)` | `(("ND",),)` | 压缩：与 dtypes 相同 |
 | `input_data_ranges` | `((-10,10), (-1,1))` | `(((-10,10),(-10,10),(-10,10)),)` | **展开**：每个子 tensor 对应一个 range |
 | `precision_tolerances` | `((0.001,0.001),)` | `(((0.001,0.001),(0.001,0.001),(0.001,0.001)),)` | **展开**：每个子 tensor 对应一个 tolerance |
 
@@ -53,12 +55,28 @@ testcase_name, network_name, op_name, input_shapes, input_dtypes, input_formats,
 - **`input_dtypes` / `output_dtypes`**：压缩即可。TTK `_normalize_field_by_dist` 负责归一化 dtype 这类 string/scalar 字段，`_flatten_by_distribution` 的 `len(val)==1` 分支会将 `('float16',)` 自动广播到所有子 tensor
 - **`input_data_ranges` / `precision_tolerances`**：**必须展开**。range pair `(min, max)` 本身是 2 元素 tuple，TTK `_normalize_range_field_by_dist` 的 `len(field)==1` 广播分支会将 `field[0]` 整体广播，压缩嵌套 `(((-10,10),),)` 会导致每个子 tensor 收到 `((-10,10),)` 而非 `(-10,10)`，解析错误。扁平格式 `((-10,10),)` 在纯 TensorList（1 个输入）时可用，但在混合场景（TensorList + 普通 tensor）下 `_flatten_by_distribution` 会拆散 range pair，解析错误。展开嵌套是唯一通用格式
 
-`input_formats` / `output_formats` / `ori` 系列字段保持扁平格式不变（TTK 通过 `get()` 回退机制处理，无需嵌套）。
+`input_formats` / `output_formats` 与 dtypes 相同，使用压缩嵌套格式（子 tensor format 全相同时压缩为 `(format,)`，不一致时内层按子 tensor 展开）。`ori` 系列字段（input_ori_shapes / input_ori_formats / output_ori_shapes / output_ori_formats）由生成脚本写空串，TTK 通过 `get()` 回退机制读取 shapes/dtypes。
 
 混合示例（2 个输入：第 1 个 TensorList 含 3 子 tensor，第 2 个普通 tensor）：
 
 ```
 input_shapes      = (((1,2), (3,4), (5,6)), (7,8))
 input_dtypes      = (("float16",), "float32")
+input_formats     = (("ND",), "ND")
 input_data_ranges = (((-10,10),(-10,10),(-10,10)), (-1,1))
 ```
+
+## 元素数固定的输入 Tensor
+
+接口声明为 Tensor 且元素数量固定（n）的输入按普通输入写入各输入列，取值由 `input_data_ranges` 生成，不使用 `attributes` 覆盖；dtype 由 `input_dtypes` 决定。
+
+| 字段 | 写法 |
+|---|---|
+| `input_shapes` | `(n,)` |
+| `input_dtypes` | 该输入的 dtype |
+| `input_formats` | `ND`（或接口声明的 format） |
+| `input_ori_shapes` / `input_ori_formats` | 留空，交由 TTK 回退 |
+| `input_data_ranges` | 按 data_range 映射：`normal` 随机范围，或 `(v, v)` 固定值 |
+| `attributes` | 不写该输入的值 |
+
+该输入在 `input_shapes` / `input_dtypes` / `input_formats` / `input_data_ranges` 中按接口参数顺序占位。

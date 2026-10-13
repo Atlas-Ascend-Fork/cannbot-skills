@@ -14,7 +14,7 @@
 | `{whitebox_dir}` | 白盒测试产出目录，需包含已通过 Step 5.5 校验的 `S5_cases_low.json`、`S5_cases_high.json` |
 | `{op_name}` | 规范算子名，如 `add_rms_norm` |
 | `{op_path}` | 算子源码根目录，如 `.../ops-nn/norm/add_rms_norm` |
-| `{ops_test_kit_path}` | 主 Agent 已在当前工作目录 `$PWD` 下定位到的 `ops-test-kit/` 路径 |
+| `{ops_test_kit_path}` | 可选。显式指定 `ops-test-kit/` 路径；未指定时 wrapper 在 `$PWD` 下按 maxdepth=4 自动查找唯一 `ops-test-kit/`。 |
 
 ## 常规执行命令
 
@@ -25,9 +25,16 @@ python3 {skill_base}/scripts/run_ttk_kernel_module.py \
   --op-name {op_name} \
   --whitebox-dir {whitebox_dir} \
   --op-path {op_path} \
-  --ops-test-kit-path {ops_test_kit_path} \
   --skill-base {skill_base}
 ```
+
+如存在多个 `ops-test-kit/` 候选，必须显式追加：
+
+```bash
+  --ops-test-kit-path {ops_test_kit_path}
+```
+
+wrapper 不会在多候选场景自动选择路径；此时 CSV 仍会生成并校验，kernel 验收按环境门禁 skipped。
 
 如用户提供了非默认 CANN 环境脚本，可追加：
 
@@ -48,7 +55,7 @@ python3 {skill_base}/scripts/run_ttk_kernel_module.py \
 `run_ttk_kernel_module.py` 串行执行以下固定步骤：
 
 1. 调用 `scripts/ttk_generate_kernel_csv.py` 生成 low/high CSV。
-2. 调用 `scripts/ttk_validate_csv.py` 校验 low/high CSV，并对账 CSV 行数与 low/high case 数量。
+2. 调用 `scripts/ttk_validate_csv.py` 校验 low/high CSV 字段格式。CSV 行数与 low/high case 数量的对账在步骤 1 完成（reason `csv_row_count_mismatch`）。
 3. 调用 `scripts/ttk_precheck_env.py` 生成 `ttk_precheck_report.json`。
 4. `kernel_gate.status == "passed"` 时，串行执行 low/high 各 1 个 `python3 -m ttk kernel --golden-mode Disable` 用例。
 5. 内联分析 result CSV，确认目标 testcase 行存在、`dyn_precision` 为 `SUPPRESSED` 且 `memory_oob_status` 为空或 `PASS`，生成 `ttk_module_report.json`。
@@ -72,7 +79,7 @@ Agent 对 TTK 模块给结论时，只读取 `ttk_module_report.json` 的 `accep
 |---|---|
 | `accepted=true` 且 `status="passed"` | TTK 模块验收通过 |
 | `accepted=false` 且 `status="failed"` | TTK 模块验收失败 |
-| `accepted=false` 且 `status="skipped"` | TTK 模块验收未完成，不能作为通过结论 |
+| `accepted=false` 且 `status="skipped"` | 结论为「TTK 模块验收未完成」：须如实输出该结论及原因、已保留产物和重跑指引；该结论不得视为验收通过 |
 
 禁止直接使用 `kernel_gate.status` 作为最终验收结论。`kernel_gate` 只表示 TTK/CANN 环境门禁是否允许进入 kernel 执行阶段；最终结论必须以 `acceptance.accepted` / `acceptance.status` 为准。
 

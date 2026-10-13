@@ -26,7 +26,7 @@
 | Step 4 | 校验规则 | `aclnn_*.cpp` | OP_CHECK 抄录 |
 | Step 5 | torch_npu 差异分析 | torch_npu runtime | param_gaps |
 | Step 6 | 组装写入 | Step 1-5 | `S2P1_operator_model.json` |
-| Step 7 | 返回文本 | Step 1-6 | 结构化文本（给 Task D 消费） |
+| Step 7 | 返回文本 | Step 1-6 | 结构化文本（给主 Agent 消费） |
 
 ---
 
@@ -157,9 +157,9 @@
 
 ## 输出
 
-### 输出 1：结构化文本（返回给主 Agent，用于 Phase 2 Task D）
+### 输出 1：结构化文本（返回给主 Agent）
 
-内容必须包含以下 5 项（与 param-derivation.md 第 2 节"接口分析结果"对齐）：
+内容必须包含以下 5 项：
 
 1. **接口签名**：aclnn 接口函数签名（完整函数名、参数列表）
 2. **输入参数**：每个 tensor/scalar/attribute 的 dtype 选项、shape 约束、param_type 和 tensor_count（DYNAMIC 时）
@@ -187,7 +187,7 @@
       "name": "string — 输入 tensor 参数名（来自 def.cpp）",
       "param_type": "REQUIRED | OPTIONAL | DYNAMIC — 来自 def.cpp 的 .ParamType()，无显式声明时默认 REQUIRED",
       "tensor_count": {
-        "param": "string — DYNAMIC 时必填，count 采样参数名（下游写入 param_def.json 的 group_dims）",
+        "param": "string — DYNAMIC 时必填，count 采样参数名（下游 Step 5 case mapper 用于 TensorList 的 tensor_count 采样）",
         "min": "int — 最小 tensor 数量",
         "max": "int | 'unbounded' — 最大 tensor 数量",
         "source": "string — 约束来源（_infershape.cpp OP_CHECK / tiling 源码）"
@@ -283,7 +283,7 @@
 
 - **inputs[*].name**：必须与 Step 1 的 `def.cpp.Input()` 一致
 - **inputs[*].param_type**：从 `_def.cpp` 的 `.ParamType()` 提取。无显式声明时默认 `REQUIRED`
-- **inputs[*].tensor_count**：仅 `param_type = "DYNAMIC"` 时填写。`param` 为 count 采样参数名（下游作为 group_dims 维度），`min`/`max` 从 `_infershape.cpp` 的 OP_CHECK 或 tiling 源码提取。`max` 提取后需 cap 到 `min(max, 50)`（Ascend C DYNAMIC TensorList 硬件限制：最多 50 个子 tensor）
+- **inputs[*].tensor_count**：仅 `param_type = "DYNAMIC"` 时填写。`param` 为 count 采样参数名（下游用于 Step 5 mapper 的 TensorList tensor_count 采样），`min`/`max` 从 `_infershape.cpp` 的 OP_CHECK 或 tiling 源码提取。`max` 提取后需 cap 到 `min(max, 50)`（Ascend C DYNAMIC TensorList 硬件限制：最多 50 个子 tensor）
 - **inputs[*].same_shape / same_dtype**：仅 `param_type = "DYNAMIC"` 时填写。从 `_infershape.cpp` 的校验逻辑推断
 - **inputs[*].dtype**：列出 infershape / aclnn 层支持的所有 dtype。优先用 `sync_with`
 - **inputs[*].rank**：支持的最小/最大维度数。优先用 `sync_with`
@@ -383,7 +383,7 @@
   "param_type": "DYNAMIC",
   "tensor_count": {"derived_from": "x_list", "source": "infershape.cpp:50"},
   "dtype": {"sync_with": "x_list"},
-  "shape": {"rule": "same_as_input:x_list", "source": "infershape.cpp:52"}
+  "shape": {"rule": "same_as_input", "input": "x_list", "source": "infershape.cpp:52"}
 }
 ```
 

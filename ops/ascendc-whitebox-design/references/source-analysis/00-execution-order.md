@@ -2,7 +2,7 @@
 
 ## 角色
 
-分析算子源码（tiling + kernel + 接口），提取分支路径和参数维度，产出代码路径清单、算子接口模型、参数定义和测试设计文档，供下游 Step 5（case mapper）和可选 TTK 模块消费。
+分析算子源码（tiling + kernel + 接口），提取分支路径和参数维度，产出代码路径清单、算子接口模型和参数定义，供下游 Step 5（case mapper）和 TTK 模块消费。
 
 ## 输入
 
@@ -17,90 +17,94 @@
 |------|-------|------|
 | `S2P0_scout_t.md` | Phase 0 | tiling 侦察报告（入口函数 + P0/P1/P2 文件清单） |
 | `S2P0_scout_t.json` | Phase 0 | tiling 侦察结构化数据（供 verify 消费） |
-| `S2P0_scout_k.md` | Phase 0 | kernel 侦察报告（dispatch 类型 + key 列表） |
-| `S2P0_scout_k.json` | Phase 0 | kernel 侦察结构化数据（供 verify 消费） |
+| `S2P0_scout_k.md` | Phase 0 | kernel 侦察报告（P0 当前 kernel 文件 + op.Init 可达模板 + P1/P2 include 文件 + key 列表） |
+| `S2P0_scout_k.json` | Phase 0 | kernel 侦察结构化数据（供 verify 消费，含 `reachable_kernel_templates`） |
 | `S2P0_file_manifest.json` | Phase 0 | 源码文件清单（tiling/kernel 优先级 + 排除列表） |
-| `S2P0_source_scope.md` | Phase 0 | 源码读取范围（供 Task A/D 直接读取） |
-| `S2P1_path_list.json` | Phase 1 | 代码路径清单 + 分支树 |
+| `S2P0_source_scope.md` | Phase 0 | 源码读取最大边界（后续任务按自身规则读取；P2 禁止读取） |
+| `S2P1_path_list.json` | Phase 1 | 代码路径清单（path graph：tiling_paths + kernel_branches + paths） |
+| `S2P1_route_dispatch_model.md` | Phase 1 | evaluator 指导书 |
+| `S2P1_route_extract.py` | Phase 1 | route evaluator 脚本 |
+| `S2P1_case_generator.py` | Phase 1 | route case 生成器 |
+| `S2P1_route_cases.json` | Phase 1 | route cases（case generator 输出） |
+| `S2P1_cases.json` | Phase 1 | 用例文件（evaluator 附带输出，flat array，仅含 reachable 用例） |
 | `S2P1_tiling_glossary.md` | Phase 1 | tiling 变量含义表（tiling 源码变量名 → 语义名映射） |
 | `S2P1_operator_model.json` | Phase 1 | 算子接口模型（inputs/outputs/attributes，以 `_def.cpp` 为权威约束源） |
 | `S2P1_low_configs.json` | Phase 1 | 常见网络 shape 配置（语义参数名） |
-| `S2P2_analysis_data.json` | Phase 2 | 紧凑格式分析数据（LLM 生成，assemble_dim_spec.py 的输入） |
-| `S2P2_dim_spec.json` | Phase 2 | 维度范围规格（由 assemble_dim_spec.py 从 S2P2_analysis_data.json 生成） |
-| `S2P2_param_def_groups.json` | Phase 2 | 推导数据文件（由 pick_dims.py 自动生成） |
-| `S2P2_reachability_data.json` | Phase 2 | 可达性 + 分组中间数据（update_path_list.py 输入） |
-| `S2P2_param_def.json` | Phase 2 | 参数定义 + 约束 + 分组 + tiling_keys（由 builder 自动生成） |
-| `S2P2_gen_cases.py` | Phase 2 | 参数组合枚举脚本 |
-| `S2P2_cases.json` | Phase 2 | 参数组合枚举结果 |
-| `S2P2_traceability.md` | Phase 2 | 推导追溯文档 |
-| `S2P3_test_design.md` | Phase 3 | 测试设计文档 |
+| `S2P1_postcheck_report.json` | Phase 1 | Phase 1 统一 postcheck 报告 |
 
-**可选产物**（不阻塞门禁）：
+## Step 2：源码分析任务
 
-| 文件 | Phase | 说明 |
-|------|-------|------|
-| `S2P1_task_a_todo.md` | Phase 1 | Task A 子 agent 进度跟踪（命名固定） |
-| `S2P2_task_d_todo.md` | Phase 2 | Task D 子 agent 进度跟踪（命名固定） |
+Step 2 要从算子源码中回答三个问题：
 
-## 执行顺序约束（强制）
+- 可执行路径：tiling 分支、kernel dispatch、tiling key 到 kernel 模板的映射是什么，route seed 的 `case_values` 字段多样性目标是什么？
+- 接口模型：inputs / outputs / attributes / dtype / shape / 约束是什么？
+- 常见配置：low 档应覆盖哪些典型网络 shape？
 
-以下 Phase 必须按编号顺序逐步执行，禁止跳步或抢跑。
+Step 2 分两阶段执行：Phase 0 生成源码读取边界；Phase 1 并行回答上述三个问题。
 
-### Phase 0 固定脚本执行规则（强制）
+### Phase 0：生成源码读取边界
 
-Phase 0 只执行固定脚本，不分析脚本源码。主 Agent 按顺序执行：
+Phase 0 只做一件事：主 Agent 同步调用一次 `scripts/run_s2p0.py`，生成 Phase 1 的源码读取边界。
 
-1. 并行执行 `scripts/scout_t.py` 和 `scripts/scout_k.py`
-2. 等待两个脚本结束
-3. 执行 `scripts/s2p0_verify.py`
-4. 检查退出码、预期产物、JSON 可解析性和 S2P0 verify pass 状态
+主 Agent 只根据退出码判断是否进入 Phase 1。成功后，Phase 1 使用 `S2P0_source_scope.md` 作为源码读取边界。
 
-禁止读取或分析 `scout_t.py`、`scout_k.py`、`s2p0_verify.py` 源码；禁止派发子 agent 分析 Phase 0。后续源码范围以 `S2P0_source_scope.md` 为准。
+不要做：
 
-| Phase | 任务 | 执行方 | 参考文档 | 输入 | 前置条件 | 状态判断 |
-|-------|------|--------|---------|------|---------|---------|
-| Phase 0 | Scout-T：tiling 侦察 | 脚本 `scripts/scout_t.py` | 固定命令模板；不读脚本源码 | `--op-name`、`--op-path`、`--npu-arch`、`--soc-version` | 算子路径 + 平台参数已就绪 | `S2P0_scout_t.md` + `S2P0_scout_t.json` 已生成 |
-| Phase 0 | Scout-K：kernel 侦察 | 脚本 `scripts/scout_k.py` | 固定命令模板；不读脚本源码 | `--op-name`、`--op-path`、`--npu-arch`、`--soc-version` | 同上 | `S2P0_scout_k.md` + `S2P0_scout_k.json` 已生成 |
-| Phase 0 | Scout-Verify：校验 + 清单 | 脚本 `scripts/s2p0_verify.py` | 固定命令模板；不读脚本源码 | `--op-name`、`--op-path`、`--npu-arch`、`--soc-version` | Scout-T + Scout-K 均完成 | `S2P0_file_manifest.json` + `S2P0_source_scope.md` 已生成，`verification.status` = `pass` |
-| Phase 1 | Task A：代码路径分析 | 子 agent | `01-code-analyzer.md`，prompt 模板见本文件 §子 Agent Prompt 模板 → Task A | 算子路径、平台参数、`S2P0_source_scope.md` 路径、`S2P0_scout_t.md`、`S2P0_scout_k.md` 路径、`S2P0_scout_k.json` 路径、产出写入路径 | Phase 0 全部完成 | `S2P1_path_config.json` 已生成，`build_path_list.py` 已运行且 Validation PASSED，`S2P1_path_list.json` + `S2P1_tiling_glossary.md` 已由脚本产出 |
-| Phase 1 | Task B：接口分析 | 子 agent | `02-interface-analyzer.md`，prompt 模板见本文件 §子 Agent Prompt 模板 → Task B | 算子路径、平台参数、产出写入路径 | 同上 | `S2P1_operator_model.json` 已生成 |
-| Phase 1 | Task C：网络搜索 | 子 agent | `05-network-search.md`，prompt 模板见本文件 §子 Agent Prompt 模板 → Task C | 算子名称、算子路径、平台参数、产出写入路径 | 同上 | `S2P1_low_configs.json` 已生成 |
-| Phase 2 | Task D：参数推导 | 子 agent | `03-param-derivation.md`，prompt 模板见本文件 §子 Agent Prompt 模板 → Task D | 算子路径、平台参数、`S2P0_source_scope.md` 路径、`S2P1_path_list.json`、`S2P1_operator_model.json`、`S2P1_low_configs.json` 路径、产出写入路径 | Phase 1 全部完成 | `S2P2_analysis_data.json` 已写入，assemble_dim_spec.py 已运行生成 `S2P2_dim_spec.json`，pick_dims.py 已生成 `S2P2_param_def_groups.json` 并格式化，build_param_def.py 已运行产出 `S2P2_param_def.json`，`S2P2_gen_cases.py` + `S2P2_cases.json` + `S2P2_traceability.md` 已生成 |
-| Phase 3a | 处理 disputed 路径 | 主 Agent | — | Task D 返回的 disputed 列表 | Phase 2 完成 | `S2P1_path_list.json` 已更新（reachability + group） |
-| Phase 3b | 生成测试设计文档 | 主 Agent + 脚本 `scripts/generate_test_design.py` | `04-test-design-template.md` | `S2P1_path_list.json`、`S2P1_operator_model.json`、`S2P1_low_configs.json`、`S2P2_param_def.json`、`S2P2_cases.json`、`S2P2_traceability.md`、Phase 3a 确认结果 | Phase 3a 完成 | `S2P3_test_design.md` 已生成，脚本区/LLM区/verifier区 marker 均存在 |
+- 不拆分执行 `scout_t.py`、`scout_k.py`、`s2p0_verify.py`。
+- 不读取或分析 Phase 0 相关脚本源码。
+- 不派发子 agent 分析 Phase 0。
+- 不读取 scout 报告，不总结 P0/P1/P2。
 
-**并行规则**：
-- Phase 0：scout_t.py + scout_k.py 脚本并行执行，两者完成后派 Scout-Verify
-- Phase 1：Task A、B、C **并行**派发（无依赖）
-- Phase 2：Task D **串行**（依赖 Phase 1 全部完成）
-- Phase 3：3a 和 3b **串行**（3b 依赖 3a 完成）
+完成条件：`run_s2p0.py` 退出码为 0。
 
-### Phase 0 命令模板
+### Phase 1：并行回答三个问题
 
-Scout-T：
+Phase 1 必须在 Phase 0 成功后启动。Task A/B/C 互不依赖，主 Agent 必须一次性启动三个独立子 agent：一个执行 Task A、一个执行 Task B、一个执行 Task C；禁止串行执行，禁止等待任一 Task 完成、校验或重试后再派发其他 Task。
+
+| Task | 要回答的问题 | 产物 |
+|------|--------------|------|
+| Task A | 源码有哪些可执行 tiling/kernel 路径？tiling key 如何映射到 kernel 模板？`case_values` 字段应满足什么多样性目标？ | `S2P1_route_dispatch_model.md`、`S2P1_tiling_glossary.md`、`S2P1_route_extract.py`、`S2P1_case_generator.py`、`S2P1_route_cases.json`、`S2P1_path_list.json`、`S2P1_cases.json` |
+| Task B | 算子的对外接口、输入输出、属性和约束是什么？ | `S2P1_operator_model.json` |
+| Task C | low 档应覆盖哪些常见网络 shape 配置？ | `S2P1_low_configs.json` |
+
+校验规则：
+
+- A/B/C 全部返回后，主 Agent 只调用 `scripts/check_s2p1.py` 做 Phase 1 产出的文件级粗验收（存在性 + JSON 可解析 + 顶层结构），并给出 `owner_task` 失败归属。
+- postcheck PASS：Step 2 完成，进入 Step 3。
+- postcheck FAIL：按报告中的 `owner_task` 只重试对应 Task；`owner_task=multiple` 时只重试失败 owners；重试后再次运行 postcheck。
+- 主 Agent 不逐个手写 JSON 校验，不根据子 agent 摘要判断 Step 2 是否完成。
+
+### 源码读取策略
+
+Phase 1 不做全仓源码阅读，只按 Phase 0 生成的边界读取源码。后续任务不得自行扩大边界。
+
+| 范围 | 用途 | 读取策略 |
+|------|------|----------|
+| P0 | kernel dispatch 入口，建立 tiling key 与 kernel 模板关系 | 默认读取 |
+| P1 | 当前 kernel 实际可达模板，分析实现内部约束 | 按需读取 |
+| P2 | include 可达但当前 kernel 未使用的文件 | 默认不读 |
+
+P0/P1 是最大可读边界，不代表所有任务都必须读取；Task A 默认仅读 P0 dispatch 入口，只有分析具体 kernel 内部约束时才读取 P1。
+
+Scout-T/K 只做文件级筛选；后续任务读取 P0/P1 时，仍需按目标平台过滤源码内 `#if/#elif/#else/#endif`、`GetCurNpuArch()`、SocVersion 等平台条件。
+
+`S2P0_scout_k.json.reachable_kernel_templates` 记录已解析 `op.Init(...)` 分支；`unresolved_init_calls` 仅作诊断，不单独阻塞 Phase 0。`S2P0_file_manifest.json.kernel.file_list` 只能包含 P0/P1；`kernel.excluded` 与 `S2P0_source_scope.md` 排除区必须包含 P2。
+
+### P2 最小片段例外
+
+仅当必填产物字段依赖某个已知 P2 符号，且 P0/P1 无法获得时，允许读取最小必要片段。
+
+约束：
+
+- 仅限已知符号、宏、枚举或常量定义。
+- 只读定义附近，不展开整个文件，不跟随 include。
+- 不读取 P2 kernel 模板实现分析算法。
+- 必须在产物中记录读取理由和源码证据。
+
+### Phase 0 命令
 
 ```bash
-python3 {skill_base}/scripts/scout_t.py \
-  --op-name {op_name} \
-  --op-path {op_path} \
-  --npu-arch {npu_arch} \
-  --soc-version {soc_version}
-```
-
-Scout-K：
-
-```bash
-python3 {skill_base}/scripts/scout_k.py \
-  --op-name {op_name} \
-  --op-path {op_path} \
-  --npu-arch {npu_arch} \
-  --soc-version {soc_version}
-```
-
-Scout-Verify：
-
-```bash
-python3 {skill_base}/scripts/s2p0_verify.py \
+python3 {skill_base}/scripts/run_s2p0.py \
   --op-name {op_name} \
   --op-path {op_path} \
   --npu-arch {npu_arch} \
@@ -109,16 +113,25 @@ python3 {skill_base}/scripts/s2p0_verify.py \
 
 如需记录耗时，可在命令前加 `/usr/bin/time -p`。耗时记录只用于观察，不参与流程判定。
 
-**校验失败处理**：
+失败处理：
 
-- Scout-Verify `verification.status` = `fail` → 重跑失败的 Scout（最多 1 次），仍 fail → 触发轮次耗尽协议
-- Scout-Verify `verification.status` = `pass` → 进入 Phase 1
+- 退出码非 0：按 wrapper 输出的失败阶段重跑一次；仍失败则触发轮次耗尽协议。
+- 退出码为 0：进入 Phase 1。
 
-**完成标志**：`S2P3_test_design.md` 已生成，Phase 3a 的 disputed 路径已由用户确认（无 disputed 则自动满足）。
+### Phase 1 Postcheck 命令
+
+```bash
+python3 {skill_base}/scripts/check_s2p1.py \
+  --whitebox-dir {output_dir}
+```
+
+失败处理：postcheck 失败后按 `owner_task` 重试对应 Task 一次；仍失败则触发轮次耗尽协议。
+
+Step 2 完成标志：`check_s2p1.py` 输出 `PASS S2P1`。
 
 ## 子 Agent Prompt 模板
 
-主 Agent 派发 Task A/B/C/D 子 agent 时，Read 本节对应模板，替换占位符后作为 prompt 发送。**禁止自行改写模板结构或措辞**，仅允许替换 `{占位符}`。
+主 Agent 派发 Task A/B/C 子 agent 时，仅替换占位符，不改写模板结构。
 
 ### 占位符定义
 
@@ -133,47 +146,32 @@ python3 {skill_base}/scripts/s2p0_verify.py \
 | `{ub_size}` | UB 大小(KB) | Step 1.3 |
 | `{output_dir}` | 产物写入路径 | `{op_path}/tests/whitebox/` |
 | `{skill_base}` | 技能根目录绝对路径 | skill 自身路径 |
+| `{task_a_entry_doc}` | Task A 入口参考文档路径 | `{skill_base}/references/task-a/00-overview.md` |
 | `{source_scope_path}` | S2P0_source_scope.md 路径 | Phase 0 产出 |
-| `{scout_t_path}` | S2P0_scout_t.md 路径 | Phase 0 产出 |
-| `{scout_k_path}` | S2P0_scout_k.md 路径 | Phase 0 产出 |
-| `{scout_k_json_path}` | S2P0_scout_k.json 路径 | Phase 0 产出 |
-| `{path_list_path}` | S2P1_path_list.json 路径 | Phase 1 产出 |
-| `{operator_model_path}` | S2P1_operator_model.json 路径 | Phase 1 产出 |
-| `{low_configs_path}` | S2P1_low_configs.json 路径 | Phase 1 产出 |
 
 ---
 
-### Task A：代码路径分析
+### Task A：Route Evaluator 系统
+
+主 Agent 派发 Task A 时，先补充调用侧说明：Task A 的参考文档根目录是 `{skill_base}/references/task-a/`，不要从当前文件所在目录推导相对路径。
 
 ```
-你是代码路径分析专家。请执行 Phase 1 Task A：代码路径分析（tiling + kernel）。
+你是代码路径分析专家。请回答：该算子源码中有哪些可执行 tiling/kernel 路径，tiling key 如何映射到 kernel 模板，`case_values` 字段应满足什么多样性目标？
 
-**优先执行入口文件顶部的执行顺序约束节**。
-
-请先 Read 参考文档 `{skill_base}/references/source-analysis/01-code-analyzer.md`，然后按照文档中的规则逐步执行代码路径分析。
+请先 Read 参考文档 `{task_a_entry_doc}`，然后按 01 → 02 → 03 顺序逐步执行。
 
 上下文参数：
 - 算子名称：{op_name}
 - 算子路径：{op_path}
 - platform：npu_arch={npu_arch}, soc_version={soc_version}, chip_model={chip_model}, core_count={core_count}, ub_size={ub_size}
 - skill_base：{skill_base}
+- Task A 入口文档：{task_a_entry_doc}
 - 产出写入路径：{output_dir}
-- S2P0_scout_t.md 路径：{scout_t_path}
-- S2P0_scout_k.md 路径：{scout_k_path}
-- S2P0_scout_k.json 路径：{scout_k_json_path}
 - S2P0_source_scope.md 路径：{source_scope_path}
 
 源码读取范围：Read `{source_scope_path}` 获取文件清单，严格按该文件列出的范围读取，不得自行添加。
 
-请先生成 `S2P1_path_config.json` 到产出路径（路径主体见 `{skill_base}/references/task-a/04-path-config-schema.md` §路径主体，完整性配置见 `{skill_base}/references/task-a/04-path-config-schema.md` §完整性配置），然后运行以下脚本自动产出最终文件：
-
-python3 {skill_base}/scripts/build_path_list.py \
-  --config {output_dir}/S2P1_path_config.json \
-  --scout-k {scout_k_json_path} \
-  --output-dir {output_dir}
-
-
-脚本将自动产出 `S2P1_path_list.json` 和 `S2P1_tiling_glossary.md`。完成后返回产出的文件路径和关键发现摘要（路径总数、分组数、disputed 路径列表）。
+完成后只返回 `PASS Task A`、产物路径列表和必要计数（tiling_paths / kernel_branches / paths / orphans / glossary）。
 ```
 
 ---
@@ -181,11 +179,9 @@ python3 {skill_base}/scripts/build_path_list.py \
 ### Task B：接口分析
 
 ```
-你是接口分析专家。请执行 Phase 1 Task B：接口分析。
+你是接口分析专家。请回答：该算子的对外接口是什么，inputs/outputs/attributes 及约束分别是什么？
 
-**优先执行入口文件顶部的执行顺序约束节**。
-
-请先 Read 参考文档 `{skill_base}/references/source-analysis/02-interface-analyzer.md`，然后按照文档中的规则逐步执行接口分析。
+请先 Read 参考文档 `{skill_base}/references/source-analysis/01-interface-analyzer.md`，然后按照文档中的规则逐步执行接口分析。
 
 上下文参数：
 - 算子名称：{op_name}
@@ -194,7 +190,7 @@ python3 {skill_base}/scripts/build_path_list.py \
 - skill_base：{skill_base}
 - 产出写入路径：{output_dir}
 
-请生成 `S2P1_operator_model.json` 到产出路径。完成后返回产出的文件路径和接口模型摘要（inputs/outputs/attributes 列表）。
+请生成 `S2P1_operator_model.json` 到产出路径。完成后只返回 `PASS Task B`、产物路径和 inputs/outputs/attributes 数量。
 ```
 
 ---
@@ -202,11 +198,9 @@ python3 {skill_base}/scripts/build_path_list.py \
 ### Task C：网络搜索
 
 ```
-你是网络搜索专家。请执行 Phase 1 Task C：常见网络 shape 配置搜索。
+你是网络配置搜索专家。请回答：该算子 low 档应覆盖哪些常见网络 shape 配置？
 
-**优先执行入口文件顶部的执行顺序约束节**。
-
-请先 Read 参考文档 `{skill_base}/references/source-analysis/05-network-search.md`，然后按照文档中的规则逐步执行网络搜索。
+请先 Read 参考文档 `{skill_base}/references/source-analysis/02-network-search.md`，然后按照文档中的规则逐步执行网络搜索。
 
 上下文参数：
 - 算子名称：{op_name}
@@ -215,77 +209,5 @@ python3 {skill_base}/scripts/build_path_list.py \
 - skill_base：{skill_base}
 - 产出写入路径：{output_dir}
 
-请生成 `S2P1_low_configs.json` 到产出路径。完成后返回产出的文件路径和搜索到的典型配置数量。
+请生成 `S2P1_low_configs.json` 到产出路径。完成后只返回 `PASS Task C`、产物路径和典型配置数量。
 ```
-
----
-
-### Task D：参数推导
-
-```
-你是参数推导工程师。请执行 Phase 2 Task D：路径枚举 + 参数推导。
-
-**优先执行入口文件顶部的执行顺序约束节**。
-
-请先 Read 参考文档 `{skill_base}/references/source-analysis/03-param-derivation.md`，然后按照文档中的规则逐步执行参数推导。
-
-上下文参数：
-- 算子名称：{op_name}
-- 算子路径：{op_path}
-- platform：npu_arch={npu_arch}, soc_version={soc_version}, chip_model={chip_model}, core_count={core_count}, ub_size={ub_size}
-- skill_base：{skill_base}
-- 产出写入路径：{output_dir}
-- S2P1_path_list.json 路径：{path_list_path}
-- S2P1_operator_model.json 路径：{operator_model_path}
-- S2P1_low_configs.json 路径：{low_configs_path}
-- S2P0_source_scope.md 路径：{source_scope_path}
-
-源码读取范围：Read `{source_scope_path}` 获取文件清单，严格按该文件列出的范围读取，不得自行添加。
-
-完成后返回产出的文件路径、参数分组数量和关键发现摘要。
-```
-
----
-
-## Phase 3a：disputed 路径处理规则
-
-Task D 返回的 disputed 列表（路径可达性不确定的条目）由主 Agent 处理：
-
-1. 向用户提问（一次性问完所有 disputed 项）
-2. 选项：全部接受建议 / 逐条确认
-3. 用户确认后，主 Agent 更新 `S2P1_path_list.json`：
-   - accepted → reachable
-   - excluded → dead 并记录原因
-4. 无 disputed 则跳过此步骤
-
-## Phase 3b：测试设计文档生成规则
-
-主 Agent 必须先 Read `04-test-design-template.md`，然后按该文档执行两段式生成：
-
-1. 运行脚本生成脚本区：
-
-```bash
-python3 {skill_base}/scripts/generate_test_design.py \
-  --op-name {op_name} \
-  --op-path {op_path} \
-  --output-dir {output_dir}
-```
-
-2. 脚本通过后，主 Agent 只填写 `<!-- BEGIN LLM ANALYSIS SECTION -->` 与 `<!-- END LLM ANALYSIS SECTION -->` 之间的 LLM 分析区。禁止修改脚本生成区事实。
-
-3. 生成后确认 `S2P3_test_design.md` 包含脚本区、LLM 分析区、verifier 区 marker，并包含以下兼容锚点：
-   - `### 3.1 代码路径全景`
-   - `### 3.2 测试关注点（groups）`
-   - `### 6.2 关键派生变量`
-   - `### 6.3 执行模式分析`
-   - `## 8. Step 3 验证结论（原 §9 验证结论）`
-
-## 文件索引
-
-| 文件 | 职责 | 读入时机 |
-|------|------|---------|
-| `01-code-analyzer.md` | 代码路径提取、约束分析、分支树构建 | Phase 1 Task A |
-| `02-interface-analyzer.md` | 接口签名分析、参数约束、API 暴露 | Phase 1 Task B |
-| `03-param-derivation.md` | 参数推导、组合枚举、分组、tiling_keys | Phase 2 Task D |
-| `04-test-design-template.md` | 测试设计文档模板、group 汇总 | Phase 3b |
-| `05-network-search.md` | aclnn 文档参数类型提取、网络 shape 搜索、TensorList 约束保障 | Phase 1 Task C |

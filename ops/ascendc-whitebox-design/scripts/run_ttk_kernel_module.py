@@ -4,7 +4,7 @@
 # This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 # CANN Open Software License Agreement Version 2.0 (the "License").
 # Please refer to the License for details. You may not use this file except in compliance with the License.
-# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED,
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------------------------------------
@@ -71,6 +71,15 @@ class PrecheckPaths:
     whitebox_dir: Path
     ops_test_kit_path: Path
     precheck_report: Path
+
+
+@dataclass
+class OpsTestKitDiscovery:
+    status: str
+    provided: bool
+    search_root: Path
+    selected: Path
+    candidates: list[Path]
 
 
 def now_s() -> float:
@@ -425,6 +434,7 @@ def run_ttk_kernel(
 def build_input_check(
     required_for_csv: list[Path],
     optional_for_kernel: list[Path],
+    ops_test_kit_discovery: OpsTestKitDiscovery,
 ) -> dict[str, Any]:
     missing_required = [str(path) for path in required_for_csv if not path.exists()]
     missing_optional = [str(path) for path in optional_for_kernel if not path.exists()]
@@ -434,6 +444,13 @@ def build_input_check(
         "optional_for_kernel": [str(path) for path in optional_for_kernel],
         "missing_required_for_csv": missing_required,
         "missing_optional_for_kernel": missing_optional,
+        "ops_test_kit_discovery": {
+            "status": ops_test_kit_discovery.status,
+            "provided": ops_test_kit_discovery.provided,
+            "search_root": str(ops_test_kit_discovery.search_root),
+            "selected": str(ops_test_kit_discovery.selected),
+            "candidates": [str(path) for path in ops_test_kit_discovery.candidates],
+        },
     }
 
 
@@ -453,7 +470,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Deprecated compatibility option; CSV generation no longer uses it.",
     )
-    parser.add_argument("--ops-test-kit-path", required=True)
+    parser.add_argument(
+        "--ops-test-kit-path",
+        default=None,
+        help="Optional. If omitted, search $PWD to maxdepth=4 for a unique ops-test-kit directory.",
+    )
     parser.add_argument("--skill-base", default=str(Path(__file__).resolve().parents[1]))
     parser.add_argument("--setenv-path", default=None)
     parser.add_argument(
@@ -567,15 +588,70 @@ def _run_precheck(
     return precheck
 
 
+def discover_ops_test_kit(search_root: Path, max_depth: int = 4) -> list[Path]:
+    candidates: list[Path] = []
+    queue: list[tuple[Path, int]] = [(search_root.resolve(), 0)]
+    seen: set[Path] = set()
+    while queue:
+        current, depth = queue.pop(0)
+        if current in seen:
+            continue
+        seen.add(current)
+        if current.name == "ops-test-kit" and current.is_dir():
+            candidates.append(current)
+            continue
+        if depth >= max_depth:
+            continue
+        try:
+            children = [path for path in current.iterdir() if path.is_dir()]
+        except OSError:
+            continue
+        queue.extend((child, depth + 1) for child in children)
+    return sorted(candidates)
+
+
+def resolve_ops_test_kit_path(raw_path: str | None, search_root: Path) -> OpsTestKitDiscovery:
+    root = search_root.resolve()
+    if raw_path:
+        selected = Path(raw_path).resolve()
+        return OpsTestKitDiscovery(
+            status="provided",
+            provided=True,
+            search_root=root,
+            selected=selected,
+            candidates=[],
+        )
+
+    candidates = discover_ops_test_kit(root)
+    if len(candidates) == 1:
+        return OpsTestKitDiscovery(
+            status="unique_found",
+            provided=False,
+            search_root=root,
+            selected=candidates[0],
+            candidates=candidates,
+        )
+
+    status = "not_found" if not candidates else "ambiguous"
+    return OpsTestKitDiscovery(
+        status=status,
+        provided=False,
+        search_root=root,
+        selected=root / "__missing_ops_test_kit__",
+        candidates=candidates,
+    )
+
+
 def _build_paths(args: argparse.Namespace, skill_base: Path) -> dict[str, Path]:
     scripts_dir = skill_base / "scripts"
     whitebox_dir = Path(args.whitebox_dir).resolve()
     op_path = Path(args.op_path).resolve()
-    ops_test_kit_path = Path(args.ops_test_kit_path).resolve()
+    ops_test_kit_discovery = resolve_ops_test_kit_path(args.ops_test_kit_path, Path.cwd())
     return {
         "whitebox_dir": whitebox_dir,
         "op_path": op_path,
-        "ops_test_kit_path": ops_test_kit_path,
+        "ops_test_kit_path": ops_test_kit_discovery.selected,
+        "ops_test_kit_discovery": ops_test_kit_discovery,
         "scripts_dir": scripts_dir,
         "low_cases": whitebox_dir / "S5_cases_low.json",
         "high_cases": whitebox_dir / "S5_cases_high.json",
@@ -631,7 +707,7 @@ def _run_input_check(
         paths["generate_script"], paths["validate_script"], paths["precheck_script"],
     ]
     optional_for_kernel = [paths["ops_test_kit_path"]]
-    input_step = build_input_check(required_for_csv, optional_for_kernel)
+    input_step = build_input_check(required_for_csv, optional_for_kernel, paths["ops_test_kit_discovery"])
     report["steps"]["input_check"] = input_step
     if input_step["status"] != "passed":
         report["issues"].append(

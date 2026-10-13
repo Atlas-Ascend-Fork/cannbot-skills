@@ -8,10 +8,13 @@
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------------------------------------
-"""Verify: Aggregate scout outputs into file manifest.
+"""Verify: Aggregate scout outputs into the Phase 0 source scope.
 
 Reads S2P0_scout_t.json and S2P0_scout_k.json, verifies all files exist,
-and outputs S2P0_file_manifest.json for downstream consumption.
+and outputs S2P0_file_manifest.json plus S2P0_source_scope.md for downstream
+consumption. This script does not discover kernel reachability itself; it
+solidifies Scout-K's boundary so downstream agents read only kernel P0/P1 and
+keep kernel P2 in the excluded, do-not-read scope.
 
 Usage:
     python s2p0_verify.py \
@@ -23,6 +26,7 @@ Usage:
 
 Output:
     {output_dir}/S2P0_file_manifest.json
+    {output_dir}/S2P0_source_scope.md
 """
 import argparse
 import json
@@ -127,15 +131,20 @@ def build_tiling_section(scout_t_data, op_path):
 
 
 def build_kernel_section(scout_k_data, op_path):
-    """Build kernel section from scout_k.json."""
+    """Build kernel section from scout_k.json.
+
+    Kernel P0/P1 are readable files. Kernel P2 entries are include-reachable
+    files that the current kernel does not use after op.Init template filtering,
+    so they remain excluded to avoid consuming downstream context.
+    """
     file_list = []
     missing_files = []
     total_key_count = 0
 
-    # P0 files from entries
+    # P0/P1 readable files from Scout-K entries.
     for entry in scout_k_data.get('entries', []):
         try:
-            rel_path = os.path.join('op_kernel', entry['file'])
+            rel_path = os.path.normpath(os.path.join('op_kernel', entry['file']))
             if not verify_file_exists(op_path, rel_path):
                 missing_files.append(rel_path)
                 _logger.warning("Missing P0 kernel file: %s", rel_path)
@@ -143,24 +152,32 @@ def build_kernel_section(scout_k_data, op_path):
             key_count = entry.get('total_key_count', 0)
             total_key_count += key_count
 
-            file_list.append({
+            file_item = {
                 'path': rel_path,
-                'priority': 'P0',
+                'priority': entry.get('priority', 'P0'),
                 'pattern': entry.get('dispatch_type', 'A'),
-                'key_count': key_count
-            })
+                'key_count': key_count,
+                'kind': entry.get('kind', 'kernel_entry'),
+                'matched_templates': entry.get('matched_templates', []),
+                'include_level': entry.get('include_level'),
+                'included_by': entry.get('included_by'),
+            }
+            file_list.append(file_item)
         except KeyError as e:
             _logger.warning("Invalid kernel entry (missing %s): %s", e, entry)
             continue
 
-    # Excluded files
+    # P2 and other excluded files are kept out of the readable file list.
     excluded = []
     for ex in scout_k_data.get('excluded', []):
         try:
-            rel_path = os.path.join('op_kernel', ex['file'])
+            rel_path = os.path.normpath(os.path.join('op_kernel', ex['file']))
             excluded.append({
                 'path': rel_path,
-                'reason': ex['reason']
+                'reason': ex['reason'],
+                'priority': ex.get('priority', 'P2'),
+                'include_level': ex.get('include_level'),
+                'included_by': ex.get('included_by'),
             })
         except KeyError as e:
             _logger.warning("Invalid kernel excluded entry (missing %s): %s", e, ex)
@@ -169,7 +186,9 @@ def build_kernel_section(scout_k_data, op_path):
     return {
         'total_key_count': total_key_count,
         'file_list': file_list,
-        'excluded': excluded
+        'excluded': excluded,
+        'reachable_kernel_templates': scout_k_data.get('reachable_kernel_templates', []),
+        'unresolved_init_calls': scout_k_data.get('unresolved_init_calls', []),
     }, missing_files
 
 
@@ -194,19 +213,30 @@ def write_source_scope(output_dir, tiling_section, kernel_section):
     lines.append('## kernel')
     lines.append('')
     for f in kernel_section['file_list']:
+        extra = ''
+        if f.get('matched_templates'):
+            extra = f'；matched_templates={",".join(f["matched_templates"])}'
         lines.append(
             f'- {f["priority"]}: {f["path"]} — '
-            f'dispatch 块（{f["key_count"]} 条 key, pattern={f["pattern"]}）')
+            f'dispatch 块（{f["key_count"]} 条 key, pattern={f["pattern"]}）{extra}')
     lines.append(f'- 总计 {kernel_section["total_key_count"]} 条 key')
+    templates = kernel_section.get('reachable_kernel_templates', [])
+    if templates:
+        unique_templates = sorted({item.get('template', '') for item in templates if item.get('template')})
+        lines.append(f'- op.Init 可达模板: {", ".join(unique_templates)}')
     lines.append('')
 
     # excluded section
     lines.append('## 排除（禁止读取）')
     lines.append('')
+    lines.append('Kernel P2 表示 include 可达但当前 kernel 实际用不到的文件，禁止读取。')
+    lines.append('')
     all_excluded = tiling_section['excluded'] + kernel_section['excluded']
     if all_excluded:
         for ex in all_excluded:
-            lines.append(f'- {ex["path"]} — {ex["reason"]}')
+            priority = ex.get('priority')
+            prefix = f'{priority}: ' if priority else ''
+            lines.append(f'- {prefix}{ex["path"]} — {ex["reason"]}')
     else:
         lines.append('（无）')
     lines.append('')
@@ -291,8 +321,9 @@ def main():
                  sum(1 for f in tiling_section['file_list'] if f['priority'] == 'P0'),
                  sum(1 for f in tiling_section['file_list'] if f['priority'] == 'P1'),
                  len(tiling_section['excluded']))
-    _logger.info("  Kernel: %d P0, %d excluded, %d total keys",
-                 len(kernel_section['file_list']),
+    _logger.info("  Kernel: %d P0, %d P1, %d excluded, %d total keys",
+                 sum(1 for f in kernel_section['file_list'] if f['priority'] == 'P0'),
+                 sum(1 for f in kernel_section['file_list'] if f['priority'] == 'P1'),
                  len(kernel_section['excluded']),
                  kernel_section['total_key_count'])
     _logger.info("Done.")

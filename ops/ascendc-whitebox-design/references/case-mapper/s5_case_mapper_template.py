@@ -4,7 +4,7 @@
 # This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 # CANN Open Software License Agreement Version 2.0 (the "License").
 # Please refer to the License for details. You may not use this file except in compliance with the License.
-# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED,
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------------------------------------
@@ -49,13 +49,13 @@ def input_tensor(
     shape: list[int] | None,
     param_type: str = "REQUIRED",
     data_range: str = "normal",
-    fmt: str = "ND",
+    format_: str = "ND",
     **extra: Any,
 ) -> dict[str, Any]:
     tensor = {
         "kind": "tensor",
         "dtype": dtype,
-        "format": fmt,
+        "format": format_,
         "shape": None if shape is None else list(shape),
         "param_type": param_type,
         "data_range": data_range,
@@ -68,13 +68,13 @@ def dynamic_input_tensor(
     dtype: str,
     tensors: list[dict[str, Any]],
     data_range: str = "normal",
-    fmt: str = "ND",
+    format_: str = "ND",
     **extra: Any,
 ) -> dict[str, Any]:
     tensor = {
         "kind": "tensor_list",
         "dtype": dtype,
-        "format": fmt,
+        "format": format_,
         "param_type": "DYNAMIC",
         "tensor_count": len(tensors),
         "data_range": data_range,
@@ -88,13 +88,13 @@ def output_tensor(
     dtype: str,
     shape: list[int] | None,
     param_type: str = "REQUIRED",
-    fmt: str = "ND",
+    format_: str = "ND",
     **extra: Any,
 ) -> dict[str, Any]:
     tensor = {
         "kind": "tensor",
         "dtype": dtype,
-        "format": fmt,
+        "format": format_,
         "shape": None if shape is None else list(shape),
         "param_type": param_type,
     }
@@ -105,13 +105,13 @@ def output_tensor(
 def output_tensor_list(
     dtype: str,
     tensors: list[dict[str, Any]],
-    fmt: str = "ND",
+    format_: str = "ND",
     **extra: Any,
 ) -> dict[str, Any]:
     tensor = {
         "kind": "tensor_list",
         "dtype": dtype,
-        "format": fmt,
+        "format": format_,
         "param_type": "DYNAMIC",
         "tensor_count": len(tensors),
         "tensors": tensors,
@@ -171,24 +171,62 @@ def _validate_tensor_shape(shape: Any, label: str) -> None:
         return
     if not isinstance(shape, list) or not all(isinstance(dim, int) for dim in shape):
         raise ValueError(f"{label}: shape must be a list[int] or null")
+    if not shape:
+        raise ValueError(f"{label}: shape must not be an empty list; empty tensor uses [0] (TL3)")
 
 
-def _validate_single_tensor(tensor: dict[str, Any], label: str, *, allow_data_range: bool) -> None:
-    expected = {"kind", "dtype", "format", "shape", "param_type"}
+def _validate_tensor_descriptor(
+    tensor: dict[str, Any], label: str, *, allow_data_range: bool, kind: str
+) -> None:
+    if tensor.get("kind") != kind:
+        raise ValueError(f"{label}: kind must be {kind}")
+    if not isinstance(tensor.get("dtype"), str) or not tensor["dtype"]:
+        raise ValueError(f"{label}: dtype must be a non-empty string")
+    if not isinstance(tensor.get("format"), str) or not tensor["format"]:
+        raise ValueError(f"{label}: format must be a non-empty string")
+
+    if kind == "tensor":
+        expected = {"kind", "dtype", "format", "shape", "param_type"}
+        if allow_data_range:
+            expected.add("data_range")
+        _require_exact_keys(tensor, expected, label)
+        _validate_tensor_shape(tensor.get("shape"), label)
+        if not isinstance(tensor.get("param_type"), str) or not tensor["param_type"]:
+            raise ValueError(f"{label}: param_type must be a non-empty string")
+        if tensor.get("param_type") == "REQUIRED" and tensor.get("shape") is None:
+            raise ValueError(
+                f"{label}: REQUIRED parameter must not use shape=null; "
+                "use [0] for empty output/tensor (schema §6)"
+            )
+        if allow_data_range:
+            if not isinstance(tensor.get("data_range"), str) or not tensor["data_range"]:
+                raise ValueError(f"{label}: data_range must be a non-empty string")
+        elif "data_range" in tensor:
+            raise ValueError(f"{label}: data_range is not allowed")
+        return
+
+    expected = {"kind", "dtype", "format", "param_type", "tensor_count", "tensors"}
     if allow_data_range:
         expected.add("data_range")
     _require_exact_keys(tensor, expected, label)
-    _validate_tensor_shape(tensor.get("shape"), label)
-    if not isinstance(tensor.get("param_type"), str) or not tensor["param_type"]:
-        raise ValueError(f"{label}: param_type must be a non-empty string")
+    if tensor.get("param_type") != "DYNAMIC":
+        raise ValueError(f"{label}: param_type must be DYNAMIC")
+    if not isinstance(tensor.get("tensor_count"), int):
+        raise ValueError(f"{label}: tensor_count must be an int")
+    if not 1 <= tensor["tensor_count"] <= 50:
+        raise ValueError(f"{label}: tensor_count must satisfy 1 <= tensor_count <= 50 (TL1)")
+    if not isinstance(tensor.get("tensors"), list):
+        raise ValueError(f"{label}: tensors must be a list")
+    if not tensor["tensors"]:
+        raise ValueError(f"{label}: tensors must contain at least one child (TL2)")
+    if tensor["tensor_count"] != len(tensor["tensors"]):
+        raise ValueError(f"{label}: tensor_count must equal len(tensors)")
     if allow_data_range:
         if not isinstance(tensor.get("data_range"), str) or not tensor["data_range"]:
             raise ValueError(f"{label}: data_range must be a non-empty string")
     elif "data_range" in tensor:
         raise ValueError(f"{label}: data_range is not allowed")
 
-
-def _validate_tensor_list_children(tensor: dict[str, Any], label: str, *, allow_data_range: bool) -> None:
     child_expected = {"kind", "dtype", "format", "shape"}
     if allow_data_range:
         child_expected.add("data_range")
@@ -208,42 +246,6 @@ def _validate_tensor_list_children(tensor: dict[str, Any], label: str, *, allow_
                 raise ValueError(f"{label}: child {child_index} data_range must be a non-empty string")
         elif "data_range" in child:
             raise ValueError(f"{label}: child {child_index} data_range is not allowed")
-
-
-def _validate_tensor_list_descriptor(tensor: dict[str, Any], label: str, *, allow_data_range: bool) -> None:
-    expected = {"kind", "dtype", "format", "param_type", "tensor_count", "tensors"}
-    if allow_data_range:
-        expected.add("data_range")
-    _require_exact_keys(tensor, expected, label)
-    if tensor.get("param_type") != "DYNAMIC":
-        raise ValueError(f"{label}: param_type must be DYNAMIC")
-    if not isinstance(tensor.get("tensor_count"), int) or tensor["tensor_count"] < 0:
-        raise ValueError(f"{label}: tensor_count must be a non-negative int")
-    if not isinstance(tensor.get("tensors"), list):
-        raise ValueError(f"{label}: tensors must be a list")
-    if tensor["tensor_count"] != len(tensor["tensors"]):
-        raise ValueError(f"{label}: tensor_count must equal len(tensors)")
-    if allow_data_range:
-        if not isinstance(tensor.get("data_range"), str) or not tensor["data_range"]:
-            raise ValueError(f"{label}: data_range must be a non-empty string")
-    elif "data_range" in tensor:
-        raise ValueError(f"{label}: data_range is not allowed")
-    _validate_tensor_list_children(tensor, label, allow_data_range=allow_data_range)
-
-
-def _validate_tensor_descriptor(
-    tensor: dict[str, Any], label: str, *, allow_data_range: bool, kind: str
-) -> None:
-    if tensor.get("kind") != kind:
-        raise ValueError(f"{label}: kind must be {kind}")
-    if not isinstance(tensor.get("dtype"), str) or not tensor["dtype"]:
-        raise ValueError(f"{label}: dtype must be a non-empty string")
-    if not isinstance(tensor.get("format"), str) or not tensor["format"]:
-        raise ValueError(f"{label}: format must be a non-empty string")
-    if kind == "tensor":
-        _validate_single_tensor(tensor, label, allow_data_range=allow_data_range)
-    else:
-        _validate_tensor_list_descriptor(tensor, label, allow_data_range=allow_data_range)
 
 
 def _validate_mapped_case_fields(case: dict[str, Any], label: str) -> None:
@@ -315,9 +317,9 @@ def map_network_case(record: dict[str, Any], index: int) -> dict[str, Any]:
 def make_shape_variants(case: dict[str, Any]) -> list[dict[str, Any]]:
     source = case.get("source")
     if source == "path":
-        return [make_path_shape_case(case)]
+        return make_path_shape_cases(case)
     if source == "network":
-        return [make_network_shape_case(case)]
+        return make_network_shape_cases(case)
     raise ValueError(f"{case.get('id', '<unknown>')}: unsupported source {source!r}")
 
 
@@ -357,9 +359,18 @@ def build_low_shape_cases(
     return shape_cases
 
 
+def adapt_s2p1_case(case: dict[str, Any]) -> dict[str, Any]:
+    record = dict(case.get("case_values", {}))
+    record["id"] = case.get("id", "")
+    record["path"] = case.get("path_id", "")
+    record["key"] = case.get("tiling_key")
+    return record
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    path_cases = load_json("S2P2_cases.json")
+    raw_cases = load_json("S2P1_cases.json")
+    path_cases = [adapt_s2p1_case(c) for c in raw_cases]
     network_configs = load_json("S2P1_low_configs.json")
     mapped_path = [map_path_case(case, index) for index, case in enumerate(path_cases)]
     mapped_network = [
@@ -387,13 +398,13 @@ def build_low_base_case(record: dict[str, Any], source: str, index: int) -> dict
     raise NotImplementedError
 
 
-def make_path_shape_case(case: dict[str, Any]) -> dict[str, Any]:
-    """TODO(operator-specific): map one path base case to one shape low case."""
+def make_path_shape_cases(case: dict[str, Any]) -> list[dict[str, Any]]:
+    """TODO(operator-specific): map one path base case to one or more shape low cases."""
     raise NotImplementedError
 
 
-def make_network_shape_case(case: dict[str, Any]) -> dict[str, Any]:
-    """TODO(operator-specific): map one network base case to one shape low case."""
+def make_network_shape_cases(case: dict[str, Any]) -> list[dict[str, Any]]:
+    """TODO(operator-specific): map one network base case to one or more shape low cases."""
     raise NotImplementedError
 
 

@@ -4,7 +4,7 @@
 # This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 # CANN Open Software License Agreement Version 2.0 (the "License").
 # Please refer to the License for details. You may not use this file except in compliance with the License.
-# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED,
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------------------------------------
@@ -58,11 +58,6 @@ def assert_unique_ids(cases: list[dict[str, Any]], label: str) -> None:
         seen.add(case_id)
 
 
-def empty_tensor_list_descriptor(descriptor: dict[str, Any]) -> None:
-    descriptor["tensor_count"] = 0
-    descriptor["tensors"] = []
-
-
 def empty_tensor_descriptor(descriptor: dict[str, Any]) -> None:
     shape = descriptor.get("shape")
     if isinstance(shape, list):
@@ -91,7 +86,17 @@ def empty_matching_outputs(case: dict[str, Any], seed: dict[str, Any], input_nam
             if not output_matches_input(output, seed_input):
                 continue
             if output.get("kind") == "tensor_list":
-                empty_tensor_list_descriptor(output)
+                tensors = output.get("tensors")
+                if not isinstance(tensors, list) or not tensors:
+                    raise ValueError(
+                        f"{case.get('id', '<unknown>')}: output tensor_list must contain at least one child"
+                    )
+                for child in tensors:
+                    if not isinstance(child, dict):
+                        raise ValueError(
+                            f"{case.get('id', '<unknown>')}: output tensor_list child must be an object"
+                        )
+                    empty_tensor_descriptor(child)
             elif output.get("kind") == "tensor":
                 empty_tensor_descriptor(output)
 
@@ -119,6 +124,27 @@ def tensor_seeds(shape_cases: list[dict[str, Any]]) -> list[tuple[tuple[str, ...
     return result
 
 
+def assert_tensor_list_constraints(case: dict[str, Any]) -> None:
+    for section in ("inputs", "outputs"):
+        for name, descriptor in case.get(section, {}).items():
+            if not isinstance(descriptor, dict) or descriptor.get("kind") != "tensor_list":
+                continue
+            count = descriptor.get("tensor_count")
+            tensors = descriptor.get("tensors")
+            if not isinstance(count, int) or not 1 <= count <= 50:
+                raise ValueError(f"{case['id']}: {name} tensor_count must satisfy 1 <= tensor_count <= 50 (TL1)")
+            if not isinstance(tensors, list) or not tensors:
+                raise ValueError(f"{case['id']}: {name} tensors must contain at least one child (TL2)")
+            if count != len(tensors):
+                raise ValueError(f"{case['id']}: {name} tensor_count must equal len(tensors)")
+            for child_index, child in enumerate(tensors):
+                if isinstance(child, dict) and child.get("shape") == []:
+                    raise ValueError(
+                        f"{case['id']}: {name}.tensors[{child_index}].shape must not be an empty list; "
+                        "empty tensor uses [0] (TL3)"
+                    )
+
+
 def make_empty_case(seed: dict[str, Any], input_names: tuple[str, ...], index: int) -> dict[str, Any]:
     case = clone_case(seed)
     case["id"] = f"low_case_empty_{index:02d}"
@@ -131,12 +157,21 @@ def make_empty_case(seed: dict[str, Any], input_names: tuple[str, ...], index: i
     for input_name in input_names:
         descriptor = mapped_inputs(case)[input_name]
         if descriptor.get("kind") == "tensor_list":
-            empty_tensor_list_descriptor(descriptor)
+            tensors = descriptor.get("tensors")
+            if not isinstance(tensors, list):
+                raise ValueError(f"{case['id']}: {input_name} tensor_list must contain a tensors list")
+            if not tensors:
+                raise ValueError(f"{case['id']}: {input_name} tensor_list must contain at least one child")
+            for child in tensors:
+                if not isinstance(child, dict):
+                    raise ValueError(f"{case['id']}: {input_name} tensor_list child must be an object")
+                empty_tensor_descriptor(child)
         elif descriptor.get("kind") == "tensor":
             empty_tensor_descriptor(descriptor)
         else:
             raise ValueError(f"{case['id']}: unsupported input kind for {input_name}")
     empty_matching_outputs(case, seed, input_names)
+    assert_tensor_list_constraints(case)
     return case
 
 

@@ -57,6 +57,8 @@ RE_NPU_ARCH_VALUES = re.compile(r'__NPU_ARCH__\s*==\s*(\d+)')
 RE_NPU_ARCH_BARE = re.compile(r'__NPU_ARCH__\s*==\s*(\d+)')
 RE_INCLUDE = re.compile(r'#\s*include\s+"([^"]+)"')
 RE_IF_CONSTEXPR = re.compile(r'if\s+constexpr')
+RE_INIT_CALL = re.compile(r'\b(\w+)\s*\.\s*Init\s*\(')
+SOURCE_EXTS = ('.h', '.hpp', '.hh', '.inc', '.inl', '.cpp', '.cc', '.cxx')
 
 
 def parse_args():
@@ -331,15 +333,18 @@ def _read_lines(filepath):
         return None
 
 
-def _resolve_include(file_dir, op_kernel_dir, inc_path):
-    for base in (file_dir, op_kernel_dir):
+def _resolve_include(file_dir, op_kernel_dir, inc_path, op_path=None):
+    bases = [file_dir, op_kernel_dir]
+    if op_path:
+        bases.extend([op_path, os.path.dirname(op_path)])
+    for base in bases:
         c = os.path.normpath(os.path.join(base, inc_path))
-        if os.path.isfile(c) and c.endswith('.h'):
+        if os.path.isfile(c) and c.endswith(SOURCE_EXTS):
             return c
     return None
 
 
-def find_includes(filepath, op_kernel_dir):
+def find_includes(filepath, op_kernel_dir, op_path=None):
     included_h = []
     file_dir = os.path.dirname(filepath)
     file_lines = _read_lines(filepath)
@@ -349,10 +354,127 @@ def find_includes(filepath, op_kernel_dir):
         m = RE_INCLUDE.search(line)
         if not m:
             continue
-        resolved = _resolve_include(file_dir, op_kernel_dir, m.group(1))
+        resolved = _resolve_include(file_dir, op_kernel_dir, m.group(1), op_path)
         if resolved:
             included_h.append(resolved)
     return included_h
+
+
+def _line_number(content, pos):
+    return content[:pos].count('\n') + 1
+
+
+def _extract_op_template_before_init(content, op_var, init_pos):
+    window_start = max(0, init_pos - 4000)
+    prefix = content[window_start:init_pos]
+    escaped_var = re.escape(op_var)
+    template_pat = re.compile(
+        r'\b([A-Za-z_]\w*(?:::\w+)*)\s*<[^;{}]{0,2500}?\b'
+        + escaped_var + r'\s*(?:\(|;|=)',
+        re.DOTALL,
+    )
+    matches = list(template_pat.finditer(prefix))
+    if matches:
+        return matches[-1].group(1)
+
+    plain_pat = re.compile(
+        r'\b([A-Za-z_]\w*(?:::\w+)*)\s+' + escaped_var + r'\s*(?:\(|;|=)'
+    )
+    matches = list(plain_pat.finditer(prefix))
+    if matches:
+        candidate = matches[-1].group(1)
+        if candidate not in ('auto', 'const'):
+            return candidate
+    return None
+
+
+def _nearest_condition(lines, init_line):
+    start = max(0, init_line - 12)
+    for idx in range(init_line - 1, start - 1, -1):
+        line = lines[idx].strip()
+        if 'if constexpr' in line or 'else if constexpr' in line or re.search(r'\bif\s*\(', line):
+            cond_lines = []
+            for j in range(idx, min(len(lines), idx + 4)):
+                cond_lines.append(lines[j].strip())
+                if '{' in lines[j]:
+                    break
+            return ' '.join(cond_lines)
+    return ''
+
+
+def extract_reachable_kernel_templates(filepath, op_kernel_dir):
+    content = ''.join(_read_lines(filepath) or [])
+    if not content:
+        return [], []
+    lines = content.splitlines()
+    templates = []
+    unresolved = []
+    seen = set()
+    for match in RE_INIT_CALL.finditer(content):
+        op_var = match.group(1)
+        init_line = _line_number(content, match.start())
+        template = _extract_op_template_before_init(content, op_var, match.start())
+        item = {
+            'op_var': op_var,
+            'init_line': init_line,
+            'source_file': relpath(filepath, op_kernel_dir),
+            'condition': _nearest_condition(lines, init_line),
+        }
+        if template:
+            item['template'] = template
+            key = (template, init_line, op_var)
+            if key not in seen:
+                seen.add(key)
+                templates.append(item)
+        else:
+            unresolved.append(item)
+    return templates, unresolved
+
+
+def collect_include_closure(seed_files, op_kernel_dir, op_path, max_depth=8):
+    visited = set()
+    files = {}
+    edges = []
+
+    def visit(filepath, depth, chain):
+        if depth > max_depth:
+            return
+        for inc_path in find_includes(filepath, op_kernel_dir, op_path):
+            edge = {
+                'source': relpath(filepath, op_kernel_dir),
+                'target': relpath(inc_path, op_kernel_dir),
+                'depth': depth + 1,
+            }
+            edges.append(edge)
+            if inc_path in visited:
+                continue
+            visited.add(inc_path)
+            files[inc_path] = {
+                'file': relpath(inc_path, op_kernel_dir),
+                'include_level': depth + 1,
+                'included_by': relpath(filepath, op_kernel_dir),
+                'include_chain': [relpath(p, op_kernel_dir) for p in chain + [inc_path]],
+            }
+            visit(inc_path, depth + 1, chain + [inc_path])
+
+    for seed in seed_files:
+        visit(seed, 0, [seed])
+    return files, edges
+
+
+def _template_matches_file(filepath, template_names):
+    content = ''.join(_read_lines(filepath) or [])
+    matched = []
+    for name in template_names:
+        escaped = re.escape(name)
+        patterns = [
+            r'\b(?:class|struct)\s+' + escaped + r'\b',
+            r'\b' + escaped + r'\s*<',
+            r'\b' + escaped + r'\s*::',
+        ]
+        if any(re.search(pattern, content) for pattern in patterns):
+            matched.append(name)
+    return matched
 
 
 def detect_dispatch_type(scan_result, independent_register_count=0):
@@ -464,7 +586,9 @@ def _build_keys(scan, target_arch_num):
     return keys, nested_register_lines
 
 
-def build_entry(filepath, op_kernel_dir, target_arch_num, source_cpp=None):
+def build_entry(filepath, op_kernel_dir, target_arch_num, source_cpp=None,
+                priority='P0', kind='kernel_entry', include_info=None,
+                matched_templates=None):
     scan = scan_file(filepath, target_arch_num)
     keys, nested_register_lines = _build_keys(scan, target_arch_num)
 
@@ -477,6 +601,8 @@ def build_entry(filepath, op_kernel_dir, target_arch_num, source_cpp=None):
 
     return {
         'file': relpath(filepath, op_kernel_dir),
+        'priority': priority,
+        'kind': kind,
         'dispatch_type': dispatch_type,
         'entry_mechanism': description,
         'entry_functions': scan['global_functions'],
@@ -487,7 +613,11 @@ def build_entry(filepath, op_kernel_dir, target_arch_num, source_cpp=None):
         'tiling_registration_keys': scan['tiling_registration_keys'],
         'has_register_tiling_default': scan['has_register_tiling_default'],
         'total_tk_is_grep_count': scan['total_tk_is_grep_count'],
-        'source_cpp': relpath(source_cpp, op_kernel_dir) if source_cpp else None,
+        'source_cpp': source_cpp,
+        'include_level': (include_info or {}).get('include_level'),
+        'included_by': (include_info or {}).get('included_by'),
+        'include_chain': (include_info or {}).get('include_chain'),
+        'matched_templates': matched_templates or [],
     }
 
 
@@ -517,19 +647,35 @@ def write_json(output_dir, scan_result, op_name, npu_arch, soc_version):
         'entries': [
             {
                 'file': e['file'],
+                'priority': e.get('priority', 'P0'),
+                'kind': e.get('kind', 'kernel_entry'),
                 'dispatch_type': e['dispatch_type'],
                 'entry_mechanism': e['entry_mechanism'],
                 'entry_functions': e['entry_functions'],
                 'keys': e['keys'],
                 'active_key_count': e['active_key_count'],
                 'total_key_count': e['total_key_count'],
+                'source_cpp': e.get('source_cpp'),
+                'include_level': e.get('include_level'),
+                'included_by': e.get('included_by'),
+                'include_chain': e.get('include_chain'),
+                'matched_templates': e.get('matched_templates', []),
             }
             for e in entries
         ],
         'excluded': [
-            {'file': e['file'], 'reason': e['reason'], 'key_count': e['key_count']}
+            {
+                'file': e['file'], 'reason': e['reason'], 'key_count': e['key_count'],
+                'priority': e.get('priority', 'P2'),
+                'include_level': e.get('include_level'),
+                'included_by': e.get('included_by'),
+                'include_chain': e.get('include_chain'),
+            }
             for e in excluded
         ],
+        'reachable_kernel_templates': scan_result.get('reachable_kernel_templates', []),
+        'unresolved_init_calls': scan_result.get('unresolved_init_calls', []),
+        'include_edges': scan_result.get('include_edges', []),
         'cross_validation': {
             'extracted_count': total_extracted,
             'grep_count': total_grep,
@@ -545,6 +691,11 @@ def write_json(output_dir, scan_result, op_name, npu_arch, soc_version):
 
 
 def _append_entry_detail(lines, entry):
+    lines.append(f'  优先级: {entry.get("priority", "P0")} ({entry.get("kind", "kernel_entry")})')
+    if entry.get('matched_templates'):
+        lines.append(f'  命中模板: {", ".join(entry["matched_templates"])}')
+    if entry.get('included_by'):
+        lines.append(f'  include 来源: {entry["included_by"]}')
     for gf in entry['entry_functions']:
         tmpl = '（模板）' if gf.get('is_template') else ''
         lines.append(f'  入口函数: {gf["name"]}@行{gf["line"]}{tmpl}')
@@ -581,9 +732,32 @@ def _append_excluded_section(lines, excluded):
         return
     for ex in excluded:
         lines.append(f'  - {ex["file"]}')
+        lines.append(f'    优先级: {ex.get("priority", "P2")}')
         lines.append(f'    排除原因: {ex["reason"]}')
         lines.append(f'    key 数量: {ex["key_count"]}')
+        if ex.get('included_by'):
+            lines.append(f'    include 来源: {ex["included_by"]}')
         lines.append('')
+
+
+def _append_reachable_templates(lines, templates, unresolved):
+    lines.append('## op.Init 可达 kernel 模板')
+    lines.append('')
+    if templates:
+        for item in templates:
+            cond = f' 条件: {item["condition"]}' if item.get('condition') else ''
+            lines.append(
+                f'  - {item["template"]} @ {item["source_file"]}:{item["init_line"]}'
+                f' (var={item["op_var"]}){cond}'
+            )
+    else:
+        lines.append('  （未识别，保留 P0 扫描结果）')
+    if unresolved:
+        lines.append('')
+        lines.append('  未解析 Init 调用:')
+        for item in unresolved:
+            lines.append(f'    - {item["source_file"]}:{item["init_line"]} var={item["op_var"]}')
+    lines.append('')
 
 
 def write_report(output_dir, scan_result, npu_arch, platform_info):
@@ -605,6 +779,11 @@ def write_report(output_dir, scan_result, npu_arch, platform_info):
     lines.append(f'  有效（目标平台可达）: {valid_count} 个文件')
     lines.append(f'  排除（目标平台不可达）: {len(excluded)} 个文件')
     lines.append('')
+    _append_reachable_templates(
+        lines,
+        scan_result.get('reachable_kernel_templates', []),
+        scan_result.get('unresolved_init_calls', []),
+    )
     lines.append('## Kernel 入口信息')
     lines.append('')
 
@@ -649,27 +828,64 @@ def _classify_files(all_cpp_files, op_kernel_dir, npu_arch):
     return valid_files, excluded_files
 
 
-def _discover_headers(valid_files, op_kernel_dir, npu_arch, arch_num):
+def _discover_reachable_kernel_files(valid_files, op_path, op_kernel_dir, npu_arch, arch_num):
     entries = []
-    discovered_h = set()
+    p1_files = set()
+    p2_files = []
+    reachable_templates = []
+    unresolved_init_calls = []
+
     for fpath in valid_files:
-        entry = build_entry(fpath, op_kernel_dir, arch_num)
-        entries.append(entry)
-        for h_path in find_includes(fpath, op_kernel_dir):
-            if h_path in discovered_h:
-                continue
-            h_status, _ = classify_platform(h_path, op_kernel_dir, npu_arch)
-            if h_status != 'valid':
-                continue
-            h_scan = scan_file(h_path, arch_num)
-            has_dispatch = (h_scan['tiling_key_is_keys'] or h_scan['tiling_key_var_keys']
-                            or h_scan['register_tiling_keys']
-                            or h_scan['tiling_registration_keys'])
-            if has_dispatch:
-                discovered_h.add(h_path)
-                entries.append(build_entry(h_path, op_kernel_dir,
-                                           arch_num, source_cpp=fpath))
-    return entries, discovered_h
+        entries.append(build_entry(fpath, op_kernel_dir, arch_num, priority='P0', kind='kernel_entry'))
+        templates, unresolved = extract_reachable_kernel_templates(fpath, op_kernel_dir)
+        reachable_templates.extend(templates)
+        unresolved_init_calls.extend(unresolved)
+
+    template_names = sorted({item['template'] for item in reachable_templates if item.get('template')})
+    include_files, include_edges = collect_include_closure(valid_files, op_kernel_dir, op_path)
+
+    for inc_path, inc_info in sorted(include_files.items(), key=lambda item: item[1]['file']):
+        h_status, reason = classify_platform(inc_path, op_kernel_dir, npu_arch)
+        key_count = count_keys_in_file(inc_path)
+        if h_status != 'valid':
+            p2_files.append({
+                'file': inc_info['file'],
+                'filepath': inc_path,
+                'reason': reason or 'included but target platform excluded',
+                'key_count': key_count,
+                'priority': 'P2',
+                'include_level': inc_info.get('include_level'),
+                'included_by': inc_info.get('included_by'),
+                'include_chain': inc_info.get('include_chain'),
+            })
+            continue
+
+        matched = _template_matches_file(inc_path, template_names) if template_names else []
+        if matched:
+            p1_files.add(inc_path)
+            entries.append(build_entry(
+                inc_path,
+                op_kernel_dir,
+                arch_num,
+                source_cpp=inc_info.get('included_by'),
+                priority='P1',
+                kind='reachable_template_file',
+                include_info=inc_info,
+                matched_templates=matched,
+            ))
+        else:
+            p2_files.append({
+                'file': inc_info['file'],
+                'filepath': inc_path,
+                'reason': 'included but no reachable kernel template match',
+                'key_count': key_count,
+                'priority': 'P2',
+                'include_level': inc_info.get('include_level'),
+                'included_by': inc_info.get('included_by'),
+                'include_chain': inc_info.get('include_chain'),
+            })
+
+    return entries, p1_files, p2_files, reachable_templates, unresolved_init_calls, include_edges
 
 
 def main():
@@ -695,10 +911,12 @@ def main():
     valid_files, excluded_files = _classify_files(all_cpp_files, op_kernel_dir, npu_arch)
     _logger.info("Valid: %d, Excluded: %d", len(valid_files), len(excluded_files))
 
-    entries, discovered_h = _discover_headers(
-        valid_files, op_kernel_dir, npu_arch, platform['arch_num'])
+    entries, discovered_h, p2_files, reachable_templates, unresolved_init_calls, include_edges = \
+        _discover_reachable_kernel_files(
+            valid_files, op_path, op_kernel_dir, npu_arch, platform['arch_num'])
+    excluded_files.extend(p2_files)
 
-    total_count = len(all_cpp_files) + len(discovered_h)
+    total_count = len(all_cpp_files) + len(discovered_h) + len(p2_files)
     valid_count = len(valid_files) + len(discovered_h)
     _logger.info("Entries: %d (incl. %d discovered .h files)",
                  len(entries), len(discovered_h))
@@ -706,6 +924,9 @@ def main():
     scan_result = {
         'entries': entries, 'excluded': excluded_files,
         'total_count': total_count, 'valid_count': valid_count,
+        'reachable_kernel_templates': reachable_templates,
+        'unresolved_init_calls': unresolved_init_calls,
+        'include_edges': include_edges,
     }
 
     write_json(output_dir, scan_result, args.op_name, npu_arch, args.soc_version)

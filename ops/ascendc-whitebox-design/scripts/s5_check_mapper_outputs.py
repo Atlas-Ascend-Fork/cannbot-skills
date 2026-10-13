@@ -4,7 +4,7 @@
 # This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 # CANN Open Software License Agreement Version 2.0 (the "License").
 # Please refer to the License for details. You may not use this file except in compliance with the License.
-# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED,
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------------------------------------
@@ -88,6 +88,21 @@ def check_shape(value: Any, ctx: ErrorCtx, field_path: str) -> None:
         return
     if not isinstance(value, list) or not all(isinstance(dim, int) for dim in value):
         add_error(ctx.errors, ctx.file_name, ctx.case_id, field_path, "shape must be list[int] or null")
+        return
+    if not value:
+        add_error(
+            ctx.errors, ctx.file_name, ctx.case_id, field_path,
+            "shape must not be an empty list; empty tensor uses [0] (TL3)",
+        )
+
+
+def check_required_null_shape(param_type: Any, tensor: dict[str, Any], ctx: ErrorCtx, field_path: str) -> None:
+    if param_type == "REQUIRED" and tensor.get("shape") is None:
+        add_error(
+            ctx.errors, ctx.file_name, ctx.case_id,
+            f"{field_path}.shape",
+            "REQUIRED parameter must not use shape=null; use [0] for empty output/tensor (schema §6)",
+        )
 
 
 def check_tensor_common(tensor: dict[str, Any], ctx: ErrorCtx, field_path: str) -> None:
@@ -106,6 +121,7 @@ def check_tensor_input(tensor: dict[str, Any], ctx: ErrorCtx, field_path: str) -
     check_tensor_common(tensor, ctx, field_path)
     if "param_type" in tensor:
         check_string(tensor["param_type"], ctx, f"{field_path}.param_type")
+    check_required_null_shape(tensor.get("param_type"), tensor, ctx, field_path)
     if "data_range" in tensor:
         check_string(tensor["data_range"], ctx, f"{field_path}.data_range")
 
@@ -115,10 +131,11 @@ def check_tensor_output(tensor: dict[str, Any], ctx: ErrorCtx, field_path: str) 
     check_tensor_common(tensor, ctx, field_path)
     if "param_type" in tensor:
         check_string(tensor["param_type"], ctx, f"{field_path}.param_type")
+    check_required_null_shape(tensor.get("param_type"), tensor, ctx, field_path)
 
 
 def check_tensor_list_common(
-    tensor_list: dict[str, Any], ctx: ErrorCtx, field_path: str
+    tensor_list: dict[str, Any], ctx: ErrorCtx, field_path: str,
 ) -> tuple[int | None, list[Any] | None]:
     if tensor_list.get("kind") != "tensor_list":
         add_error(ctx.errors, ctx.file_name, ctx.case_id, f"{field_path}.kind", "expected 'tensor_list'")
@@ -134,9 +151,19 @@ def check_tensor_list_common(
     if not isinstance(tensor_count, int):
         add_error(ctx.errors, ctx.file_name, ctx.case_id, f"{field_path}.tensor_count", "must be an int")
         tensor_count = None
+    elif not 1 <= tensor_count <= 50:
+        add_error(
+            ctx.errors, ctx.file_name, ctx.case_id,
+            f"{field_path}.tensor_count", "must satisfy 1 <= tensor_count <= 50 (TL1)",
+        )
     if not isinstance(tensors, list):
         add_error(ctx.errors, ctx.file_name, ctx.case_id, f"{field_path}.tensors", "must be a list")
         tensors = None
+    elif not tensors:
+        add_error(
+            ctx.errors, ctx.file_name, ctx.case_id,
+            f"{field_path}.tensors", "must contain at least one child (TL2)",
+        )
     if tensor_count is not None and tensors is not None and tensor_count != len(tensors):
         add_error(ctx.errors, ctx.file_name, ctx.case_id, f"{field_path}.tensor_count", "must equal len(tensors)")
     return tensor_count, tensors

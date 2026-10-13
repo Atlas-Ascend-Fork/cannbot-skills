@@ -29,15 +29,15 @@ metadata:
 ```
 Step 1 输入收集 — 检测平台 + 收集参数
   ↓
-Step 2 源码分析 — tiling/kernel 路径提取（Phase 0→1→2→3）
+Step 2 源码分析 — tiling/kernel 路径提取（Phase 0→1）
   ↓
-Step 3 Task D Contract Gate — 校验最终用例 JSON 覆盖契约
+Step 3 多样性分析 — 分析 S2P1_cases.json 参数多样性和基本信息
   ↓
 Step 4 用户确认 ⏸ — 确认后继续（可跳过）
   ↓
 Step 5 case mapper — 参数组合映射为可执行用例
   ↓
-TTK CSV 生成
+TTK CSV 生成与验收
 ```
 
 详细步骤见 `references/workflow.md`。产物目录见 `references/workflow.md`「最终产物」节。
@@ -49,12 +49,11 @@ TTK CSV 生成
 | Step 1.1 | 收集输入参数 | 是 |
 | Step 1.4 | 确认摘要 | 是 |
 | Step 2 Phase 0 | 校验失败且重试仍失败时 | 仅当校验失败时 |
-| Step 2 Phase 3a | 争议路径询问保留或排除 | 仅当存在争议路径时 |
 | Step 4 | 安全闸门：确认后生成用例 | 是（除非提前选择跳过） |
 
 ## 使用指南
 
-- **查看测试设计**：`S2P3_test_design.md`
+- **查看多样性报告**：`S3_diversity_report.md`
 - **查看 low 档用例**：`S5_cases_low.json`
 - **查看 high 档用例**：`S5_cases_high.json`
 
@@ -72,7 +71,7 @@ TTK CSV 生成
 ### 主 Agent / 子 Agent 职责分工
 
 - **执行分工**：每个任务有明确的执行主体（见 workflow.md「参考提示词索引」表的「执行方」列），执行主体负责 Read 对应的参考文档并完成任务。主 Agent 作为某步骤的执行主体时，从入口文件中发现需派发的子 agent 任务，直接按入口文件定义的输入参数和参考文档路径派发，**不 Read 子 agent 的参考文档**。
-- **Phase 0 例外**：Step 2 Phase 0 只按固定命令模板执行脚本并检查产物，禁止读取或分析脚本源码。
+- **Phase 0 例外**：Step 2 Phase 0 只按固定命令模板执行脚本并检查退出码，禁止读取或分析脚本源码。
 
 ### 子 agent 派发规则
 
@@ -83,15 +82,14 @@ TTK CSV 生成
 | D1 | 仅传上下文参数 | 只传变量值（路径、参数等），**禁止**转述、摘要或改写参考文档中的规则和步骤 |
 | D2 | 文件数据传路径 | 有文件承载的数据仅传文件路径，禁止复制粘贴内容（结构化数据例外需声明来源和格式） |
 | D3 | 传入 skill_base | 上下文参数中必须包含 `skill_base`（技能根目录绝对路径） |
-| D4 | 优先执行入口 | prompt 中指示子 agent "**优先执行入口文件顶部的执行顺序约束节**" |
-| D5 | JSON 校验 | 子 agent 返回后，对其产出的每个 JSON 文件立即执行 `python3 -c "import json; json.load(open('{path}'))"` 验证。解析失败 → 要求子 agent 重新生成（最多 1 次），二次失败 → 触发轮次耗尽协议 |
+| D4 | 明确执行文档 | prompt 中只指定该子 agent 必须读取的参考文档 |
 
 **派发前检查清单**（每个子 agent 派发前逐项确认）：
 
 - [ ] prompt 中**没有**对参考文档执行步骤/规则的转述或摘要
 - [ ] 仅传上下文参数值（路径、参数名），未内联任何文件内容（结构化数据例外除外）
 - [ ] 上下文参数中包含 `skill_base` 绝对路径
-- [ ] prompt 中包含 "**优先执行入口文件顶部的执行顺序约束节**"
+- [ ] prompt 中包含该子 agent 必须读取的参考文档路径
 
 ### 轮次耗尽协议
 
@@ -117,9 +115,9 @@ TTK CSV 生成
 |------|------|
 | `references/workflow.md` | 主流程（Step 1-5 + TTK 模块） |
 | `references/S1-input-collection.md` | Step 1 输入收集规则 |
-| `references/source-analysis/` | Step 2 源码分析（执行总纲 + 7 个子文档） |
-|   ├── `task-a/` | Phase 1 Task A 代码路径分析（overview + step1-tiling + step2-trace + step3-kernel + path-config-schema） |
-|   └── `task-d/` | Phase 2 Task D 参数推导（6 个子文档） |
-| `references/design-verifier/` | Step 3 Task D Contract Gate（单文件入口） |
+| `references/source-analysis/` | Step 2 源码分析（执行总纲 + 子文档） |
+|   ├── `01-interface-analyzer.md` | Phase 1 Task B 接口分析 |
+|   └── `02-network-search.md` | Phase 1 Task C 网络搜索 |
+| `references/task-a/` | Phase 1 Task A Route Evaluator 系统（overview + step1-3 + schema + 模板） |
 | `references/case-mapper/` | Step 5 Mapper-v1（执行总纲 + schema + 模板） |
 | `references/ttk-converter/` | TTK CSV 生成规则（执行总纲 + 3 个子文档） |
