@@ -23,7 +23,7 @@ direct launch 算子统一一套模板，按算子复杂度调整 Kernel 类内�
 | Element-wise / Activation（L1） | 单输入单输出，CopyIn→Compute→CopyOut 三段式，tiling 按 element count 切 |
 | Reduction / Norm（L2） | 多输入或归约，需 ReduceSum/ReduceMax，注意尾块非对齐 |
 | Conv / Matmul / MoE（L3） | CUBE 运算（Mmad），多 Tiling 策略，多核切分复杂 |
-| Attention / RNN（L4） | 多算子融合，复杂数据流，多 stage 流水 |
+| Attention / RNN（L4） | 多算子融合，复杂数据流，多 stage 流水。**Attention 类**：走原生单 kernel CV 融合——仅一个 `__global__` 核函数，Cube（`Mmad` 等原生原语实现矩阵乘）与 Vector 逻辑同核实现并设计 CV 跨核同步，严禁拆为多个核函数（多 kernel 判不通过） |
 
 > 通用 Ascend C kernel 编写范式（Tiling 设计、Buffer 规划、数据流方法论）参照 `ascendc-tiling-design`；代码架构选型（SIMD 载体 MemBase/RegBase/Cube 与 SIMT 路线）参照 `repo-knowledge`。
 

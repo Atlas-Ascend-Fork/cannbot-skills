@@ -7,6 +7,7 @@
 - 【AscendC 迁移】skill `ascendc-cross-gen-port-light` 更名为 `ascendc-cross-gen-migration`（目录、SKILL.md、evals 及 feature-list、api-cross-gen-fixpipe 引用同步更新；`plugins-community/ascendc-port-orchestrator` 不在修改范围）。
 
 #### 缺陷修复 Bug Fixes
+- 【ops-direct-invoke】修复 Attention 类算子被误归 Matmul 类、路由至未适配该类算子的 Blaze 路线，致工作流思考链中断的问题：architect 需求分析与 repo-knowledge 路由表新增 Attention 例外分支（不归 Matmul、不走 Blaze，固定原生 AscendC API 路线，两原则：单 `__global__` kernel + CV 跨核同步、原生 `Mmad` 禁 vector-only），并同步需求→方案→编码→验收链路（task-prompts、workflow-cp2-2、文档模板、developer-code、operator-template）。
 - 【文档】修复 `ascendc-cross-gen-migration` 路线化重构遗留问题：4 处 stage 文件中 `search-rules.md` 引用丢失收尾反引号致代码段吞并后续文本；`search-rules.md` 引用不存在的 `references/routes/` 路径，改为实际布局 `routes/<源代号>-to-<目标代号>/`；`route.md` 2 处 `l2-guide.md` 简写补 `references/` 前缀；SKILL.md 阶段表路径补 `routes/<路线>/` 前缀使字面可解析。
 
 ### 【2026-10-09】

@@ -62,7 +62,7 @@ skills:
 ## 依据什么
 
 - **编码依据**：`repo-coding-rules`（编码规范与常见错误条款）、`repo-op-templates`（算子代码模板与选择规则；开发时先把模板复制到工作区，以此为起点开发）。
-- **载体路线依据**：代码实现涉及 Cube（Blaze/tensor_api 路线）时，API 用法、参数签名与模板参数以 `ascendc-blaze-best-practice` 为权威源，不确定的用法先查该 skill 再编码，禁止凭记忆编写 Blaze/tensor_api 调用；代码实现涉及通算融合（MC2，多卡通信+计算融合）时，通信与融合编排的 API 用法、路线约束以 `ascendc-mc2-best-practice` 为权威源，不确定的用法先查该 skill 再编码，禁止凭记忆编写通信调用。
+- **载体路线依据**：代码实现涉及 Cube（Blaze/tensor_api 路线）时，API 用法、参数签名与模板参数以 `ascendc-blaze-best-practice` 为权威源，不确定的用法先查该 skill 再编码，禁止凭记忆编写 Blaze/tensor_api 调用；**Attention 类算子例外**（开发方案声明原生 AscendC API 路线、不走 Blaze）时，API 用法通过 `/ascendc-docs-search` 查官方文档核实，实现参考 `.cannbot/cann-samples` 的 `Samples/2_Performance/flash_attn_lite_story`，并严格遵循两原则——① 仅允许一个 `__global__` 核函数，Cube、Vector 逻辑全部写在该核函数内部并设计 CV 跨核同步，严禁拆为多个 `__global__` 核函数；② 矩阵乘以 `Mmad` 等原生 AscendC 原语实现，严禁 vector-only 实现（不启用 Mmad、用矢量运算模拟矩阵乘）；代码实现涉及通算融合（MC2，多卡通信+计算融合）时，通信与融合编排的 API 用法、路线约束以 `ascendc-mc2-best-practice` 为权威源，不确定的用法先查该 skill 再编码，禁止凭记忆编写通信调用。
 - **编译验证依据**：`repo-build-guide`（代码验证要做到哪一步）。
 - **领域背景**：`repo-knowledge`。
 
