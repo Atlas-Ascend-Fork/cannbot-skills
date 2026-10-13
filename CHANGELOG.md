@@ -2,6 +2,11 @@
 
 > **记录规则**：单条不超过 **200 字**，按【领域】+ 问题 + 修复要点组织；技术细节、验证数据与发布过程放 PR 描述 / commit message，不写入日志。
 
+### 【2026-10-12】
+
+- 【triton-op-generator】插件编排层迁移至 cannbot 仓（plugins-official/triton-op-generator），本仓删除插件目录；8 个 triton 系列 Skill 保留在 ops/ 继续维护。
+- 【知识迁移】triton 系列 Skill 的领域知识卡片切换为 cannbot-knowledge 知识库供给：删除 triton-op-coding/references（9 个）、triton-op-designer/references/cases（23 个）、triton-latency-optimizer/references 优化点文档（28 个）+ operators/ 已入库部分 + docs_triton_IR/；SKILL.md 与 Index.md 改为 KB 路径引用（KB 暂未收录的 4 张 operators 卡暂保留本地）。knowledge-query 结构探测新增 cannbot 安装器依赖仓候选（.cannbot/dependencies/*/cannbot-knowledge/knowledge）。
+
 ### 【2026-10-10】
 #### 变更 Changes
 - 【AscendC 迁移】skill `ascendc-cross-gen-port-light` 更名为 `ascendc-cross-gen-migration`（目录、SKILL.md、evals 及 feature-list、api-cross-gen-fixpipe 引用同步更新；`plugins-community/ascendc-port-orchestrator` 不在修改范围）。

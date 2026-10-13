@@ -77,7 +77,7 @@ npx skills add https://gitcode.com/cann/cannbot-skills.git --skill ascendc-env-c
 | **Catlass** | Cube/Matmul 高阶模板拼装 pipeline | [catlass-op-generator](plugins-official/catlass-op-generator/AGENTS.md) |
 | **PyPTO** | 昇腾原生 Python Tile 算子编程 | [pypto-op-orchestrator](plugins-official/pypto-op-orchestrator/AGENTS.md) |
 | **TileLang** | 按本机芯片路由，Ascend910 与 Ascend950 工作流及技能独立 | [tilelang-op-orchestrator](plugins-official/tilelang-op-orchestrator/AGENTS.md) |
-| **Triton** | `triton_ascend` DSL 生成并优化算子 | [triton-op-generator](plugins-official/triton-op-generator/AGENTS.md) |
+| **Triton** | `triton_ascend` DSL 生成并优化算子 | triton-op-generator（已迁移至 [cannbot](https://gitcode.com/cann/cannbot) 仓 `plugins-official/triton-op-generator`） |
 | **torch.compile 图模式** | npugraph_ex 图捕获与重放 | [torch-compile](plugins-official/torch-compile/AGENTS.md) |
 | **GE** | 图模式相关问题定位 | [graph](graph/) |
 | **模型推理优化** | NPU 推理端到端优化 | [model-infer-optimize](plugins-official/model-infer-optimize/AGENTS.md) |

@@ -212,7 +212,6 @@ install-helper lang set en_US      # 切换为英文
 | 5 | NPU 推理优化 | model-infer-optimize | model-infer, infer, inference, sota, sota-approach, model-infer-sota |
 | 6 | PyPTO 算子开发 | pypto-op-orchestrator | pypto, pytorch |
 | 7 | TileLang 算子开发 | tilelang-op-orchestrator | tilelang |
-| 8 | Triton 算子开发 | triton-op-generator | triton |
 | 9 | torch.compile 图模式 | torch-compile | torch, compile, graph |
 | 10 | 代码检视 | ops-code-reviewer | code-review, reviewer, review |
 

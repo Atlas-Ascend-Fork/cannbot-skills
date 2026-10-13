@@ -17,7 +17,7 @@ created_at: '2026-08-13T00:00:00Z'
 > 证据基础：BatchMLAPagedAttention 类算子的完整优化轨迹（Ascend910B2C，24 cube core / 48 vector core，
 > triton-ascend 3.2.x / CANN 8.5.x）：基线时 reduce kernel 病态（平均毫秒级）→ 结构重写后精度通过但性能劣化
 > → **`+ BLOCK_QO=1` 仿射化修复**（决定性一步）。
-> 设计期与编码期的对应约束见 `@../../../../plugins-official/triton-op-generator/template/mla.md`。
+> 设计期与编码期的对应约束见 cannbot-knowledge 知识库卡片 `ops/triton/guides/constraints/mla_constraints.md`（KB_ROOT 解析见 SKILL.md「知识库定位」）。
 
 ---
 

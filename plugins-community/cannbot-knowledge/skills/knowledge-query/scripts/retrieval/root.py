@@ -118,6 +118,18 @@ def has_strong_knowledge_markers(markers: Iterable[str]) -> bool:
     return (has_spec and content_count >= 1) or (has_index and content_count >= 2)
 
 
+def _is_discoverable(candidate: Candidate) -> bool:
+    """Whether a structurally discovered candidate may be auto-selected.
+
+    cannbot plugin dependency checkouts (<project>/.cannbot/dependencies/<plugin>/
+    cannbot-knowledge/knowledge) are installed by the cannbot installer and are trusted
+    with just an ops/ content marker, even before the retrieval index is built.
+    """
+    if is_probable_knowledge_root(candidate.path):
+        return True
+    return candidate.source == "discover:cannbot-dependency" and "ops/" in candidate.markers
+
+
 def is_probable_knowledge_root(path: str | os.PathLike[str]) -> bool:
     score, markers = score_knowledge_root(path)
     return score >= MIN_KNOWLEDGE_SCORE and has_strong_knowledge_markers(markers)
@@ -247,6 +259,30 @@ def _walk_dirs(base: Path, max_depth: int = 2, max_dirs: int = 1500) -> Iterable
                 break
 
 
+def _cannbot_dependency_paths(start_path: Path) -> list[Path]:
+    """Probe cannbot plugin dependency checkouts installed by the cannbot installer.
+
+    Plugins declaring cannbot-knowledge in plugin-install.json get a shallow clone at
+    <project>/.cannbot/dependencies/<plugin>/cannbot-knowledge; the knowledge root is its
+    knowledge/ subdirectory. Probe ancestors of cwd so sessions started anywhere inside
+    the project still find it.
+    """
+    found: list[Path] = []
+    for base in [start_path, *list(start_path.parents)[:6]]:
+        dep_root = base / ".cannbot" / "dependencies"
+        if not _safe_is_dir(dep_root):
+            continue
+        try:
+            plugins = sorted(dep_root.iterdir())
+        except OSError:
+            continue
+        for plugin_dir in plugins:
+            candidate = plugin_dir / "cannbot-knowledge" / "knowledge"
+            if _safe_is_dir(candidate / "ops"):
+                found.append(candidate)
+    return found
+
+
 def discover_candidates(start: str | os.PathLike[str] | None = None) -> list[Candidate]:
     start_path = Path(start or os.getcwd()).resolve()
     cands: list[Candidate] = []
@@ -254,7 +290,8 @@ def discover_candidates(start: str | os.PathLike[str] | None = None) -> list[Can
 
     ancestor_paths = [start_path, *list(start_path.parents)[:6]]
     child_paths = list(_walk_dirs(start_path))
-    for source, paths in (("discover:ancestor", ancestor_paths), ("discover:child", child_paths)):
+    for source, paths in (("discover:ancestor", ancestor_paths), ("discover:child", child_paths),
+                          ("discover:cannbot-dependency", _cannbot_dependency_paths(start_path))):
         for path in paths:
             path_str = str(path.resolve())
             if path_str in seen_paths:
@@ -267,7 +304,7 @@ def discover_candidates(start: str | os.PathLike[str] | None = None) -> list[Can
     return sorted(
         cands,
         key=lambda c: (
-            0 if is_probable_knowledge_root(c.path) else 1,
+            0 if _is_discoverable(c) else 1,
             0 if c.source == "discover:ancestor" else 1,
             -c.score,
             c.path,
@@ -326,7 +363,7 @@ def resolve_knowledge_roots(
     if include_discovery:
         discovered = discover_candidates(start)
         all_candidates.extend(discovered)
-        valid = [c for c in discovered if is_probable_knowledge_root(c.path)]
+        valid = [c for c in discovered if _is_discoverable(c)]
         selected = valid[0] if valid else None
         return _resolution(selected, all_candidates, env_file, False)
 

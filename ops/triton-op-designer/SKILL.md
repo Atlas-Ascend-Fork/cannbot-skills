@@ -34,7 +34,7 @@ argument-hint: >
 2. **GPU Triton kernel 参考实现**（`gpu_kernel_ref`，可选）— 来自 GPU 的已有 Triton kernel 实现，可作为算法结构和 tiling 策略的参考
 3. **相关的知识和示例** — UnifiedSketch DSL 规范和设计模式（见下方知识加载规则）
 4. **执行历史** — 之前的设计反馈和优化建议（迭代设计时）
-5. **算子类别经验文件**（若存在）：`{project_root}/.claude/template/{category}.md`。该文件包含经过验证的 **Layer 1 设计约束**（硬性规则，必须遵守）和 **Layer 2 算法骨架**（可参考的架构方向）。设计前必须读取并理解。若草图架构与 Layer 1 任何一条冲突，必须重新设计草图，**不得将冲突下放到代码生成阶段**。
+5. **算子类别约束卡**（若存在）：cannbot-knowledge 知识库卡片 `$KB_ROOT/ops/triton/guides/constraints/{category}_constraints.md`（KB_ROOT 解析见「知识库定位」；类别名换算与例外见「知识加载规则」）。该卡包含经过验证的 **Layer 1 设计约束**（硬性规则，必须遵守）和 **Layer 2 算法骨架**（可参考的架构方向）。设计前必须读取并理解。若草图架构与 Layer 1 任何一条冲突，必须重新设计草图，**不得将冲突下放到代码生成阶段**。
 
 ### GPU kernel 参考使用规则
 
@@ -48,11 +48,23 @@ argument-hint: >
 
 ## 知识加载规则
 
+### 知识库定位（KB_ROOT 解析，加载任何 KB 卡片前先执行）
+
+本 skill 的领域知识卡片全部位于 cannbot-knowledge 知识库。按优先级解析 `KB_ROOT`：
+
+1. 环境变量 `CANNBOT_KNOWLEDGE_ROOT`（已设置且目录存在）；
+2. 从当前工作目录及其至多 6 级祖先探测 `.cannbot/dependencies/*/cannbot-knowledge/knowledge`（cannbot 安装器自动克隆的依赖仓，glob 取第一个匹配）；
+3. 运行 knowledge-query 的 `discover`（脚本候选：`$PWD/.claude/skills/knowledge-query/scripts/knowledge_query.py`、`$PWD/.agents/skills/knowledge-query/scripts/knowledge_query.py`），取输出 JSON 的 `selected.path`。
+
+KB 卡片加载方式：解析出 `KB_ROOT` 后，用 Read 工具直接读取 `$KB_ROOT/<卡相对路径>`（doc-id 即相对 knowledge 根的 .md 路径）。解析失败则跳过对应 KB 加载项并在输出中注明「KB 不可用，按内置约束设计」。
+
+**类别 → 约束卡换算规则**：类别名的 `-` 替换为 `_` 后加 `_constraints.md` 后缀，目录为 `ops/triton/guides/constraints/`；例外：`activation` → `elementwise_constraints.md`，`attention-paged` → `paged_attention_constraints.md`。attention 家族先读路由卡 `ops/triton/guides/constraints/attention_writing_classification.md` 定细分 category。
+
 ### 必选知识（每次设计都加载）
 
 - `@references/sketch-design.md` — UnifiedSketch DSL 语法规范、核心操作、设计模式、最佳实践
 
-- **算子类别经验文件**（若存在）：`{project_root}/.claude/template/{category}.md`。该文件包含经过验证的 **Layer 1 设计约束**（硬性规则，必须遵守）和 **Layer 2 算法骨架**（可参考的架构方向）。设计前必须读取并理解。若草图架构与 Layer 1 任何一条冲突，必须重新设计草图，**不得将冲突下放到代码生成阶段**。
+- **算子类别约束卡**（若存在）：`$KB_ROOT/ops/triton/guides/constraints/{category}_constraints.md`（换算规则见上）。该卡包含经过验证的 **Layer 1 设计约束**（硬性规则，必须遵守）和 **Layer 2 算法骨架**（可参考的架构方向）。设计前必须读取并理解。若草图架构与 Layer 1 任何一条冲突，必须重新设计草图，**不得将冲突下放到代码生成阶段**。
 - **硬件规格**
   详细硬件规格参考： `@../npu-arch/references/npu-arch-guide-triton.md` 和 `@../npu-arch/references/npu-hardware-params.md`
 
@@ -64,32 +76,32 @@ argument-hint: >
 
 | 类别 | 案例文件 | 核心优化 |
 |------|---------|---------|
-| **Elementwise** | `@references/cases/elemwise-broadcast-2d.md` | 2D 广播：小维不切分、循环外加载 |
-| | `@references/cases/elemwise-broadcast-3d.md` | 跨轴 3D 广播：两阶段 kernel |
-| | `@references/cases/elemwise-cast.md` | int8→fp16：二次切分 + 用满 UB |
-| | `@references/cases/elemwise-concat.md` | Slice+Concat 融合：精确切片 load |
-| | `@references/cases/elemwise-zeros.md` | 小 shape：少核、减调度开销 |
-| **Index** | `@references/cases/index-histogram.md` | 大规模索引直方图：预排序 + 二分查找 |
-| | `@references/cases/histogram-small-bins.md` | 小 bins 直方图 / 小输出表规约：per-core local table + 二次归约 |
-| | `@references/cases/index-put.md` | 批量 load 索引到 UB、get_element 复用 |
-| **Attention / FA** | `@../../plugins-official/triton-op-generator/template/flash_attention.md` | FA 主链：先答 §0.2 形态识别四问；瓶颈是 CV 跨核同步，草图必须按「压 KV 迭代数」组织（区间收缩 / `kv_lo` 不对齐 / BLOCK 开到 UB 上限 / mask constexpr 特化），Layer 1 约束为硬性边界 |
-| | `@../../plugins-official/triton-op-generator/template/chunk-linear-attn-bwd.md` | 四·结合律重排 / chunk WY 反向：禁 1D persistent；比较链 `i_t` int32；地址 int64；`A` 转置语义。block_ptr/tile 是 L2 默认姿势 |
-| **MatMul** | `@references/cases/matmul-swizzle2d.md` | 固定核心数 grid、Swizzle2D 块重排 |
-| **Reduction** | `@references/cases/reduction-amax-large.md` | M≪N：reduce 轴多核 + 原子 + 二次切分 |
-| | `@references/cases/reduction-amax-medium.md` | 中等规模：矩阵累加再归约 |
-| | `@references/cases/reduction-amax-small.md` | 极小 shape：grid=1 最优 |
-| | `@references/cases/reduction-amin-atomic.md` | 原子 amin：两种原子方案对比 |
-| | `@references/cases/reduction-amin-large.md` | 超大 1D：二次切分 + 重组 |
-| | `@references/cases/reduction-amin-medium.md` | 大 N 维 amin：矩阵 min 再轴归约 |
-| | `@references/cases/reduction-amin-small.md` | 1D amin：并行度平衡 |
-| | `@references/cases/reduction-mean-large.md` | mean 行二次切分 |
-| | `@references/cases/reduction-mean-medium.md` | mean reduce 第一轴：重组 |
-| | `@references/cases/reduction-prod-small.md` | prod：tl.reduce + 自定义 mul |
-| | `@references/cases/reduction-sum-fused.md` | elemwise + sum 融合 |
-| | `@references/cases/reduction-sum-large.md` | 大规模 sum：重组 |
-| | `@references/cases/reduction-weighted-swiglu.md` | 3D SwiGLU backward：reshape + 行二次切分 |
-| **Sort/Select** | `@references/cases/sort-topk.md` | TopK：tile-wise partial sort + next_pow2(2*K) 合并 |
-| **Layout-transform** | `@references/layout-transform-design.md` | permute/transpose/reshape-as-copy：模式特化、连续维度合并、view 短路 |
+| **Elementwise** | `$KB_ROOT/ops/triton/runbooks/performance/elemwise_broadcast_2d.md` | 2D 广播：小维不切分、循环外加载 |
+| | `$KB_ROOT/ops/triton/guides/constraints/case_elemwise_broadcast_3d.md` | 跨轴 3D 广播：两阶段 kernel |
+| | `$KB_ROOT/ops/triton/guides/constraints/case_elemwise_cast.md` | int8→fp16：二次切分 + 用满 UB |
+| | `$KB_ROOT/ops/triton/guides/constraints/case_elemwise_concat.md` | Slice+Concat 融合：精确切片 load |
+| | `$KB_ROOT/ops/triton/guides/constraints/case_elemwise_zeros.md` | 小 shape：少核、减调度开销 |
+| **Index** | `$KB_ROOT/ops/triton/guides/constraints/case_index_histogram.md` | 大规模索引直方图：预排序 + 二分查找 |
+| | `$KB_ROOT/ops/triton/guides/constraints/case_histogram_small_bins.md` | 小 bins 直方图 / 小输出表规约：per-core local table + 二次归约 |
+| | `$KB_ROOT/ops/triton/guides/constraints/case_index_put.md` | 批量 load 索引到 UB、get_element 复用 |
+| **Attention / FA** | `$KB_ROOT/ops/triton/guides/constraints/flash_attention_constraints.md` | FA 主链：先答 §0.2 形态识别四问；瓶颈是 CV 跨核同步，草图必须按「压 KV 迭代数」组织（区间收缩 / `kv_lo` 不对齐 / BLOCK 开到 UB 上限 / mask constexpr 特化），Layer 1 约束为硬性边界 |
+| | （KB 暂无 chunk-linear-attn-bwd 专属卡，按 `new_category` 处理） | 四·结合律重排 / chunk WY 反向：禁 1D persistent；比较链 `i_t` int32；地址 int64；`A` 转置语义。block_ptr/tile 是 L2 默认姿势 |
+| **MatMul** | `$KB_ROOT/ops/triton/guides/constraints/case_matmul_swizzle2d.md` | 固定核心数 grid、Swizzle2D 块重排 |
+| **Reduction** | `$KB_ROOT/ops/triton/guides/constraints/case_reduction_amax_large.md` | M≪N：reduce 轴多核 + 原子 + 二次切分 |
+| | `$KB_ROOT/ops/triton/runbooks/performance/reduction_amax_medium.md` | 中等规模：矩阵累加再归约 |
+| | `$KB_ROOT/ops/triton/runbooks/performance/reduction_amax_small.md` | 极小 shape：grid=1 最优 |
+| | `$KB_ROOT/ops/triton/guides/constraints/case_reduction_amin_atomic.md` | 原子 amin：两种原子方案对比 |
+| | `$KB_ROOT/ops/triton/runbooks/performance/reduction_amin_large.md` | 超大 1D：二次切分 + 重组 |
+| | `$KB_ROOT/ops/triton/runbooks/performance/reduction_amin_medium.md` | 大 N 维 amin：矩阵 min 再轴归约 |
+| | `$KB_ROOT/ops/triton/runbooks/performance/reduction_amin_small.md` | 1D amin：并行度平衡 |
+| | `$KB_ROOT/ops/triton/runbooks/performance/reduction_mean_large.md` | mean 行二次切分 |
+| | `$KB_ROOT/ops/triton/runbooks/performance/reduction_mean_medium.md` | mean reduce 第一轴：重组 |
+| | `$KB_ROOT/ops/triton/runbooks/performance/reduction_prod_small.md` | prod：tl.reduce + 自定义 mul |
+| | `$KB_ROOT/ops/triton/runbooks/performance/reduction_sum_fused.md` | elemwise + sum 融合 |
+| | `$KB_ROOT/ops/triton/runbooks/performance/reduction_sum_large.md` | 大规模 sum：重组 |
+| | `$KB_ROOT/ops/triton/runbooks/performance/reduction_weighted_swiglu.md` | 3D SwiGLU backward：reshape + 行二次切分 |
+| **Sort/Select** | `$KB_ROOT/ops/triton/guides/constraints/case_sort_topk.md` | TopK：tile-wise partial sort + next_pow2(2*K) 合并 |
+| **Layout-transform** | `$KB_ROOT/ops/triton/guides/constraints/layout_transform_design.md` | permute/transpose/reshape-as-copy：模式特化、连续维度合并、view 短路 |
 | **强制约束（Layout-transform）** | — | 草图**禁止**将单一 1D element-wise gather kernel 作为主路径；必须为常见置换模式（2D transpose、batch transpose、swap adjacent dims、reverse dims、move size-1 dims）设计独立 kernel 路径或 view 短路，且每个专用 kernel 路径在草图中必须明确使用 tile-based 连续 `tl.load`/`tl.store`，并优先合并连续维度。 |
 
 ### 按需加载的知识
@@ -155,12 +167,12 @@ argument-hint: >
 **架构决策标注**：在 sketch 开头必须添加注释，说明核心架构选择的依据：
 
 ```python
-# @architecture_decision("per-dimension-serial", reason="符合 template/tensor-transform.md L1.2/L1.4 逐维度串行约束")
+# @architecture_decision("per-dimension-serial", reason="符合 tensor_transform_constraints 卡 L1.2/L1.4 逐维度串行约束")
 # @architecture_decision("flat-single-kernel", reason="...")  # 仅当经验文件明确允许或不存在时
 sketch op_name { ... }
 ```
 
-**Layer 1 自检**：输出草图前，必须在思考过程中逐条核对 `template/{category}.md` 的 Layer 1 约束，确认草图架构不触发任何禁止项。若存在冲突，必须在最终草图中修正，不得输出冲突架构。
+**Layer 1 自检**：输出草图前，必须在思考过程中逐条核对 `{category}_constraints.md` 卡（KB）的 Layer 1 约束，确认草图架构不触发任何禁止项。若存在冲突，必须在最终草图中修正，不得输出冲突架构。
 
 ---
 
@@ -171,7 +183,7 @@ sketch op_name { ... }
 - 考虑**目标硬件架构**的优化机会（并行度、内存访问模式、数据对齐）
 - 标注**优化点和权衡决策**（使用 `@llm_hint` 注解）
 - 数值正确性优先，性能次之
-- **历史经验优先**：若 `template/{category}.md` 存在，其 Layer 1 约束为**硬性规则**，草图架构必须与之兼容。若通用设计模板与 Layer 1 冲突，**必须以 Layer 1 为准**
+- **历史经验优先**：若 `{category}_constraints.md` 卡（KB）存在，其 Layer 1 约束为**硬性规则**，草图架构必须与之兼容。若通用设计模板与 Layer 1 冲突，**必须以 Layer 1 为准**
 - **禁止冲突架构**：草图中不得出现与 Layer 1 禁止项同义的抽象（如 Layer 1 禁止单 kernel 展平时，草图中不得出现 `map_output_to_input` 式的一维线性映射）
 
 ## 草图特点

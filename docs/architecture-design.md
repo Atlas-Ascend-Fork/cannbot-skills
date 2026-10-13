@@ -23,7 +23,6 @@ cannbot-skills/
 │   ├── ops-code-reviewer/           # 代码检视
 │   ├── torch-compile/               # torch.compile 图模式
 │   ├── model-infer-optimize/        # NPU 推理端到端优化流程
-│   ├── triton-op-generator/         # Triton 算子代码生成与优化
 │   └── tilelang-op-orchestrator/    # TileLang 算子开发
 ├── plugins-community/               # 社区 Plugins
 │   ├── install-helper/              # CANNBot Install Helper 工具
@@ -216,7 +215,7 @@ cannbot-skills/
 
 ### Triton 算子开发
 
-`triton-op-generator` 插件编排 Triton 算子端到端生成与优化流程。逻辑架构与上述类似（Plugin 编排 → Agent 执行 → Skill 能力），详见插件目录下的 `AGENTS.md`。
+`triton-op-generator` 插件（Triton 算子端到端生成与优化）已迁移至 cannbot 仓（`plugins-official/triton-op-generator`），其 Skills 仍由本仓 `ops/` 维护，知识卡片由 cannbot-knowledge 仓供给。
 
 ### torch.compile 图模式
 

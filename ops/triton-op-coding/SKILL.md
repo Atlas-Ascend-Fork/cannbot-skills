@@ -116,7 +116,7 @@ torch.set_rng_state(rng)
 ### C2 复刻出的权重还要用对布局
 
 `nn.Linear` 是 `y = x @ Wᵀ`（`weight` 形状 `[out, in]`），方阵下算成 `x @ W` 时
-shape 检查不会报错，只有数值会错。写法见 `@references/triton-ascend-matmul.md`。
+shape 检查不会报错，只有数值会错。写法见 KB 卡 `ops/triton/optimizations/operator_optimization/coding_matmul.md`（KB_ROOT 解析见「知识库定位」）。
 
 ---
 
@@ -129,7 +129,7 @@ shape 检查不会报错，只有数值会错。写法见 `@references/triton-as
 3. **GPU Triton kernel 参考实现**（`gpu_kernel_ref`，可选）— 来自 GPU 的已有 Triton kernel 实现，可作为代码结构和 API 用法的参考
 4. **相关的知识和示例** — Triton Ascend 编程知识（见下方知识加载规则）
 5. **执行历史** — 之前的错误信息和修复建议（迭代生成时）
-6. **算子类别经验文件**（若存在）：`{project_root}/.claude/template/{category}.md`。该文件包含经过验证的 **Layer 1 设计约束**（硬性规则）。若其 Layer 1 约束与传入的 `sketch` 冲突，**必须以 Layer 1 约束为准**修正代码架构，不得盲目遵循一个已知劣化的草图。
+6. **算子类别约束卡**（若存在）：cannbot-knowledge 知识库卡片 `$KB_ROOT/ops/triton/guides/constraints/{category}_constraints.md`（KB_ROOT 解析与类别名换算见「知识加载规则」）。该卡包含经过验证的 **Layer 1 设计约束**（硬性规则）。若其 Layer 1 约束与传入的 `sketch` 冲突，**必须以 Layer 1 约束为准**修正代码架构，不得盲目遵循一个已知劣化的草图。
 
 ### GPU kernel 参考使用规则
 
@@ -144,29 +144,41 @@ shape 检查不会报错，只有数值会错。写法见 `@references/triton-as
 
 ## 知识加载规则
 
+### 知识库定位（KB_ROOT 解析，加载任何 KB 卡片前先执行）
+
+本 skill 的领域知识卡片全部位于 cannbot-knowledge 知识库。按优先级解析 `KB_ROOT`：
+
+1. 环境变量 `CANNBOT_KNOWLEDGE_ROOT`（已设置且目录存在）；
+2. 从当前工作目录及其至多 6 级祖先探测 `.cannbot/dependencies/*/cannbot-knowledge/knowledge`（cannbot 安装器自动克隆的依赖仓，glob 取第一个匹配）；
+3. 运行 knowledge-query 的 `discover`（脚本候选：`$PWD/.claude/skills/knowledge-query/scripts/knowledge_query.py`、`$PWD/.agents/skills/knowledge-query/scripts/knowledge_query.py`），取输出 JSON 的 `selected.path`。
+
+KB 卡片加载方式：用 Read 工具直接读取 `$KB_ROOT/<卡相对路径>`（doc-id 即相对 knowledge 根的 .md 路径）。解析失败则跳过对应 KB 加载项并在输出中注明「KB 不可用，按内置约束生成」。
+
+**类别 → 约束卡换算规则**：类别名的 `-` 替换为 `_` 后加 `_constraints.md` 后缀，目录为 `ops/triton/guides/constraints/`；例外：`activation` → `elementwise_constraints.md`，`attention-paged` → `paged_attention_constraints.md`。attention 家族先读路由卡 `ops/triton/guides/constraints/attention_writing_classification.md` 定细分 category。
+
 ### 必选知识（每次生成都加载）
 
-- **算子类别经验文件**（若存在）：`{project_root}/.claude/template/{category}.md`。该文件包含经过验证的 **Layer 1 设计约束**（硬性规则）。若其 Layer 1 约束与传入的 `sketch` 冲突，**必须以 Layer 1 约束为准**修正代码架构，不得盲目遵循一个已知劣化的草图。
+- **算子类别约束卡**（若存在）：`$KB_ROOT/ops/triton/guides/constraints/{category}_constraints.md`。该卡包含经过验证的 **Layer 1 设计约束**（硬性规则）。若其 Layer 1 约束与传入的 `sketch` 冲突，**必须以 Layer 1 约束为准**修正代码架构，不得盲目遵循一个已知劣化的草图。
 - **硬件规格**（每次生成都必须加载）：
   `@../npu-arch/references/npu-arch-guide-triton.md` 和 `@../npu-arch/references/npu-hardware-params.md`
 
-- `@references/triton-ascend-fundamentals.md` — API 参考、编程基础、Grid 配置、内存优化、性能优化、调试清单
-- `@references/triton-ascend-examples.md` — PyTorch + Triton Ascend 完整示例代码
+- KB 卡 `ops/triton/guides/triton_ascend/programming_basics.md` + `ops/triton/guides/triton_ascend/api_reference.md` + `ops/triton/guides/triton_ascend/grid_launch_limits.md` — API 参考、编程基础、Grid 配置、内存优化、调试清单
+- KB 卡 `ops/triton/guides/triton_ascend/code_examples.md` — PyTorch + Triton Ascend 完整示例代码（更多示例见 `$KB_ROOT/ops/triton/examples/` 目录）
 
 ### 按算子类型选择的知识
 
 根据算子类型，**额外**加载对应的参考文档：
 
-| 算子类型     | 识别特征                                                          | 加载文档                                   |
+| 算子类型     | 识别特征                                                          | 加载 KB 卡片（均相对 `$KB_ROOT/`）                                   |
 | ------------ | ----------------------------------------------------------------- | ------------------------------------------ |
-| Element-wise | add/mul/relu/sigmoid/tanh/gelu/exp/log/silu 等逐元素操作          | `@references/triton-ascend-elementwise.md` |
-| MatMul       | matmul/bmm/linear/gemm 等矩阵乘法                                 | `@references/triton-ascend-matmul.md`      |
-| Reduce       | sum/mean/max/min/softmax/layernorm/logsoftmax/histc/bincount/scatter_reduce（小输出） 等归约操作 | `@references/triton-ascend-reduce.md`      |
-| Attention    | self-attention/cross-attention/scaled-dot-product（**不含 KV 分块**）             | `@references/triton-ascend-attention.md`   |
-| **Flash-Attention / FA** | KV 分块 + online softmax 状态量 `m`/`l`/`acc`，或带 causal/window/softcap 的 attention 主链（MHA / SDPA / flash-attn / GQA-MQA） | `@references/triton-ascend-attention.md` + `@../../plugins-official/triton-op-generator/template/flash_attention.md`（Layer 1/3 为硬性约束） |
-| Sort/Select  | nms 等排序选择操作                                                | `@references/triton-ascend-sort-select.md` |
-| Interpolate  | Interpolate等插值操作                                             | `@references/triton-ascend-interpolate.md` |
-| Layout-transform | permute / transpose / reshape-as-copy 等仅改变数据布局的算子 | `@references/triton-ascend-layout-transform.md` |
+| Element-wise | add/mul/relu/sigmoid/tanh/gelu/exp/log/silu 等逐元素操作          | `ops/triton/optimizations/operator_optimization/coding_elementwise.md` + `ops/triton/guides/operator_design/elementwise.md` |
+| MatMul       | matmul/bmm/linear/gemm 等矩阵乘法                                 | `ops/triton/optimizations/operator_optimization/coding_matmul.md` + `ops/triton/guides/operator_design/matmul.md`      |
+| Reduce       | sum/mean/max/min/softmax/layernorm/logsoftmax/histc/bincount/scatter_reduce（小输出） 等归约操作 | `ops/triton/guides/constraints/coding_reduce.md` + `ops/triton/guides/operator_design/reduction.md`      |
+| Attention    | self-attention/cross-attention/scaled-dot-product（**不含 KV 分块**）             | `ops/triton/guides/constraints/coding_attention.md` + `ops/triton/guides/operator_design/attention.md`   |
+| **Flash-Attention / FA** | KV 分块 + online softmax 状态量 `m`/`l`/`acc`，或带 causal/window/softcap 的 attention 主链（MHA / SDPA / flash-attn / GQA-MQA） | `ops/triton/guides/constraints/coding_attention.md` + `ops/triton/guides/constraints/flash_attention_constraints.md`（Layer 1/3 为硬性约束） |
+| Sort/Select  | nms 等排序选择操作                                                | `ops/triton/guides/constraints/coding_sort_select.md` |
+| Interpolate  | Interpolate等插值操作                                             | `ops/triton/optimizations/operator_optimization/coding_interpolate.md` + `ops/triton/guides/operator_playbooks/` 下 `tensor_transform__interpolate*.md`（4 张） |
+| Layout-transform | permute / transpose / reshape-as-copy 等仅改变数据布局的算子 | `ops/triton/guides/constraints/coding_layout_transform.md` + `ops/triton/guides/constraints/layout_transform_design.md` + `ops/triton/optimizations/operator_optimization/permute_layout_transform.md` |
 | **强制约束（Layout-transform）** | — | 生成的 `ModelNew.forward()` 必须根据 `dims` 模式分发到不同 `@triton.jit` 专用 kernel；每个常见模式专用 kernel 内部必须使用 tile-based 连续 `tl.load`/`tl.store`（禁止用逐元素 div/mod 或 `tl.where` 链做 gather/scatter），并在模式特化前通过 `view` 合并连续维度；单一 generic gather kernel 仅允许作为罕见 permutation 的 fallback，且必须在注释中说明无法特化的原因。 |
 
 如果算子涉及多种类型（如融合算子），加载所有相关文档。
@@ -177,13 +189,13 @@ shape 检查不会报错，只有数值会错。写法见 `@references/triton-as
 
 当传入了 `sketch`（kernel-designer 生成的算法设计草图）时，**必须以草图为基础进行代码实现** ，充分利用其中的算法思路和优化策略。
 
-**草图与经验冲突时的修正义务**：若 `template/{category}.md` 存在且其 Layer 1 约束与 `sketch` 架构冲突（例如草图要求单 kernel 展平多维 repeat，但 Layer 1 强制要求逐维度串行），**代码生成器有义务修正架构错误**，而非盲目遵循草图。此时应：
+**草图与经验冲突时的修正义务**：若 `{category}_constraints.md` 卡（KB）存在且其 Layer 1 约束与 `sketch` 架构冲突（例如草图要求单 kernel 展平多维 repeat，但 Layer 1 强制要求逐维度串行），**代码生成器有义务修正架构错误**，而非盲目遵循草图。此时应：
 
 1. 以 Layer 1 约束为硬性边界重新设计代码结构
 2. 保留草图中不冲突的部分（如 tile_size、数据类型处理、向量化策略）
-3. 在代码注释中标注修正原因，例如：`# 修正 sketch 的 flat-kernel 架构为 per-dimension serial，以符合 template/{category}.md Layer 1 约束`
+3. 在代码注释中标注修正原因，例如：`# 修正 sketch 的 flat-kernel 架构为 per-dimension serial，以符合 {category}_constraints.md 卡 Layer 1 约束`
 
-如果没有传入 `sketch`，则根据 `task_desc` 和 `template/{category}.md`（若存在）自行设计实现方案。
+如果没有传入 `sketch`，则根据 `task_desc` 和 `{category}_constraints.md` 卡（KB，若存在）自行设计实现方案。
 
 ---
 
@@ -220,7 +232,7 @@ shape 检查不会报错，只有数值会错。写法见 `@references/triton-as
 
 ### 模式 4: 草图与经验冲突时的修正生成
 
-当 `sketch` 与 `template/{category}.md` 的 Layer 1 约束冲突时：
+当 `sketch` 与 `{category}_constraints.md` 卡（KB）的 Layer 1 约束冲突时：
 
 1. **识别冲突**：对比草图架构与 Layer 1 的硬性规则，列出所有冲突点
 2. **架构修正**：以 Layer 1 为边界重新设计代码骨架。例如草图要求单 kernel 展平，但经验要求逐维度串行 → 改为 Host 侧循环 + 多 kernel 启动

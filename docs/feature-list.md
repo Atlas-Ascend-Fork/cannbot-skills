@@ -177,7 +177,7 @@
 
 | Agent | 功能 |
 |-------|------|
-| **triton-op-generator** | Triton 算子端到端生成与优化 |
+| **triton-op-generator** | Triton 算子端到端生成与优化（插件已迁移至 cannbot 仓，Skills 保留在本仓 `ops/`） |
 
 ## Runtime
 

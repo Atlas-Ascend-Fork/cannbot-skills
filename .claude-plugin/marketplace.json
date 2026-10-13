@@ -588,52 +588,6 @@
       ]
     },
     {
-      "name": "triton-op-generator-skills",
-      "description": "Triton-Ascend 算子代码生成与优化 Skills（6 个）。任务提取、算法设计、代码生成、功能验证、性能优化，以及 NPU 架构参考。",
-      "source": "./ops",
-      "strict": false,
-      "version": "1.0.0",
-      "author": {
-        "name": "CANNBot"
-      },
-      "keywords": [
-        "triton",
-        "ascend",
-        "skills",
-        "operator",
-        "generator"
-      ],
-      "category": "skills",
-      "skills": [
-        "./triton-task-extractor",
-        "./triton-op-designer",
-        "./triton-op-coding",
-        "./triton-op-verifier",
-        "./triton-latency-optimizer",
-        "./npu-arch"
-      ]
-    },
-    {
-      "name": "triton-op-generator",
-      "source": "./plugins-official/triton-op-generator",
-      "description": "Triton-Ascend 算子代码生成与优化 Team。采用直接执行模式（CLAUDE.md/AGENTS.md），含 6 个专业 Skill（含 NPU 架构参考 npu-arch），支持在当前会话实时显示所有执行阶段。",
-      "version": "1.0.2",
-      "author": {
-        "name": "CANNBot"
-      },
-      "keywords": [
-        "triton",
-        "ascend",
-        "operator",
-        "generator",
-        "npu"
-      ],
-      "category": "development",
-      "dependencies": [
-        "triton-op-generator-skills"
-      ]
-    },
-    {
       "name": "triton-optimizer-skills",
       "description": "Triton Optimizer workflow Skills（2 个）。triton-npu-optimize 涵盖算子迭代优化全流程（baseline、测试、benchmark、profiling、IR/编译器分析、状态管理、修复指南），triton-npu-convert 完成 PyTorch 到 Triton NPU 转换与验证。",
       "source": "./plugins-community/triton-optimizer/skills",
