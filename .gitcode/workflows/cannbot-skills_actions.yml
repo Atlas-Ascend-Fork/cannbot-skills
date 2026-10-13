@@ -90,6 +90,7 @@ stages:
                 || { echo "❌ runner 上未找到 lib/ci-summary.sh，请先部署 cannbot-skills-rdv" >&2; exit 3; }
           - name: run_static_vet
             env:
+              ATOMGIT_RUN_ATTEMPT: ${{ atomgit.run_attempt }}
               ADMIN_PASSWORD: ${{ secrets.ST_PLATFORM_ADMIN_PASSWORD }}
               CI_REPORT_DIR: "${{ env.ci_report_dir }}/static-vet"
             run: |
@@ -133,12 +134,12 @@ stages:
                 || { echo "❌ runner 上未找到 ci-pr-verify.sh，请确认 cannbot-skills-rdv 已部署" >&2; exit 3; }
           - name: run_st_test
             env:
+              ATOMGIT_RUN_ATTEMPT: ${{ atomgit.run_attempt }}
               ADMIN_PASSWORD: ${{ secrets.ST_PLATFORM_ADMIN_PASSWORD }}
               CI_REPORT_DIR: "${{ env.ci_report_dir }}/st"
             run: |
               bash /opt/cannbot-skills-rdv/scripts/ci-pr-verify.sh \
                 --pr-number "${{ env.MERGE_ID }}" \
-                --platforms A2 \
                 --gitcode-repo cann/cannbot-skills \
                 --timeout 3600 \
                 --poll-interval 60 \
