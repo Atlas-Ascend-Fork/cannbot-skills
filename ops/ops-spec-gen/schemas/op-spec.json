@@ -132,6 +132,11 @@
               "description": "本算子适用的 Atlas 芯片型号白名单（与 registries/chip_registry.yaml 对齐）"
             }
           }
+        },
+        "aicpu_kernel": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "AICPU 前置算子名称（可选）。若算子数据流包含 AICPU 前置计算（如元数据计算、量化参数预处理等），在此声明对应的 AICPU kernel 名称。"
         }
       }
     },

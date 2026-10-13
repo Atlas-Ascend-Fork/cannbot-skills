@@ -16,6 +16,8 @@ schema_version: 1
 op:
 {{op_block}}
 {{paradigm_groups_block}}
+# 若算子含 AICPU 前置计算（如元数据/量化参数预处理），在 op 节点追加：aicpu_kernel: <kernel_name>
+# 测试生成 Skill 检测到此字段后，会在 NPU 测试时自动插入 AICPU 调用链；无此前置则无需填写
 
 inputs:
 {{inputs_block}}

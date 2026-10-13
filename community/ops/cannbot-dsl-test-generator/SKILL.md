@@ -45,6 +45,8 @@ metadata:
 
 依据 spec 和 DESIGN 直接编写 `TEST_DIR/<op>_golden.py`。其中包含 `DESIGN_REFS`、与 spec 参数一致的 `<op>_golden`、公开接口元数据；CPU 实现不得导入被测算子或设备库。可参考 [Golden 契约](references/golden.md)。人工审查数值路径后运行 `scripts/prepare_golden.py --spec SPEC --design DESIGN --test-dir TEST_DIR` 校验最终 Golden，并安装固定 `test_<op>.py` 与三个结果目录。静态校验不能证明数值等价，须用 CPU 样例和边界复核。
 
+若 spec 声明了 `op.aicpu_kernel`，算子实现模块须提供 `_aicpu_preprocess(inputs)` 钩子：NPU 测试时固定入口自动调用该钩子对输入做 AICPU 前置处理，再执行主算子；CPU Golden 不感知此流程，保持纯 CPU 实现。
+
 ## 白盒
 
 依据所提供设计文件中的算法、执行路径和验证矩阵直接编写 CSV 的 whitebox 行。每个目标对应可执行分支或带理由的 excluded 行；分支只使用 spec 公开输入。运行 `scripts/build_whitebox_cases.py --spec SPEC --design DESIGN --test-dir TEST_DIR` 核对 DESIGN 引用、输入配方和分支 ID，不依赖 Unit 或 Golden。

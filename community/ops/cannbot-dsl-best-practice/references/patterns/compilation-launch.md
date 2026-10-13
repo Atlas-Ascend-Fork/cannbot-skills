@@ -83,7 +83,7 @@ compile 参数描述中为 `core_num` 声明 `dtypes.int64`，实际值在 `prog
 
 按核分配的 [Workspace](workspace.md) 使用同一个实际核数；存在 [调度记录](aicpu-load-balance-metadata.md) 时，其分核数量与 launch 一致。使用全 launch 屏障还须满足 [同步](synchronization.md) 的驻留与全员参与条件；任务少可以保留空任务核，不能只在启动处随意缩减核数。
 
-**反例：** 将开发设备核数写死在 launch 中；查询失败后用容量上限继续提交 NPU 计算；Host 与 Kernel 分别使用不一致的核数；只改变 launch 数量而复用旧的分核记录。
+**反例：** 将开发设备核数写死在 launch 中；查询失败后用容量上限继续提交 NPU 计算；Host 与 Kernel 分别使用不一致的核数；只改变 launch 数量而复用旧的分核记录；**Kernel 内使用硬编码核数（如 `if block_idx < 8:`）而非 `get_block_num()` 读取**。
 
 ## 动态维度同时描述 shape 与 stride
 

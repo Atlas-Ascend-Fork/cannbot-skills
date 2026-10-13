@@ -234,6 +234,11 @@ def main():
     op = (spec.get("op") or {}).get("name")
     if not isinstance(op, str) or not NAME.fullmatch(op):
         fail("spec.op.name must be a Python identifier")
+    aicpu_kernel = (spec.get("op") or {}).get("aicpu_kernel")
+    if aicpu_kernel is not None:
+        if not isinstance(aicpu_kernel, str) or not NAME.fullmatch(aicpu_kernel):
+            fail("spec.op.aicpu_kernel must be a Python identifier")
+        LOGGER.info(f"AICPU kernel detected: {aicpu_kernel}")
     reference_path = golden_path(work, op)
     if (
         not reference_path.is_file()

@@ -176,6 +176,13 @@ class Invocation(NamedTuple):
 def _invoke(invocation, inputs, output_map, expected_error_code=None):
     run, golden, device = invocation
     inputs = _to_device(inputs, device)
+    
+    # AICPU 前置处理（若算子实现模块提供）
+    if device != "cpu":
+        module = sys.modules.get(run.__module__)
+        if module and hasattr(module, "_aicpu_preprocess"):
+            inputs = module._aicpu_preprocess(inputs)
+    
     outputs = {}
     if output_map:
         if not isinstance(output_map, dict) or set(output_map) != set(

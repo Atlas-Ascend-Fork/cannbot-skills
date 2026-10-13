@@ -308,6 +308,7 @@ pip install torch  # 或 jax / scipy / tensorflow
 | 17 | `determinism` | 确定性保证 | ✓ | ✓ |
 | 18 | `numerical_stability` | 数值稳定性技术 | ✓ | ✓ |
 | 19 | `inputs[].data_distribution` | 输入数据分布策略（累加类 Reduction/ReductionComposite/Recurrence/AtomicUpdate/Histogram 必须 normal，非累加类不填；stage 2 强校验） | ✓ | ✓ |
+| 20 | `op.aicpu_kernel` | AICPU 前置算子名称（可选）。若算子数据流包含 AICPU 前置计算，在此声明；测试生成 Skill 自动检测并在 NPU 测试时插入 AICPU 调用链 | ✓ | |
 
 #### 字段职责分层
 
