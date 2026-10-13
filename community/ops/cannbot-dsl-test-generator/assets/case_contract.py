@@ -10,13 +10,9 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------------------------------------
 
-"""Fixed CANNBotDSL runner for testcase.csv blackbox/whitebox/TDD rows."""
-
-"""Shared, bounded predicates for generated CPU inputs and observed probe events."""
+"""Shared contracts for generated inputs and observable operator behavior."""
 
 import math
-from collections import Counter, defaultdict
-
 
 RELATIONS = {"eq", "ne", "ge", "gt", "le", "lt"}
 RUNTIME_KINDS = {
@@ -24,8 +20,7 @@ RUNTIME_KINDS = {
     "output_dtype",
     "output_device",
     "output_equals_input",
-    "probe_events",
-    "probe_predicates",
+    "input_unchanged",
     "input_conditions",
 }
 
@@ -41,60 +36,37 @@ def compare(left, relation, right):
     }[relation]()
 
 
-def validate_checks(checks, probe=False):
+def validate_checks(checks):
     if not isinstance(checks, list) or not checks:
         raise ValueError("checks must be a nonempty list")
     for check in checks:
         if not isinstance(check, dict):
             raise ValueError("check must be a mapping")
-        if probe:
-            op = check.get("op")
-            if op not in {"count", "paired", "before"}:
-                raise ValueError("unknown probe predicate")
-            selectors = ["where"] if op == "count" else ["first", "second"]
-            if any(
-                not isinstance(check.get(key), dict) or not check[key]
-                for key in selectors
-            ):
-                raise ValueError("probe selectors must be nonempty mappings")
-            if op != "count":
-                keys = check.get("keys")
+        if not isinstance(check.get("input"), str):
+            raise ValueError("input condition requires input name")
+        if check.get("metric") not in {
+            "dimension",
+            "numel",
+            "unique_count",
+            "count",
+        }:
+            raise ValueError("unknown input metric")
+        if check.get("metric") == "dimension" or "axis" in check:
+            if type(check.get("axis")) is not int:
+                raise ValueError("axis must be an integer")
+        where = check.get("where", {})
+        if not isinstance(where, dict) or set(where) - {"min", "max", "eq"}:
+            raise ValueError("input filter supports min/max/eq")
+        for bound in where.values():
+            if isinstance(bound, dict):
                 if (
-                    not isinstance(keys, list)
-                    or not keys
-                    or any(not isinstance(k, str) for k in keys)
-                    or len(keys) != len(set(keys))
+                    set(bound) != {"input", "dimension"}
+                    or not isinstance(bound["input"], str)
+                    or type(bound["dimension"]) is not int
                 ):
-                    raise ValueError("pairing requires unique key names")
-                continue
-        else:
-            if not isinstance(check.get("input"), str):
-                raise ValueError("input condition requires input name")
-            if check.get("metric") not in {
-                "dimension",
-                "numel",
-                "unique_count",
-                "count",
-            }:
-                raise ValueError("unknown input metric")
-            if check.get("metric") == "dimension" or "axis" in check:
-                if type(check.get("axis")) is not int:
-                    raise ValueError("axis must be an integer")
-            where = check.get("where", {})
-            if not isinstance(where, dict) or set(where) - {"min", "max", "eq"}:
-                raise ValueError("input filter supports min/max/eq")
-            for bound in where.values():
-                if isinstance(bound, dict):
-                    if (
-                        set(bound) != {"input", "dimension"}
-                        or not isinstance(bound["input"], str)
-                        or type(bound["dimension"]) is not int
-                    ):
-                        raise ValueError(
-                            "filter bound must reference an input dimension"
-                        )
-                elif not isinstance(bound, (int, float)) or not math.isfinite(bound):
-                    raise ValueError("filter bound must be finite")
+                    raise ValueError("filter bound must reference an input dimension")
+            elif not isinstance(bound, (int, float)) or not math.isfinite(bound):
+                raise ValueError("filter bound must be finite")
         if (
             check.get("relation") not in RELATIONS
             or not isinstance(check.get("value"), (int, float))
@@ -113,6 +85,10 @@ def validate_assertions(assertions):
         if not isinstance(assertion, dict):
             raise ValueError("assertion must be a mapping")
         kind = assertion.get("kind")
+        if kind in {"probe_events", "probe_predicates"}:
+            raise ValueError(
+                f"{kind} is removed; migrate structural checks to review_evidence and public behavior assertions"
+            )
         if kind == "execution":
             executions += 1
             repeat = assertion.get("repeat", 1)
@@ -138,11 +114,19 @@ def validate_assertions(assertions):
                     raise ValueError("call seed must be an integer")
         elif kind not in RUNTIME_KINDS:
             raise ValueError("unknown assertion kind")
-        elif kind in {"input_conditions", "probe_predicates"}:
-            validate_checks(assertion.get("checks"), probe=kind == "probe_predicates")
-        elif kind == "probe_events":
-            if not isinstance(assertion.get("events"), list) or not assertion["events"]:
-                raise ValueError("probe_events requires nonempty events")
+        elif kind == "input_conditions":
+            validate_checks(assertion.get("checks"))
+        elif kind == "input_unchanged":
+            names = assertion.get("inputs")
+            if (
+                not isinstance(names, list)
+                or not names
+                or any(not isinstance(name, str) or not name.strip() for name in names)
+                or len(names) != len(set(names))
+            ):
+                raise ValueError(
+                    "input_unchanged requires unique nonempty Tensor input names"
+                )
     if executions > 1:
         raise ValueError("one execution control per case is allowed")
 
@@ -203,56 +187,6 @@ def check_inputs(inputs, checks):
     return records
 
 
-def check_probe(events, checks):
-    validate_checks(checks, probe=True)
-    if not isinstance(events, list) or any(
-        not isinstance(event, dict) for event in events
-    ):
-        raise ValueError("probe predicates require mapping events")
-    records = []
-    for check in checks:
-
-        def selected(selector):
-            return [
-                (index, event)
-                for index, event in enumerate(events)
-                if all(k in event and event[k] == v for k, v in selector.items())
-            ]
-
-        if check["op"] == "count":
-            count = len(selected(check["where"]))
-            if not compare(count, check["relation"], check["value"]):
-                raise AssertionError(f"probe count failed: {check!r}; observed={count}")
-            records.append({"check": check, "observed": count})
-            continue
-        first, second = selected(check["first"]), selected(check["second"])
-
-        def grouped(items):
-            result = defaultdict(list)
-            for index, event in items:
-                if any(key not in event for key in check["keys"]):
-                    raise AssertionError("probe pairing key missing")
-                key = tuple(event[name] for name in check["keys"])
-                try:
-                    result[key].append(index)
-                except TypeError as exc:
-                    raise ValueError("probe pairing keys must be scalar") from exc
-            return result
-
-        left, right = grouped(first), grouped(second)
-        if not left or (
-            Counter({k: len(v) for k, v in left.items()})
-            != Counter({k: len(v) for k, v in right.items()})
-        ):
-            raise AssertionError(f"probe pairing failed: {check!r}")
-        if check["op"] == "before" and any(
-            a >= b for key in left for a, b in zip(left[key], right[key])
-        ):
-            raise AssertionError(f"probe order failed: {check!r}")
-        records.append({"check": check, "pairs": len(first)})
-    return records
-
-
 def case_calls(inputs, seed, assertions):
     validate_assertions(assertions)
     control = next((a for a in assertions if a["kind"] == "execution"), {})
@@ -266,4 +200,12 @@ def case_calls(inputs, seed, assertions):
                 "assertions": call.get("assertions", runtime),
             }
         )
+    for call in calls:
+        for assertion in call["assertions"]:
+            if assertion["kind"] == "input_unchanged":
+                missing = set(assertion["inputs"]) - set(call["inputs"])
+                if missing:
+                    raise ValueError(
+                        f"input_unchanged names missing from inputs: {sorted(missing)}"
+                    )
     return control.get("repeat", 1), control.get("bitwise", False), calls

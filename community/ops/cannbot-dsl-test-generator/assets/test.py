@@ -13,8 +13,6 @@
 """Fixed CANNBotDSL runner for testcase.csv blackbox/whitebox/TDD rows."""
 
 import argparse
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import NamedTuple, Any
 import csv
 import importlib
 import importlib.util
@@ -22,11 +20,13 @@ import json
 import multiprocessing
 import os
 import sys
+import tempfile
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any, NamedTuple
 
 import torch
-
-from cannbotdsl_case_contract import case_calls, check_inputs, check_probe
+from cannbotdsl_case_contract import case_calls, check_inputs, validate_assertions
 
 TEST_DIR = Path(__file__).resolve().parent
 OP_NAME = "__CANNBOTDSL_OP_NAME__"  # Bound from spec.op.name by prepare_golden.py.
@@ -38,7 +38,7 @@ _WORKER_ERROR = None
 def _result_path(sheet, case_id):
     suffix = f"_{case_id}" if case_id else ""
     output_dir = TEST_DIR / "testcase_output" / sheet
-    output_dir.mkdir(exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir / f"verify_result_{sheet}{suffix}.csv"
 
 
@@ -109,17 +109,17 @@ def _synchronize(device):
     backend = getattr(torch, device_type, None)
     if backend is None or not hasattr(backend, "synchronize"):
         raise RuntimeError(
-            f"cannot synchronize target device {device_type}; probe evidence is not reliable"
+            f"cannot synchronize target device {device_type}; repeated-call evidence is not reliable"
         )
     backend.synchronize()
 
 
-def _assert_nonnumeric(actual, inputs, assertions, device, probe):
+def _assert_nonnumeric(actual, inputs, assertions, device):
     if not isinstance(assertions, list) or not assertions:
         raise ValueError("nonnumeric TDD case has no assertions")
     records = []
     for assertion in assertions:
-        records.append(_observe_assertion(actual, inputs, assertion, device, probe))
+        records.append(_observe_assertion(actual, inputs, assertion, device))
     return records
 
 
@@ -173,16 +173,19 @@ class Invocation(NamedTuple):
     device: str
 
 
-def _invoke(invocation, inputs, output_map, expected_error_code=None):
+def _invoke(invocation, inputs, output_map, expected_error_code=None, unchanged=()):
     run, golden, device = invocation
     inputs = _to_device(inputs, device)
-    
-    # AICPU 前置处理（若算子实现模块提供）
     if device != "cpu":
         module = sys.modules.get(run.__module__)
         if module and hasattr(module, "_aicpu_preprocess"):
             inputs = module._aicpu_preprocess(inputs)
-    
+    snapshots = {}
+    for name in unchanged:
+        value = inputs.get(name)
+        if not isinstance(value, torch.Tensor):
+            raise TypeError(f"input_unchanged requires Tensor input: {name}")
+        snapshots[name] = (_clone_cpu(value), value.device, value.stride())
     outputs = {}
     if output_map:
         if not isinstance(output_map, dict) or set(output_map) != set(
@@ -203,6 +206,15 @@ def _invoke(invocation, inputs, output_map, expected_error_code=None):
                 f"target error does not match spec code {expected_error_code}: {target_error}"
             ) from target_error
         return None
+    finally:
+        for name, (before, original_device, original_stride) in snapshots.items():
+            value = inputs[name]
+            try:
+                _bitwise_equal(_clone_cpu(value), before)
+                if value.device != original_device or value.stride() != original_stride:
+                    raise AssertionError("input metadata changed")
+            except AssertionError as error:
+                raise AssertionError(f"input_unchanged failed: {name}") from error
     if expected_error_code is not None:
         raise AssertionError(
             f"target accepted an input that should raise {expected_error_code}"
@@ -233,7 +245,7 @@ def _load_invocation(golden, device):
 
 
 def _init_worker(device):
-    # Keep module/probe state private and amortize imports across many rows.
+    # Keep module state private and amortize imports across many rows.
     global _WORKER_INVOCATION, _WORKER_ERROR
     _WORKER_INVOCATION, _WORKER_ERROR = None, None
     try:
@@ -276,7 +288,7 @@ def _run_rows(rows, golden, device, workers):
 
     results = [None] * len(rows)
     # Never fork an initialized accelerator runtime. Only recipes cross processes;
-    # tensors, Golden and target/probe modules stay in their worker.
+    # tensors, Golden and target modules stay in their worker.
     with ProcessPoolExecutor(
         max_workers=workers,
         mp_context=multiprocessing.get_context("spawn"),
@@ -315,6 +327,8 @@ def main():
         help="concurrent case processes (default: 4); use 1 for serial execution",
     )
     args = parser.parse_args()
+    result_path = _result_path(args.sheet, args.case_id)
+    result_path.unlink(missing_ok=True)
     if args.require_accelerator and torch.device(args.device).type == "cpu":
         print(
             "precision verification requires a non-CPU target device", file=sys.stderr
@@ -327,13 +341,27 @@ def main():
         print(str(exc), file=sys.stderr)
         return 2
     results = _run_rows(rows, golden, args.device, args.workers)
-    result_path = _result_path(args.sheet, args.case_id)
-    with result_path.open("w", encoding="utf-8-sig", newline="") as handle:
-        writer = csv.DictWriter(
-            handle, fieldnames=("sheet", "case_id", "device", "status", "detail")
-        )
-        writer.writeheader()
-        writer.writerows(results)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8-sig",
+            newline="",
+            dir=result_path.parent,
+            prefix=".verify-",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            writer = csv.DictWriter(
+                handle, fieldnames=("sheet", "case_id", "device", "status", "detail")
+            )
+            writer.writeheader()
+            writer.writerows(results)
+        temporary.replace(result_path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     print(
         f"wrote {result_path} total={len(results)} failed={sum(row['status'] != 'passed' for row in results)}"
     )
@@ -422,14 +450,21 @@ def _run_case(row, invocation):
         raise ValueError("inputs_json contains names outside spec")
     expectation = row.get("expected")
     output_map = json.loads(row.get("output_json") or "{}")
+    assertions = json.loads(row.get("assertions_json") or "[]")
+    validate_assertions(assertions)
     if expectation and expectation.startswith("raises_error:"):
         code = expectation.removeprefix("raises_error:")
         inputs = golden.make_inputs(spec_map, seed=int(row.get("seed") or 42))
-        _invoke(invocation, inputs, output_map, expected_error_code=code)
+        _invoke(
+            invocation,
+            inputs,
+            output_map,
+            expected_error_code=code,
+            unchanged=_unchanged_names(assertions),
+        )
         return "passed", json.dumps({"expected_error_code": code}, ensure_ascii=False)
     if expectation not in ("match_golden", "match_golden_nan", "assertions"):
         raise ValueError(f"unsupported expected outcome: {expectation}")
-    assertions = json.loads(row.get("assertions_json") or "[]")
     repeat, bitwise, calls = case_calls(
         spec_map, int(row.get("seed") or 42), assertions
     )
@@ -453,24 +488,14 @@ def _run_case(row, invocation):
                 _, expected = golden.simulate(call["inputs"], seed=call["seed"])
                 if expectation == "match_golden_nan" and not _has_nan(expected):
                     raise AssertionError("spec expects NaN but Golden returned no NaN")
-            probe_assertions = any(
-                a["kind"] in {"probe_events", "probe_predicates"}
-                for a in call["assertions"]
+            actual = _invoke(
+                invocation,
+                inputs,
+                output_map,
+                unchanged=_unchanged_names(call["assertions"]),
             )
-            probe = None
-            if probe_assertions:
-                module = os.environ.get("CANNBOTDSL_PROBE_MODULE")
-                probe = importlib.import_module(module) if module else None
-                if (
-                    probe is None
-                    or not hasattr(probe, "reset")
-                    or not hasattr(probe, "snapshot")
-                ):
-                    raise RuntimeError("probe assertions require reset()/snapshot()")
-                probe.reset()
-            actual = _invoke(invocation, inputs, output_map)
             _assert_device(actual, device)
-            if probe_assertions or bitwise:
+            if bitwise:
                 _synchronize(device)
             if numeric:
                 records.extend(
@@ -485,11 +510,9 @@ def _run_case(row, invocation):
                 a for a in call["assertions"] if a["kind"] != "input_conditions"
             ]
             if observable:
-                records.extend(
-                    _assert_nonnumeric(actual, inputs, observable, device, probe)
-                )
+                records.extend(_assert_nonnumeric(actual, inputs, observable, device))
             elif not numeric:
-                raise ValueError("assertions case lacks observable output or probe")
+                raise ValueError("assertions case lacks observable behavior")
             if bitwise:
                 snapshot = _clone_cpu(actual)
                 if repetition == 0:
@@ -536,20 +559,19 @@ def _bitwise_equal(actual, expected):
             _bitwise_equal(left, right)
 
 
-def _observe_assertion(actual, inputs, assertion, device, probe):
+def _unchanged_names(assertions):
+    return {
+        name
+        for item in assertions
+        if item["kind"] == "input_unchanged"
+        for name in item["inputs"]
+    }
+
+
+def _observe_assertion(actual, inputs, assertion, device):
     kind = assertion.get("kind")
-    if kind == "probe_predicates":
-        if probe is None or not hasattr(probe, "snapshot"):
-            raise RuntimeError("probe predicates require snapshot()")
-        observed = check_probe(probe.snapshot(), assertion["checks"])
-    elif kind == "probe_events":
-        if probe is None or not hasattr(probe, "snapshot"):
-            raise RuntimeError(
-                "probe_events requires CANNBOTDSL_PROBE_MODULE.snapshot()"
-            )
-        observed = probe.snapshot()
-        if observed != assertion.get("events"):
-            raise AssertionError(f"probe events mismatch: {observed!r}")
+    if kind == "input_unchanged":
+        observed = True  # Checked around the actual device invocation in _invoke.
     elif kind == "output_shape" and isinstance(actual, torch.Tensor):
         observed = list(actual.shape)
         if observed != assertion.get("shape"):

@@ -53,14 +53,16 @@ metadata:
 
 ## 实现单元 TDD
 
-依据 `UNITS/U*.yaml` 的 `verification_obligations` 逐项编写 CSV 的 tdd 行，明确公开输入、预期结果、断言和可选白盒分支 ID。结构义务需要可执行的 `probe_events` 或 `probe_predicates`；数值义务使用 Golden，并可在同次调用联合结构断言。实际有效工作量、连续调用与重复验证按 [TDD 输入与证据契约](references/evidence.md) 编写，物化配方确认触发，不能仅靠义务 ID 关联宣布覆盖。运行 `scripts/build_tdd_cases.py --spec SPEC --design DESIGN --units-dir UNITS --test-dir TEST_DIR`，校验义务与用例覆盖、TDD 输入配方及实际触发条件、白盒关联及 Golden；不写中间文件。
+依据 `UNITS/U*.yaml` 的 `verification_obligations` 逐项编写 CSV 的 tdd 行，明确公开输入、预期结果、断言和可选白盒分支 ID。数值义务使用 Golden，semantic/device 义务验证公开可观察行为；输入不变性使用测试侧 `input_unchanged`。纯结构承诺由负责验收的 Agent 通过 review_evidence 核验；测试诊断与正式算子分离。遇到输入契约不兼容时，执行 Agent 按证据契约处理并保留验证责任，不向使用者派发内部文件修改任务。实际有效工作量、连续调用与重复验证按 [TDD 输入与证据契约](references/evidence.md) 编写，物化配方确认触发，不能仅靠义务 ID 关联宣布覆盖。运行 `scripts/build_tdd_cases.py --spec SPEC --design DESIGN --units-dir UNITS --test-dir TEST_DIR`，校验义务与用例覆盖、TDD 输入配方及实际触发条件、白盒关联及 Golden；不写中间文件。
 
 ## 验收
+
+生成运行脚本及验收入口时读取 [脚本生成与执行验收](references/execution.md)，落实退出码、当前结果、可迁移路径与辅助模块交付要求。
 
 以下按本次受托模块适用；仅黑盒设计不要求提前生成 Golden、白盒和 TDD。完整测试生成须满足全部条目。
 
 - CSV 三组 active 用例非空、ID 唯一；所有 excluded 行有明确理由且不会执行。
 - 黑盒可追溯 spec，白盒可追溯 DESIGN，TDD 每项义务能回指原生 Unit 和具体用例。
 - Golden 的数学、设计阶段与容差与 spec 和设计文件一致；固定入口按 `--sheet blackbox|whitebox|tdd --device <设备>` 执行，设备验证时使用 `--require-accelerator`。
-- 复核每项 must_distinguish 的输入与判定确实能区分错误实现；核对自然语言 coverage_axes 和结构采集来源，脚本通过不代替这些结论。义务无法由当前公开输入及断言表达时，返回具体缺口。
+- 复核每项 must_distinguish 的输入与判定确实能区分错误实现；核对自然语言 coverage_axes 和结构检查证据来源，脚本通过不代替这些结论。义务无法由当前公开输入及断言表达时，返回具体缺口。
 - 不修改冻结的 spec、DESIGN、Unit、目标实现或测试阈值来换取通过。

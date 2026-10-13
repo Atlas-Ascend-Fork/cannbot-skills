@@ -12,19 +12,21 @@
 
 """Behavioral checks for test input contracts and lifecycle regressions."""
 
+import importlib.util
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
-from test_skills import fixture, write_rows, run_script
+from test_skills import fixture, run_script, write_rows
 
 ASSETS = Path(__file__).resolve().parents[1] / "assets"
 sys.path.insert(0, str(ASSETS))
-from case_contract import check_probe
+from case_contract import validate_assertions
 
 
 class EvidenceChainTests(unittest.TestCase):
@@ -34,14 +36,11 @@ class EvidenceChainTests(unittest.TestCase):
         unit_path = work / "design/units/U01.yaml"
         return rows, tdd, unit_path, json.loads(unit_path.read_text())
 
-    def run_target(self, work, code, probe=None):
+    def run_target(self, work, code):
         prepared = run_script("prepare_golden.py", work)
         self.assertEqual(prepared.returncode, 0, prepared.stderr)
         (work / "target_add.py").write_text(code)
         env = dict(os.environ, PYTHONPATH=str(work), CANNBOTDSL_OP_MODULE="target_add")
-        if probe:
-            (work / "probe.py").write_text(probe)
-            env["CANNBOTDSL_PROBE_MODULE"] = "probe"
         return subprocess.run(
             [
                 sys.executable,
@@ -190,78 +189,171 @@ class EvidenceChainTests(unittest.TestCase):
             result = self.run_target(work, "def run(x, y):\n    return x+y\n")
             self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_partial_order_allows_independent_interleaving(self):
-        checks = [
-            {
-                "op": "count",
-                "where": {"event": "consume", "domain": "cube"},
-                "relation": "eq",
-                "value": 2,
-            },
-            {
-                "op": "before",
-                "first": {"event": "ready"},
-                "second": {"event": "consume"},
-                "keys": ["slot", "generation"],
-            },
-        ]
-
-        def ready(slot):
-            return {"event": "ready", "slot": slot, "generation": 1}
-
-        def consume(slot):
-            return {"event": "consume", "domain": "cube", "slot": slot, "generation": 1}
-
-        for events in (
-            [ready(0), ready(1), consume(0), consume(1)],
-            [ready(1), consume(1), ready(0), consume(0)],
-        ):
-            check_probe(events, checks)
-        with self.assertRaises(AssertionError):
-            check_probe([consume(0), ready(0), ready(1), consume(1)], checks)
-        with self.assertRaises(AssertionError):
-            check_probe([ready(0), ready(1), consume(0)], checks)
-
-    def test_numeric_and_structural_evidence_share_real_call(self):
+    def test_removed_probe_assertions_rejected(self):
+        for kind in ("probe_events", "probe_predicates"):
+            with (
+                self.subTest(kind=kind),
+                self.assertRaisesRegex(ValueError, "review_evidence"),
+            ):
+                validate_assertions([{"kind": kind}])
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
-            rows, tdd, path, native = self.setup_case(work)
-            native["unit"]["verification_obligations"].append(
-                {"id": "VO-STRUCT", "kind": "structural"}
-            )
-            path.write_text(json.dumps(native))
-            tdd["obligation_ids"] += ",VO-STRUCT"
+            rows, tdd, _, _ = self.setup_case(work)
             tdd["assertions_json"] = json.dumps(
-                [
-                    {
-                        "kind": "probe_predicates",
-                        "checks": [
-                            {
-                                "op": "count",
-                                "where": {"event": "compute", "domain": "required"},
-                                "relation": "eq",
-                                "value": 1,
-                            }
-                        ],
-                    }
-                ]
+                [{"kind": "probe_events", "events": ["add"]}]
+            )
+            write_rows(work, rows)
+            rejected = run_script("build_tdd_cases.py", work)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("review_evidence", rejected.stderr)
+            result = self.run_target(
+                work, 'def run(x,y):\n    raise RuntimeError("must not run")\n'
+            )
+            self.assertNotEqual(result.returncode, 0)
+            detail = (
+                work / "operators/add/test/testcase_output/tdd/verify_result_tdd.csv"
+            ).read_text()
+            self.assertIn("review_evidence", detail)
+            self.assertNotIn("must not run", detail)
+
+    def test_input_unchanged_catches_mutation_even_with_correct_output(self):
+        with tempfile.TemporaryDirectory(prefix="dsl input checks ") as tmp:
+            work = Path(tmp)
+            rows, tdd, _, _ = self.setup_case(work)
+            tdd["assertions_json"] = json.dumps(
+                [{"kind": "input_unchanged", "inputs": ["x", "y"]}]
+            )
+            write_rows(work, rows)
+            checked = run_script("build_tdd_cases.py", work)
+            self.assertEqual(checked.returncode, 0, checked.stderr)
+            good = self.run_target(work, "def run(x,y):\n    return x+y\n")
+            self.assertEqual(good.returncode, 0, good.stderr)
+            bad = self.run_target(
+                work, "def run(x,y):\n    out=x+y\n    x.zero_()\n    return out\n"
+            )
+            self.assertNotEqual(bad.returncode, 0)
+            detail = (
+                work / "operators/add/test/testcase_output/tdd/verify_result_tdd.csv"
+            ).read_text()
+            self.assertIn("input_unchanged failed: x", detail)
+            self.assertFalse((work / "operators/add/probe").exists())
+
+    def test_input_unchanged_contract_rejects_bad_names(self):
+        for names in ([], ["x", "x"], [1], "x", [""]):
+            with (
+                self.subTest(names=names),
+                self.assertRaisesRegex(ValueError, "input_unchanged"),
+            ):
+                validate_assertions([{"kind": "input_unchanged", "inputs": names}])
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            rows, tdd, _, _ = self.setup_case(work)
+            tdd["assertions_json"] = json.dumps(
+                [{"kind": "input_unchanged", "inputs": ["missing"]}]
             )
             write_rows(work, rows)
             result = run_script("build_tdd_cases.py", work)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            probe = "events=[]\ndef reset():\n    events.clear()\ndef snapshot():\n    return events.copy()\n"
-            green = self.run_target(
-                work,
-                'import probe\ndef run(x,y):\n    probe.events.append({"event":"compute","domain":"required"})\n    return x+y\n',
-                probe,
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("input_unchanged", result.stderr)
+
+    def test_input_unchanged_checks_converted_tensor_and_error_path(self):
+        import case_contract
+        import torch
+
+        spec = importlib.util.spec_from_file_location(
+            "runner_under_test", ASSETS / "test.py"
+        )
+        runner = importlib.util.module_from_spec(spec)
+        with patch.dict(sys.modules, {"cannbotdsl_case_contract": case_contract}):
+            spec.loader.exec_module(runner)
+
+        original = {"x": torch.tensor([float("nan"), 0.0])}
+
+        class ExpectedError(Exception):
+            code = "invalid_input"
+
+        def preserve(x):
+            raise ExpectedError()
+
+        def mutate(x):
+            x[1] = -0.0
+            raise ExpectedError()
+
+        # Simulate a device transfer producing a separate Tensor: inspecting the
+        # original host inputs would miss the mutation of the actual argument.
+        with patch.object(
+            runner,
+            "_to_device",
+            side_effect=lambda values, device: {
+                key: value.clone() for key, value in values.items()
+            },
+        ):
+            runner._invoke(
+                runner.Invocation(preserve, None, "cpu"),
+                original,
+                {},
+                expected_error_code="invalid_input",
+                unchanged=["x"],
             )
-            self.assertEqual(green.returncode, 0, green.stderr)
-            red = self.run_target(
-                work,
-                'import probe\ndef run(x,y):\n    probe.events.append({"event":"compute","domain":"other"})\n    return x+y\n',
-                probe,
-            )
-            self.assertNotEqual(red.returncode, 0)
+            with self.assertRaisesRegex(AssertionError, "input_unchanged failed: x"):
+                runner._invoke(
+                    runner.Invocation(mutate, None, "cpu"),
+                    original,
+                    {},
+                    expected_error_code="invalid_input",
+                    unchanged=["x"],
+                )
+        self.assertFalse(torch.signbit(original["x"][1]).item())
+
+    def test_input_unchanged_checks_aicpu_preprocessed_tensor(self):
+        import case_contract
+        import torch
+
+        spec = importlib.util.spec_from_file_location(
+            "runner_under_test", ASSETS / "test.py"
+        )
+        runner = importlib.util.module_from_spec(spec)
+        with patch.dict(sys.modules, {"cannbotdsl_case_contract": case_contract}):
+            spec.loader.exec_module(runner)
+
+        original = {"x": torch.tensor([1.0])}
+
+        def preserve(x):
+            return x.clone()
+
+        def mutate(x):
+            x.add_(1)
+            return x.clone()
+
+        with (
+            patch.object(
+                runner, "_to_device", side_effect=lambda values, device: values
+            ),
+            patch.object(
+                sys.modules[__name__],
+                "_aicpu_preprocess",
+                side_effect=lambda values: {"x": values["x"] + 1},
+                create=True,
+            ) as preprocess,
+        ):
+            for device, expected in (("cpu", 1.0), ("npu", 2.0)):
+                with self.subTest(device=device):
+                    result = runner._invoke(
+                        runner.Invocation(preserve, None, device),
+                        original,
+                        {},
+                        unchanged=["x"],
+                    )
+                    self.assertEqual(result.item(), expected)
+            preprocess.assert_called_once()
+            with self.assertRaisesRegex(AssertionError, "input_unchanged failed: x"):
+                runner._invoke(
+                    runner.Invocation(mutate, None, "npu"),
+                    original,
+                    {},
+                    unchanged=["x"],
+                )
+        self.assertEqual(original["x"].item(), 1.0)
 
     def test_sequence_catches_stale_shape_and_repeats_in_process(self):
         with tempfile.TemporaryDirectory() as tmp:

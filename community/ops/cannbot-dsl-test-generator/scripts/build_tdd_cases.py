@@ -14,29 +14,30 @@
 
 from __future__ import annotations
 
-import logging
-import sys
 import argparse
-from dataclasses import dataclass
-import json
-import re
 import importlib.util
+import json
+import logging
+import re
+import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "assets"))
-from case_contract import validate_assertions, validate_checks, check_inputs, case_calls
-
+from build_whitebox_cases import validated_branches
+from case_contract import case_calls, check_inputs, validate_assertions, validate_checks
 from casebook import read_casebook
-from recipe_validation import validate_tensor, validate_tensor_list
 from generator_support import (
     add_io_arguments,
     artifact_paths,
-    spec_path as input_spec_path,
-    units_dir,
     golden_path,
     load_yaml_mapping,
+    units_dir,
 )
-from build_whitebox_cases import validated_branches
+from generator_support import (
+    spec_path as input_spec_path,
+)
+from recipe_validation import validate_tensor, validate_tensor_list
 
 UNIT_ID = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 
@@ -98,9 +99,14 @@ def validate_test_contracts(native):
             if not isinstance(ref, str) or not ref.strip() or ref in all_ids:
                 fail(f"{uid}: obligation IDs must be nonempty and globally unique")
             all_ids.add(ref)
+            if item.get("kind") == "structural":
+                fail(
+                    f"{uid}/{ref}: structural obligations are removed; migrate to "
+                    "design_constraints.review_evidence or feasibility_checks.review_evidence, "
+                    "retaining design references"
+                )
             if not isinstance(item.get("kind"), str) or item["kind"] not in {
                 "numerical",
-                "structural",
                 "semantic",
                 "device",
             }:
@@ -224,7 +230,7 @@ def validate_unit_evidence(row, obligations, refs):
     runtime = [item for item in assertions if item["kind"] != "execution"]
     if expected == "assertions":
         if not any(item["kind"] != "input_conditions" for item in runtime):
-            fail(f"{row['case_id']}: assertions needs an observable output or probe")
+            fail(f"{row['case_id']}: assertions needs an observable behavior")
     elif expected != "match_golden":
         fail(f"{row['case_id']}: expected must be match_golden or assertions")
     validate_obligation_evidence(row, obligations, refs, expected, assertions)
@@ -285,7 +291,6 @@ def adapt_native_units(native, tdd, runnable):
         for obligation in obligations.values():
             if obligation.get("kind") not in {
                 "numerical",
-                "structural",
                 "semantic",
                 "device",
             }:
@@ -433,13 +438,6 @@ def validate_execution_case(item, index, unit, context):
 
 
 def validate_obligation_evidence(row, obligations, refs, expected, assertions):
-    if any(obligations[ref]["kind"] == "structural" for ref in refs):
-        if not any(
-            item["kind"] in {"probe_events", "probe_predicates"} for item in assertions
-        ):
-            fail(
-                f"{row['case_id']}: structural obligation requires probe_events or probe_predicates"
-            )
     if (
         any(obligations[ref]["kind"] == "numerical" for ref in refs)
         and expected != "match_golden"
@@ -457,8 +455,7 @@ def validate_obligation_evidence(row, obligations, refs, expected, assertions):
                 "output_shape",
                 "output_dtype",
                 "output_equals_input",
-                "probe_events",
-                "probe_predicates",
+                "input_unchanged",
             }
         ):
             fail(

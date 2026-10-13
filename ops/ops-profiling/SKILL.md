@@ -1,6 +1,6 @@
 ---
 name: ops-profiling
-description: NPU 性能采集与分析，融合 msprof 算子级瓶颈定位与 kernel-level 对比测试，用于采集算子性能数据、对比自定义算子 vs 标杆加速比、定位性能瓶颈并给出优化建议。核心工具：msprof_profile_run.sh（标准采集 / --compare 对比测试 / --quick 快速对比 / --batch 批量并行）与 msprof_perf_summary.py（瓶颈分析、对比报告）；加速比对比用 msprof_profile_run.sh 的 compare/quick 模式，输出 performance.json 和 markdown 对比报告即完成，无需可视化。另含 msopprof-visualization 子技能，仅当用户明确要求把已采集数据渲染为交互式 HTML 可视化报告时使用，不用于加速比对比场景。当用户在算子开发过程中提到"上板性能"、"算子性能测试"、"硬件性能验证"、"NPU性能采集"、"NPU profiling"、"性能对比"、"加速比"、"性能可视化"、"性能报告"等场景时触发。
+description: NPU 性能采集与分析，融合 msprof 算子级瓶颈定位与 kernel-level 对比测试，用于采集算子性能数据、对比自定义算子 vs 标杆加速比、定位性能瓶颈并给出优化建议。核心工具：msprof_profile_run.sh（标准采集 / --compare 对比测试 / --quick 快速对比 / --batch 批量并行）与 msprof_perf_summary.py（瓶颈分析、对比报告）；加速比对比用 msprof_profile_run.sh 的 compare/quick 模式，输出 performance.json 和 markdown 对比报告即完成，无需可视化；quick/compare 均支持 --keep-prof 保留默认会清理的原始 PROF 目录。另含 msopprof-visualization 子技能，用于用户明确要求的交互式 HTML 性能报告：支持含 collection_manifest.json 的采集目录以 visualize 模式重渲染，也支持算子工程经 run_pipeline.py 采集并生成报告；不直接接收 msprof_profile_run.sh 的 PROF_GROUP_* 归档，不用于加速比对比场景。当用户在算子开发过程中提到"上板性能"、"算子性能测试"、"硬件性能验证"、"NPU性能采集"、"NPU profiling"、"性能对比"、"加速比"、"性能可视化"、"性能报告"等场景时触发。
 ---
 
 # 上板性能采集与调优
@@ -12,7 +12,9 @@ description: NPU 性能采集与分析，融合 msprof 算子级瓶颈定位与 
 | 问题 | 答案 |
 |---|---|
 | compare 模式下用例文件加载优先级？ | ① `<op>_perf_cases.jsonl`（标准命名）→ ② 任意 `*.jsonl` → ③ 任意 `*.json`（非 `.bak`）→ ④ `model.py` 的 `get_input_groups()`。同时存在时**选①**（详见下文「用例加载优先级」） |
+| 怎么生成交互式 HTML 性能报告？ | 使用 [msopprof-visualization](msopprof-visualization/SKILL.md)：已有含 `collection_manifest.json` 的采集目录用 `run_pipeline.py --mode visualize` 重渲染；有算子工程用其 `run_pipeline.py` 采集并生成报告。`msprof_profile_run.sh` 的 `PROF_GROUP_*` 归档不能直接用于此渲染链路。 |
 | 怎么做加速比对比？ | `msprof_profile_run.sh --compare`（全量）/ `--quick`（1 轮快速），输出 `performance.json` + markdown 报告即完成，**不**走可视化子技能 |
+| quick / compare 如何保留原始 PROF？ | 在原命令上加 `--keep-prof`，两种模式均支持透传；默认在采集后清理原始 PROF。保留目录本身不需要手工备份或切换标准模式重采。保留已有数据与补采缺失指标是不同需求，不能把重采作为保留目录的前提，也不能承诺标准模式可提供未经确认的逐指令流水数据。 |
 | MC² / 多 rank（fork）算子用什么采集？ | **必须 `msprof`**，禁止 `msprof op`（详见 msprof-guide.md「MC² 多 rank 算子采集」） |
 | 采集结果如何判定瓶颈？ | 用 `msprof_perf_summary.py` 解析 `PROF_GROUP_*`，输出瓶颈类型与各 pipe 占比，判定规则见 `references/msprof-guide.md` |
 
@@ -37,6 +39,8 @@ description: NPU 性能采集与分析，融合 msprof 算子级瓶颈定位与 
 ---
 
 ## 使用方式
+
+采集 CANNBotDSL 算子的性能摸底数据时，读取 [DSL 公开入口测量](references/cannbot-dsl.md)，按该方法区分编译、公开入口与设备耗时，并保留完整设备任务证据。
 
 ### 1. 标准采集模式（深度瓶颈分析）
 

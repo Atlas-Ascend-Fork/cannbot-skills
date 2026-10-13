@@ -313,6 +313,65 @@ class ExplicitPathTests(unittest.TestCase):
 
 
 class DirectArtifactTests(unittest.TestCase):
+    def test_failed_rerun_does_not_keep_success_and_paths_are_portable(self):
+        with tempfile.TemporaryDirectory(prefix="dsl runner spaces ") as tmp:
+            work = Path(tmp)
+            fixture(work)
+            prepared = run_script("prepare_golden.py", work)
+            self.assertEqual(prepared.returncode, 0, prepared.stderr)
+            test = work / "operators/add/test"
+            target = test / "target_add.py"
+            target.write_text("def run(x, y):\n    return x + y\n")
+            env = dict(os.environ, CANNBOTDSL_OP_MODULE="target_add")
+            command = [
+                sys.executable,
+                str(test / "test_add.py"),
+                "--sheet",
+                "whitebox",
+                "--device",
+                "cpu",
+                "--workers",
+                "1",
+            ]
+            report = test / "testcase_output/whitebox/verify_result_whitebox.csv"
+
+            def invoke(*extra):
+                return subprocess.run(
+                    command + list(extra),
+                    cwd=work.parent,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                )
+
+            passed = invoke()
+            self.assertEqual(passed.returncode, 0, passed.stderr)
+            self.assertTrue(report.is_file())
+            # Failure before loading cases must invalidate a previous success.
+            rejected = invoke("--require-accelerator")
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertFalse(report.exists())
+            report.write_text("old success", encoding="utf-8")
+            target.write_text(
+                "def run(x, y):\n    raise RuntimeError('failed target')\n"
+            )
+            failed = invoke()
+            self.assertNotEqual(failed.returncode, 0)
+            with report.open(encoding="utf-8-sig") as handle:
+                self.assertTrue(
+                    all(r["status"] != "passed" for r in csv.DictReader(handle))
+                )
+            self.assertNotIn("old success", report.read_text())
+            # A missing delivered dependency must not be mistaken for target success.
+            target.write_text("import missing_delivered_error_matcher\n")
+            missing = invoke()
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn("missing_delivered_error_matcher", report.read_text())
+            (test / "testcase.csv").unlink()
+            self.assertNotEqual(invoke().returncode, 0)
+            self.assertFalse(report.exists())
+            self.assertFalse(list(report.parent.glob(".verify-*.tmp")))
+
     def test_complete_validation_has_no_intermediate_directory(self):
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
@@ -449,74 +508,18 @@ class DirectArtifactTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("total=1 failed=0", result.stdout)
 
-    def test_structural_unit_requires_real_probe_events(self):
+    def test_legacy_structural_unit_requires_migration(self):
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
-            _, rows = fixture(work)
-            native_path = work / "design/units/U01.yaml"
-            native = json.loads(native_path.read_text())
-            native["unit"]["kind"] = "pipeline_framework"
+            fixture(work)
+            path = work / "design/units/U01.yaml"
+            native = json.loads(path.read_text())
             native["unit"]["verification_obligations"][0]["kind"] = "structural"
-            native_path.write_text(json.dumps(native), encoding="utf-8")
-            tdd = next(row for row in rows if row["sheet"] == "tdd")
-            tdd["expected"] = "assertions"
-            tdd["assertions_json"] = json.dumps(
-                [{"kind": "output_shape", "shape": [2, 8]}]
-            )
-            write_rows(work, rows)
-            rejected = run_script("build_tdd_cases.py", work)
-            self.assertNotEqual(rejected.returncode, 0)
-            self.assertIn("probe_events", rejected.stderr)
-            tdd["assertions_json"] = json.dumps(
-                [{"kind": "probe_events", "events": ["stage-0"]}]
-            )
-            write_rows(work, rows)
-            accepted = run_script("build_tdd_cases.py", work)
-            self.assertEqual(accepted.returncode, 0, accepted.stderr)
-
-    def test_runner_loads_nested_probe_module(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            work = Path(tmp)
-            _, rows = fixture(work)
-            tdd = next(row for row in rows if row["sheet"] == "tdd")
-            tdd["expected"] = "assertions"
-            tdd["assertions_json"] = json.dumps(
-                [{"kind": "probe_events", "events": ["add"]}]
-            )
-            write_rows(work, rows)
-            self.assertEqual(run_script("prepare_golden.py", work).returncode, 0)
-            probe = work / "operators/add/probe"
-            probe.mkdir()
-            for package in (work / "operators", probe.parent, probe):
-                (package / "__init__.py").touch()
-            (probe / "add_probe.py").write_text(
-                "events = []\ndef reset(): events.clear()\ndef snapshot(): return list(events)\n"
-            )
-            (probe.parent / "add.py").write_text(
-                "from .probe import add_probe\ndef run(x, y):\n"
-                "    add_probe.events.append('add')\n    return x + y\n"
-            )
-
-            env = dict(
-                os.environ,
-                PYTHONPATH=str(work),
-                CANNBOTDSL_OP_MODULE="operators.add.add",
-                CANNBOTDSL_PROBE_MODULE="operators.add.probe.add_probe",
-            )
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    str(work / "operators/add/test/test_add.py"),
-                    "--sheet",
-                    "tdd",
-                    "--device",
-                    "cpu",
-                ],
-                env=env,
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            path.write_text(json.dumps(native))
+            result = run_script("build_tdd_cases.py", work)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("U01/VO-U01", result.stderr)
+            self.assertIn("review_evidence", result.stderr)
 
     def test_excluded_whitebox_is_not_executed(self):
         with tempfile.TemporaryDirectory() as tmp:
