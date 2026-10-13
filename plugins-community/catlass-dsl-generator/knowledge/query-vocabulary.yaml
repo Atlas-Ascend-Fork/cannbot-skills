@@ -13,3 +13,9 @@ operator_families:
     aliases:
       - gdn
       - gdn2
+  sparse-attention:
+    aliases:
+      - bsa
+      - bsag
+      - block-sparse-attention
+      - block-sparse-attention-backward

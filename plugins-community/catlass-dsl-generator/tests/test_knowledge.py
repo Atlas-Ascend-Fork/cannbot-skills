@@ -126,6 +126,8 @@ def test_static_concepts_have_pinned_sources_and_footnotes():
         "3f54e4334060281fad7b4b682393d22830928a33/",
         "https://gitcode.com/cann/ops-transformer/blob/"
         "adc5fd30003da4c73bc478cf42c6f031b491b973/",
+        "https://gitcode.com/cann/ops-transformer/blob/"
+        "2b67400cf8284717cb38f1d4ecdc69df9191943f/",
         "https://gitcode.com/cann/ops-nn/blob/"
         "39a50f12554f00809f09eaf0b8a0675477879a4e/",
         "https://gitcode.com/cann/cann-samples/blob/"
