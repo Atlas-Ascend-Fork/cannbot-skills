@@ -1,5 +1,14 @@
 schema_version: "1"
 operator_families:
+  flash-attention:
+    aliases:
+      - fa
+      - fag
+      - flash-attn
+      - flash-attn-grad
+      - flash-attention-backward
+      - flash-attention-grad
+      - flash-attention-score-grad
   gated-delta-rule:
     aliases:
       - gdn
