@@ -17,5 +17,8 @@ operator_families:
     aliases:
       - bsa
       - bsag
+      - sfag
       - block-sparse-attention
       - block-sparse-attention-backward
+      - sparse-flash-attention
+      - sparse-flash-attention-grad
