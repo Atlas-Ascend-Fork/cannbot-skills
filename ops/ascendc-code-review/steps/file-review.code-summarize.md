@@ -23,7 +23,7 @@ Agent({
 3. 返回结构化结果（含侧别识别，供后续阶段使用）
 
 【执行指南位置】
-Read 本文件（steps/file-review.code-summarize.md）的「子 Agent 执行指南」章节获取完整指令。
+Read `{skill_base}/steps/file-review.code-summarize.md` 的「子 Agent 执行指南」章节获取完整指令。
 "
 })
 ```
@@ -38,18 +38,18 @@ Read 本文件（steps/file-review.code-summarize.md）的「子 Agent 执行指
 
 1. **理解优先** — 先读懂代码整体设计，再按模板填空，禁止机械填表
 2. **证据驱动** — 每个结论必须有 Read/Grep 证据支撑，禁止推测
-3. **侧别必识别** — Kernel/Tiling 侧别判定是后续条例过滤的关键输入
+3. **侧别必识别** — Kernel/Host 侧别判定是后续条例过滤的关键输入
 
 ---
 
 ## 关键知识
 
-### Tiling/Kernel 分层
+### Kernel/Host 分层
 
 | 侧别 | 文件位置 | 代码特征 | 职责 |
 |------|---------|---------|------|
-| **Kernel 侧** | `op_kernel/*.cpp/.h` | `__aicore__`、`AscendC::`、`pipe.InitBuffer` | 在 AI Core 上执行计算，不做参数校验 |
-| **Tiling 侧** | `op_host/*.cpp/.h` | `gert::TilingContext`、`TilingData` | 参数校验、资源计算、多核切分 |
+| **Kernel 侧** | `op_kernel/**/*.cpp/.h` | `__aicore__`、`AscendC::`、`pipe.InitBuffer` | 在 AI Core 上执行计算，不做参数校验 |
+| **Host 侧** | `op_host/**/*.cpp/.h`、`op_graph/**/*.cpp/.h`、`op_api/**/*.cpp` | `gert::TilingContext`、`TilingData`、`gert::InferShapeContext`、`gert::InferDataTypeContext`、`IMPL_OP`、`REG_OP`、`aclnn` | tiling 参数校验与多核切分、图推断（InferShape/InferDataType）、aclnn 适配 |
 
 ### 变量来源判定
 
@@ -75,9 +75,9 @@ Read 本文件（steps/file-review.code-summarize.md）的「子 Agent 执行指
 
 ```
 Step 1: 读取代码     — Read 源码全部内容
-Step 2: 识别侧别     — 按 Tiling/Kernel 分层特征判定侧别
+Step 2: 识别侧别     — 按 Kernel/Host 分层特征判定侧别
 Step 3: 梳理脉络     — 追踪入口 → 数据流 → 计算核心 → 输出（含分支覆盖）
-Step 3.5: 业务语义   — Kernel侧: 数学运算+计算模式+同步契约; Tiling侧: 切分策略+校验语义+Buffer规划
+Step 3.5: 业务语义   — Kernel侧: 数学运算+计算模式+同步契约; Host侧(含tiling): 切分策略+校验语义+Buffer规划
 Step 4: 追踪关联     — Read include 头文件 + Grep 跨文件调用链
 Step 5: 变量溯源     — 对类成员/全局变量 grep 声明→初始化→校验链
 Step 6: 分析设计     — Kernel侧：流水线模式/切分/Buffer管理（需量化）
@@ -91,7 +91,7 @@ Step 8: 返回结果     — 结构化返回侧别和脉络摘要
 
 ### Step 2: 识别侧别
 
-按关键知识中的侧别特征表判定，输出结论。**如有 TilingData 结构定义文件（`*_tiling_data.h`），也必须 Read**，确认字段名与代码中使用的一致性。
+按关键知识中的侧别特征表判定（目录映射：`op_kernel/` → Kernel；`op_host/`、`op_graph/`、`op_api/` → Host；单文件命中多侧特征 → 多侧标注），输出结论。**如有 TilingData 结构定义文件（`*_tiling_data.h`），也必须 Read**，确认字段名与代码中使用的一致性。
 
 ### Step 3: 梳理脉络
 
@@ -147,7 +147,7 @@ Step 8: 返回结果     — 结构化返回侧别和脉络摘要
 - `PipeBarrier` → 同核内流水线屏障
 - `SetFlag`/`WaitFlag`（HardEvent）→ 手动流水线重叠
 
-#### 3.5T: Tiling 侧业务语义（仅 Tiling/混合侧执行）
+#### 3.5T: tiling 业务语义（仅 Host/混合侧且代码含 tiling 实现——`gert::TilingContext`/`TilingData`——时执行）
 
 **a. 校验策略分析**
 对每个 `OP_CHECK_IF` / `ASCENDC_HOST_ASSERT`，标注校验的数学不变量：
@@ -257,7 +257,7 @@ Grep 代码中的所有编译期常量，填入输出「常量清单」表：
 ```markdown
 # 代码概要
 
-算子: {name} | 功能: {实现目标} | 侧别: {Kernel/Tiling}
+算子: {name} | 功能: {实现目标} | 侧别: {Kernel/Host}
 
 ## 代码脉络
 
@@ -298,7 +298,7 @@ Grep 代码中的所有编译期常量，填入输出「常量清单」表：
 |------|------|---------|
 | {param} | {values} | {业务含义} |
 
-## Tiling 业务语义（Tiling 侧）
+## Tiling 业务语义（tiling 实现）
 
 **切分策略**: {按元素均分/按M×N网格/按reduce轴} | **Buffer策略**: {单/双缓冲, 决策依据}
 **TilingKey 轴**: {各轴及业务含义}
@@ -436,7 +436,7 @@ Grep 代码中的所有编译期常量，填入输出「常量清单」表：
 ## 返回格式
 
 ```
-侧别: {Kernel侧 / Tiling侧 / 混合}
+侧别: {Kernel侧 / Host侧 / 混合}
 算子名: {operator_name}
 功能概述: {一句话功能描述}
 入口函数: {函数名}

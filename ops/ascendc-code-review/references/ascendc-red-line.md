@@ -2,7 +2,7 @@
 
 <适用>
 语言: C++
-侧别: All, Host, Kernel
+侧别: All
 领域: true
 触发: 必须触发
 默认启用: true
@@ -10,8 +10,8 @@
 适用场景: Ascend C 算子开发中实际高频出现的编码红线问题，来源于生产环境经验总结
 介绍: Ascend C 红线类 高频问题清单，10 条条款覆盖算子开发中最常触发的错误模式
 类别(All): 确保除法和余数运算不会导致除以零的错误、外部数据作为数组索引时必须确保在数组大小范围内、确保有符号整数运算不溢出、确保无符号整数运算不回绕、禁止使用未初始化的变量、指针操作使用前必须要判空、需要避免数据竞争
-类别(Host): 无
-类别(Kernel): 资源泄露防护、gm内存偏移或大小必须用int64表示、在支持superKernel场景禁止直接对GM地址进行读写(需要改用GetValue或SetValue)
+类别(Host): 资源泄露防护
+类别(Kernel): gm内存偏移或大小必须用int64表示、在支持superKernel场景禁止直接对GM地址进行读写(需要改用GetValue或SetValue)
 > **说明**：TOPK 问题是检视实践中发现的高频风险点，需重点关注。条款标注适用范围：`[适用: All]` / `[适用: Host]` / `[适用: Kernel]`
 </适用>
 
@@ -25,28 +25,28 @@
 
 | 序号 | 问题类型 | 类别 | 严重级别 |
 |-----|---------|------|---------|
-| 1 | 除法/余数运算除零保护 | 数值安全 | 高 |
-| 2 | 数组索引校验 | 内存安全 | 高 |
-| 3 | 有符号整数运算不溢出 | 数值安全 | 高 |
-| 4 | 无符号整数运算不回绕 | 数值安全 | 高 |
-| 5 | 禁止使用未初始化的变量 | 内存安全 | 高 |
-| 6 | 指针使用前判空 | 内存安全 | 高 |
-| 7 | 需要避免数据竞争 | 资源管理 | 高 |
+| RED-1 | 除法/余数运算除零保护 | 数值安全 | 高 |
+| RED-2 | 数组索引校验 | 内存安全 | 高 |
+| RED-3 | 有符号整数运算不溢出 | 数值安全 | 高 |
+| RED-4 | 无符号整数运算不回绕 | 数值安全 | 高 |
+| RED-5 | 禁止使用未初始化的变量 | 内存安全 | 高 |
+| RED-6 | 指针使用前判空 | 内存安全 | 高 |
+| RED-7 | 需要避免数据竞争 | 资源管理 | 高 |
 
 
-### 仅 Host 侧适用 `[适用: Host]`（0 条）
-
-| 序号 | 问题类型 | 类别 | 严重级别 |
-|-----|---------|------|---------|
-
-
-### 仅 Kernel 侧适用 `[适用: Kernel]`（3 条）
+### 仅 Host 侧适用 `[适用: Host]`（1 条）
 
 | 序号 | 问题类型 | 类别 | 严重级别 |
 |-----|---------|------|---------|
-| 8 | 资源泄露防护 | 资源管理 | 高 |
-| 9 | gm内存偏移或大小必须用int64表示 | 内存安全 | 高 |
-| 10 | 在支持superKernel场景，禁止直接对GM地址进行读写，需要改用GetValue或SetValue | 内存安全 | 高 |
+| RED-8 | 资源泄露防护 | 资源管理 | 高 |
+
+
+### 仅 Kernel 侧适用 `[适用: Kernel]`（2 条）
+
+| 序号 | 问题类型 | 类别 | 严重级别 |
+|-----|---------|------|---------|
+| RED-9 | gm内存偏移或大小必须用int64表示 | 内存安全 | 高 |
+| RED-10 | 在支持superKernel场景，禁止直接对GM地址进行读写，需要改用GetValue或SetValue | 内存安全 | 高 |
 
 
 ---
@@ -55,7 +55,7 @@
 
 ## 详细规范
 
-### 1 确保除法和余数运算不会导致除以零的错误 `[适用: All]`
+### RED-1 确保除法和余数运算不会导致除以零的错误 `[适用: All]`
 
 > **Kernel 侧说明**：
 > - Kernel 中的除法/取余运算，按除数来源分类判定（见下方 Step 2）。
@@ -95,8 +95,8 @@
 **Step 3 — 按来源判定**
 
 - **P0（编译期常量）**：值非零 → PASS。值为零 → FAIL。
-- **P1（硬件 API）**：Kernel 侧自动 PASS（见排除规则）。Tiling 侧必须有零值守卫（见严格模式）。
-- **P2（TilingData）**：Kernel 侧自动 PASS。Tiling 侧作为中间值按 P3/P4 处理。
+- **P1（硬件 API）**：Kernel 侧自动 PASS（见排除规则）。tiling 代码必须有零值守卫（见严格模式）。
+- **P2（TilingData）**：Kernel 侧自动 PASS。tiling 代码作为中间值按 P3/P4 处理。
 - **P3（外部输入）**：必须有有效守卫模式之一 → 无守卫则 FAIL。
 - **P4（设计过程参数）**：必须有有效守卫，或可追溯到 P0/P1 的非零值 → 否则 FAIL。
 
@@ -108,7 +108,7 @@
 
 | 排除条件 | 参数模式示例 | 排除原因 |
 |---------|-------------|----------|
-| 除数来自硬件 API 白名单 | `GetBlockNum()`, `GetTaskRation()` | 芯片出厂固定非零，异常场景由 Tiling 侧兜底 |
+| 除数来自硬件 API 白名单 | `GetBlockNum()`, `GetTaskRation()` | 芯片出厂固定非零，异常场景由 tiling 代码兜底 |
 | 除数来自 TilingData | `tilingData->tileSize`, `tilingData->coreNum` | Tiling 阶段已校验非零 |
 | 编译期常量 | `constexpr uint32_t BLOCK = 32` | 编译期固定非零 |
 
@@ -152,9 +152,9 @@
   - 来自 P3/P4 且有守卫 → PASS
   - 来自 P3/P4 无守卫 → FAIL
 
-**【Tiling 侧硬件参数校验 — 严格模式】**
+**【tiling 代码硬件参数校验 — 严格模式】**
 
-Tiling 侧负责所有硬件参数的校验（业务约定）。当硬件 API 返回值（P1）用作除数时，**必须**在 Tiling 代码中有显式零值守卫，否则判定为 FAIL。
+tiling 代码负责所有硬件参数的校验（业务约定）。当硬件 API 返回值（P1）用作除数时，**必须**在 Tiling 代码中有显式零值守卫，否则判定为 FAIL。
 
 | 除数来源 | 校验方式 | 示例 |
 |---------|---------|------|
@@ -162,7 +162,7 @@ Tiling 侧负责所有硬件参数的校验（业务约定）。当硬件 API �
 | `GetCoreMemSize()` | `OP_CHECK_IF(ubSize == 0, return GRAPH_FAILED)` | 内存大小获取后立即校验 |
 | `context->GetBlockDim()` | `if (blockDim == 0) return GRAPH_FAILED` | 使用前校验 |
 
-**【Tiling 侧校验示例】**
+**【tiling 代码校验示例】**
 
 ```cpp
 // Tiling 阶段校验外部输入非零（P3）
@@ -211,7 +211,7 @@ if ((actS1Size == 0) || (actS2Size == 0)) {
 
 ---
 
-#### 2 外部数据作为数组索引时必须确保在数组大小范围内 `[适用: All]`
+#### RED-2 外部数据作为数组索引时必须确保在数组大小范围内 `[适用: All]`
 
 > **Kernel 侧说明**：Kernel 中使用 blockIdx、tileLength 等变量访问 GM/UB，需确保索引不越界。
 
@@ -239,7 +239,7 @@ if ((actS1Size == 0) || (actS2Size == 0)) {
 | bIdx batch 累积差值边界 | TND 布局 `actualSeqLen[bIdx] - actualSeqLen[bIdx-1]` | `if (bIdx > 0) { ... } else { return actualSeqLen[0]; }` |
 | 动态计算的偏移 | 运行时计算值 | 边界判断逻辑 |
 
-**【Tiling 侧校验示例】**
+**【tiling 代码校验示例】**
 
 ```cpp
 // Tiling 阶段校验 Shape 维度范围
@@ -287,7 +287,7 @@ int set_dev_id(size_t index, int id)
 }
 ```
 
-### 3 确保有符号整数运算不溢出 `[适用: All]`
+### RED-3 确保有符号整数运算不溢出 `[适用: All]`
 
 > **Kernel 侧说明**：Kernel 中使用 `uint32_t` 等固定宽度类型进行循环索引和 Buffer 偏移计算，需防止溢出。
 
@@ -372,13 +372,13 @@ python3 {skill_base}/scripts/clause.check_bounds.py \
 
 工具输出包含「边界敏感性分析」逐变量标注安全临界值，以及「行动指引」分步指令。**严格按行动指引执行，不要跳过。**
 
-【输出 SAFE】
+【结果: 安全 ✅】
   看「最敏感变量」及余量：找出余量最小的那个变量
     余量 > 10x 临界值 → 安全余量充足，PASS
     余量 ≤ 10x → 回代码核实该变量的边界是否来自 A/B 级代码证据
       有证据 → PASS。无证据 → 向不利方向放宽边界重跑，重跑后判断
 
-【输出 VIOLATION】
+【结果: 存在风险 ⚠️】
   看反例中「触及上限/下限」的变量：
     来自 constexpr/守卫 (A 级) → 边界可靠，确认 FAIL
     来自推测 (B/C 级) → Grep 找该变量的真实限定值
@@ -390,7 +390,7 @@ python3 {skill_base}/scripts/clause.check_bounds.py \
 
 ---
 
-### 4 确保无符号整数运算不回绕 `[适用: All]`
+### RED-4 确保无符号整数运算不回绕 `[适用: All]`
 
 > **Kernel 侧说明**：Kernel 中大量使用 `uint32_t` 进行 tileLength、blockLength 计算，需防止回绕。
 
@@ -475,13 +475,13 @@ python3 {skill_base}/scripts/clause.check_bounds.py \
 
 工具输出包含「边界敏感性分析」逐变量标注安全临界值，以及「行动指引」分步指令。**严格按行动指引执行，不要跳过。**
 
-【输出 SAFE】
+【结果: 安全 ✅】
   看「最敏感变量」及余量：找出余量最小的那个变量
     余量 > 10x 临界值 → 安全余量充足，PASS
     余量 ≤ 10x → 回代码核实该变量的边界是否来自 A/B 级代码证据
       有证据 → PASS。无证据 → 向不利方向放宽边界重跑，重跑后判断
 
-【输出 VIOLATION】
+【结果: 存在风险 ⚠️】
   看反例中「触及上限/下限」的变量：
     来自 constexpr/守卫 (A 级) → 边界可靠，确认 FAIL
     来自推测 (B/C 级) → Grep 找该变量的真实限定值
@@ -493,7 +493,7 @@ python3 {skill_base}/scripts/clause.check_bounds.py \
 
 ---
 
-### 5 禁止使用未初始化的变量 `[适用: All]`
+### RED-5 禁止使用未初始化的变量 `[适用: All]`
 
 > **Kernel 侧说明**：Kernel 模板类的成员变量必须在 `Init()` 函数中初始化，UB Buffer 通过 `AllocTensor` 获取后才能使用。
 
@@ -508,7 +508,7 @@ void foo(...)
 }
 ```
 
-### 6 指针操作，使用前必须要判空 `[适用: All]`
+### RED-6 指针操作，使用前必须要判空 `[适用: All]`
 
 > **Kernel 侧说明**：Kernel 中 `GlobalTensor` 和 `LocalTensor` 通过 API 获取，一般不需要判空，但 GM 地址偏移需校验。
 
@@ -519,7 +519,7 @@ void foo(...)
 - 对于指针所代表的地址空间的任何操作，一定要保证空间的有效性
 - 指针指向的内存释放后，需要调用者将指针显式置为NULL，防止"野指针"
 
-### 7 需要避免数据竞争 `[适用: All]`
+### RED-7 需要避免数据竞争 `[适用: All]`
 
 > **Kernel 侧说明**：Kernel 中 `GlobalTensor` 和 `LocalTensor` 通过 API 获取，一般不需要判空，但 GM 地址偏移需校验。
 
@@ -562,7 +562,7 @@ void DecreaseData(long icData)
 ```
 
 
-### 8 资源泄露（内存、句柄、锁等） `[适用: Tiling]`
+### RED-8 资源泄露（内存、句柄、锁等） `[适用: Host]`
 
 > **Kernel 侧不适用**：Kernel 无动态内存、无锁、无句柄，Buffer 静态分配无需释放。
 
@@ -573,7 +573,7 @@ void DecreaseData(long icData)
 - 对外接口处理涉及资源申请但未释放，引起资源泄露，导致拒绝服务
 - C++捕获异常时确保恢复程序的一致性; 建议使用RAII模式，确保资源在异常发生时自动释放
 
-### 9. gm内存偏移或大小必须用int64表示 `[适用: Kernel]`
+### RED-9 gm内存偏移或大小必须用int64表示 `[适用: Kernel]`
 
 > **交叉引用**：整数溢出检视策略参见本条例3、条例4。
 
@@ -626,25 +626,9 @@ int64_t offset = batchOffset * seqLen * headDim;
 
 表达式中有 2 个及以上维度相乘时，检查第一个操作数是否已显式转换为 `int64_t`。
 
-**专属检视方法**
-
-1. 枚举所有 GM 起始地址、GM 下标和 GM 搬运长度表达式：
-   - `SetGlobalBuffer((__gm__ T*)ptr + expr, size)`
-   - `GlobalTensor[expr]` / `xGm[gmBias]` / `yGm[progress]`
-   - `CopyIn(gmBias)` / `CopyOut(progress)` / `DataCopy*(gm[expr], ...)`
-   - 名称含 `gmBias`、`gm_bias`、`offset`、`progress`、`blockOffset` 的变量，以及 stride 类变量（`\w*[Ss]tride\w*`，如 `blockTablesStride`、`srcStride`、`dstStride`、`strideW`、`strideH`）
-2. 对每个表达式检查声明类型和右侧计算域。若表达式中存在 `blockIdx/indexOuter/i_o/mIdx/nIdx` 与 `blockFactor/rowFactor/numCol/num_col/tiling->n`、stride（`\w*[Ss]tride\w*`）等多因子相乘，必须在第一次乘法前显式提升到 `int64_t` 或 `uint64_t`。
-3. 不能只看最终变量类型。若 `uint64_t gmBias = i_o * rowFactor * numCol;` 中右侧操作数全是 32 位，仍按 32 位先回绕，判 FAIL。
-4. `SetGlobalBuffer` 的第二个 size 参数同样要检查。`rowWork * numCol`、`blockFactor * numCol` 等可能超过 32 位时，也必须先提升。
-5. 反推最大可能值：若合法 shape 或 tiling 使线性元素位置可能达到或超过 `2^32`，且乘法前未进入 64 位计算域，判 FAIL；无法确认上界但表达式用于 GM 偏移且全为 32 位操作数，至少判 SUSPICIOUS。
-
-**生产案例**
-
-- ops-nn issue #4494：910B2 `rms_norm` 在大 shape 下从位置 `4294969344` 附近开始输出全 0。修复方式是将 `blockIdx_ * blockFactor * numCol`、`gmBias`、`CopyIn/CopyOut` 的 GM 偏移链路改为 `uint64_t`，并在乘法前显式 `static_cast<uint64_t>`。
-
 ---
 
-### 10 在支持superKernel场景，禁止直接对GM地址进行读写，需要改用GetValue或SetValue `[适用: Kernel]`
+### RED-10 在支持superKernel场景，禁止直接对GM地址进行读写，需要改用GetValue或SetValue `[适用: Kernel]`
 
 > **Kernel 侧说明**：Kernel 中 `GlobalTensor` 和 `LocalTensor` 通过 API 获取，一般不需要判空，但 GM 地址偏移需校验。
 

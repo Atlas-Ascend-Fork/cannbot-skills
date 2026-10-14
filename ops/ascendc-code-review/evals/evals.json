@@ -93,22 +93,7 @@
         "eval_mode": "text"
       },
       "prompt": "我负责的算子仓提交了一个 PR，想用 ascendc-code-review 对它做全量检视。PR 检视是怎么做的？从获取 diff 到出具报告要经过哪些阶段？检视时怎么判断代码侧别？",
-      "expected_output": "1. 回复应说明 PR 检视走 pr-review 工作流，并给出从获取 diff 到报告的阶段顺序：提取 PR 链接并判断托管平台 → code-fetch 子 Agent 获取 diff 与完整源码 → 并行派发代码概要、API 预研（仅 Kernel 侧）、设计文档探测 → 产出检视计划（通用分组+专项清单+跳过清单）→ 按波次逐条检视 → 行号校对 → 撰写报告。\n2. 回复应说明按变更文件数与行数决定检视模式（minimal / compact / standard）以及是否切换大型 PR 流程，并说明代码侧别判定依据（Kernel 侧看 op_kernel 与 __aicore__ / AscendC:: 特征，Tiling 侧看 op_host 与 gert::TilingContext / TilingData 特征）。\n3. 回复应说明 PR 检视时优先从完整 URL 推断 gitcode.com/cann 下常用算子仓（ops-transformer / ops-math / ops-nn / ops-cv）的 repo 名。",
-      "expectations": [],
-      "files": []
-    },
-    {
-      "id": 6,
-      "title": "大型 PR 自动切换（关键能力）",
-      "config": {
-        "max_tokens": 160000,
-        "ascend_platforms": [
-          "A2"
-        ],
-        "eval_mode": "text"
-      },
-      "prompt": "有个 PR 一次改动了 30 个文件、上万行代码，直接全量检视太慢。ascendc-code-review 对这类大型 PR 有什么处理策略？触发切换的条件是什么？",
-      "expected_output": "应说明大型 PR 处理机制：当变更文件数 >20 且总变更行数 ≥3000 时自动切换大型 PR 检视流程（pr-large-review）；该流程按文件组拆分并行检视（file-split 文件分组、global-pre-scan 全局预扫描、clause-grouping 条例分组、synthesize 合并、merge 汇总），避免单上下文承载过大。",
+      "expected_output": "应说明走 pr-review 工作流：提取 PR 链接并判断托管平台，派发子 Agent 获取 diff 与完整源码（code-fetch），并行派发代码概要/API 预研（仅 Kernel 侧），产出检视计划（通用分组+跳过清单+仅核对清单），按波次逐条检视，行号校对，撰写报告。",
       "expectations": [],
       "files": []
     },
@@ -139,7 +124,7 @@
         "eval_mode": "text"
       },
       "prompt": "检视 Ascend C 算子代码时，有哪些红线问题是必须拦截的高危问题？比如除法和数组索引这类。Kernel 侧还有什么特殊的红线？",
-      "expected_output": "应说明红线问题清单（ascendc-red-line.md）共 10 条且严重级别均为高：All 侧 7 条（除法/余数运算除零保护、数组索引校验、有符号整数运算不溢出、无符号整数运算不回绕、禁止使用未初始化的变量、指针操作使用前判空、避免数据竞争）；Kernel 侧 3 条（资源泄露防护、gm 内存偏移或大小必须用 int64 表示、支持 superKernel 场景禁止直接对 GM 地址读写需改用 GetValue/SetValue）。",
+      "expected_output": "应说明红线问题清单（ascendc-red-line.md）共 10 条且严重级别均为高：All 侧 7 条（除法/余数运算除零保护、数组索引校验、有符号整数运算不溢出、无符号整数运算不回绕、禁止使用未初始化的变量、指针操作使用前判空、避免数据竞争）；Host 侧 1 条（资源泄露防护）；Kernel 侧 2 条（gm 内存偏移或大小必须用 int64 表示、支持 superKernel 场景禁止直接对 GM 地址读写需改用 GetValue/SetValue）。",
       "expectations": [],
       "files": []
     },
@@ -155,21 +140,6 @@
       },
       "prompt": "检视代码时怎么判定一段代码有没有问题？我听说有假设检验的方法，原假设和备择假设分别是什么？置信度怎么评估？负向证据有什么要求？",
       "expected_output": "应说明假设检验驱动的检视流程（core/methodology.md）：代码段识别→建立原假设 H0（代码段安全）与备择假设 H1（存在风险，自信值初始 0%）→收集并评估证据：正向证据（规范违反 +40%、上下文防御缺失 +30%、PR 归属 +20%、调用链/数据流风险 +15%、领域关联 +10%）与负向证据（防御存在 -20%、上游校验 -15%、范围外 -50%）→判定结论；负向证据必须附可验证的代码引用（格式 [文件路径]:[行号] [具体代码行内容]），否则该条证据得分为 0。",
-      "expectations": [],
-      "files": []
-    },
-    {
-      "id": 10,
-      "title": "GM 32位偏移溢出回归（ops-nn #4494）",
-      "config": {
-        "max_tokens": 160000,
-        "ascend_platforms": [
-          "A2"
-        ],
-        "eval_mode": "text"
-      },
-      "prompt": "代码中存在 `xGm.SetGlobalBuffer((__gm__ T*)x + blockIdx_ * blockFactor * numCol, rowWork * numCol);`，并且大 shape 下线性位置可能超过 2^32。ascendc-code-review 应如何路由和检视这类问题？",
-      "expected_output": "应说明这是 Kernel 侧 GM 偏移/长度 32 位计算域溢出风险：命中 ascendc-red-line.md（触发:必须触发的红线）条例4（无符号整数不回绕）和条例9（gm内存偏移或大小必须用int64表示），无条件保留并优先检视；按条例9 专属检视方法枚举 GM 起始地址、GM 下标和 GM 搬运长度表达式（如 SetGlobalBuffer 的地址偏移 blockIdx_ * blockFactor * numCol 与 size 参数 rowWork * numCol），并检查声明类型与右侧计算域；检视时不能只看最终变量类型，必须确认第一次乘法前已显式提升到 int64_t/uint64_t，不能因来源是 TilingData 或硬件配置而跳过。",
       "expectations": [],
       "files": []
     }

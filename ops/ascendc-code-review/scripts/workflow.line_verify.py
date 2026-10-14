@@ -11,31 +11,28 @@
 """
 行号校对工具 — 扫描 yaml 目录，原地修正行号
 
-由主 Agent 在阶段2调用。扫描指定目录下所有 yaml 文件（clause-review 与
-design-check 两类输出），对 FAIL/SUSPICIOUS 项做行号校对，原地修改 yaml
-中的行号字段。
+由主 Agent 在阶段2调用。扫描指定目录下所有 clause 类 yaml，对 FAIL/SUSPICIOUS
+项做行号校对，原地修改 yaml 中的行号字段。
 
-拆分路由逻辑（保持现有 pr-review.line-verify.md + common.line-verify.md 行为）:
-  - clause 类 yaml:
-      * PR 模式（--diff 必传）: 先做 diff 范围红线校验，关键代码行不在 diff
-        变更范围内 → 标记 out_of_range=true（报告阶段归入范围外备注）
-      * 文件检视模式（--diff 不传）: 仅做行号校对
-  - design 类 yaml:
-      * 无 diff 红线（设计偏差常指向未变更代码，不做范围过滤）
-      * 仅校对 deviations / doc_violations 的行号
+行为:
+  - PR 模式（--diff 必传）: 先做 diff 范围红线校验，关键代码行不在 diff
+    变更范围内 → 标记 out_of_range=true（报告阶段在代码位置尾部标注
+    「PR检视场景，非PR提交的相关代码」并计入问题数）
+  - 文件检视模式（--diff 不传）: 仅做行号校对
+  - 无法在源码中定位的项标记 line_verified=false（报告代码位置尾部标注
+    「行号待确认」）
 
 用法:
   文件检视:
     python3 workflow.line_verify.py --dir /tmp/file_xxx --repo /path/to/source
   PR 检视:
-    python3 workflow.line_verify.py --dir /tmp/pr1234_xxx --diff /path/to.diff \\
+    python3 workflow.line_verify.py --dir /tmp/pr1234_xxx --diff /path/to.diff \
         --repo /path/to/repo
 
 输出:
-  - yaml 文件原地更新行号字段（start_line/end_line/code_location/violation_location）
-  - stdout 打印校对摘要（处理 yaml 数、FAIL/SUSPICIOUS 项数、out_of_range 数、
+  - yaml 文件原地更新行号字段（start_line/end_line）
+  - stderr 日志输出校对摘要（无需捕获；处理 yaml 数、FAIL/SUSPICIOUS 项数、out_of_range 数、
     行号修正数、待确认数）
-退出码: 0=成功, 1=参数错误, 2=目录读取失败
 """
 
 import argparse
@@ -279,6 +276,9 @@ def locate_snippet_in_file(
     file_path: str,
     code: str,
     hint_start: Optional[int] = None,
+    # 行号定位的启发式搜索窗口（±window 行），调用方可用关键字参数覆盖。
+    # 窗口内未命中会回落到全文件搜索（见下方策略 2）：片段在文件中唯一时窗口大小
+    # 不影响结果；多处出现时窗口内的首个命中会被采用，窗口过小则转为标记待确认。
     window: int = 50,
 ) -> Optional[tuple]:
     """在源文件中定位代码片段的行号范围。
@@ -318,18 +318,25 @@ def locate_snippet_in_file(
     return None
 
 
-def resolve_file_path(file_path: str, repo_path: str) -> str:
+def resolve_file_path(file_path: str, repo_path: str, base_dirs=()) -> str:
     """将 yaml 中的 file_path 解析为可读的绝对路径。
 
     优先级:
       1. 若 file_path 是绝对路径且存在 → 直接用
-      2. 若 repo_path 非空，拼接 repo_path/file_path
-      3. 否则原样返回
+      2. 依次尝试 base_dirs 中每个基目录拼接 file_path
+      3. 若 repo_path 非空，拼接 repo_path/file_path
+      4. 否则原样返回
     """
     if not file_path:
         return file_path
     if os.path.isabs(file_path) and os.path.isfile(file_path):
         return file_path
+    for base in base_dirs:
+        if not base:
+            continue
+        candidate = os.path.join(base, file_path)
+        if os.path.isfile(candidate):
+            return candidate
     if repo_path:
         candidate = os.path.join(repo_path, file_path)
         if os.path.isfile(candidate):
@@ -409,130 +416,6 @@ def verify_clause_yaml(
         return (fail_count, out_of_range_count, 0, 1)
 
 
-# ─── design yaml 校对 ────────────────────────────────────────────
-
-def verify_design_yaml(
-    data: dict,
-    repo_path: str,
-) -> Tuple[int, int, int]:
-    """校对 design yaml。返回 (deviation_count, line_fixed, line_unconfirmed)"""
-    line_fixed = 0
-    line_unconfirmed = 0
-    deviation_count = 0
-    dirty = False
-
-    # 校对 deviations（S1-S7 的 ❌ 项）
-    deviations = data.get("deviations", []) or []
-    for dev in deviations:
-        deviation_count += 1
-        fixed_line = _fix_location(dev, "code_location", repo_path)
-        if fixed_line is True:
-            line_fixed += 1
-            dirty = True
-        elif fixed_line is False:
-            line_unconfirmed += 1
-            dirty = True
-
-    # 校对 doc_violations（D8 的 ❌ 项）
-    doc_violations = data.get("doc_violations", []) or []
-    for dv in doc_violations:
-        deviation_count += 1
-        # D8 违规位置可能在文档文件中，也传 repo_path 以支持相对路径
-        fixed_line = _fix_location(dv, "violation_location", repo_path)
-        if fixed_line is True:
-            line_fixed += 1
-            dirty = True
-        elif fixed_line is False:
-            line_unconfirmed += 1
-            dirty = True
-
-    if dirty:
-        data["_dirty"] = True
-    return (deviation_count, line_fixed, line_unconfirmed)
-
-
-def _parse_location(loc: str) -> tuple:
-    """解析定位字符串，返回 (file_path, start_line, end_line)。
-
-    支持格式：
-      path              → (path, None, None)
-      path:line         → (path, line, line)
-      path:start-end    → (path, start, end)
-      path:l1,l2,l3     → (path, l1, l3)  取首尾
-    """
-    parts = loc.rsplit(":", 1)
-    if len(parts) != 2:
-        return (loc, None, None)
-
-    file_path, line_str = parts
-
-    # 范围格式: start-end
-    if "-" in line_str:
-        range_parts = line_str.split("-", 1)
-        try:
-            start = int(range_parts[0])
-            end = int(range_parts[1])
-            return (file_path, start, end)
-        except ValueError:
-            return (file_path, None, None)
-
-    # 逗号多行格式: l1,l2,l3
-    if "," in line_str:
-        nums = []
-        for p in line_str.split(","):
-            try:
-                nums.append(int(p))
-            except ValueError:
-                pass
-        if nums:
-            return (file_path, nums[0], nums[-1])
-        return (file_path, None, None)
-
-    # 单行格式: line
-    try:
-        line = int(line_str)
-        return (file_path, line, line)
-    except ValueError:
-        return (file_path, None, None)
-
-
-def _fix_location(item: dict, field: str, repo_path: str) -> Optional[bool]:
-    """校验 item[field] 中的行号是否在合理范围内。
-
-    支持格式: 'path'、'path:line'、'path:start-end'、'path:l1,l2,l3'
-
-    design yaml 没有完整代码片段，无法做内容匹配，仅做粗略校验：
-    检查文件是否存在 + 行号是否在文件行数范围内。
-
-    返回 True=修正了, False=无法定位, None=无需修正/在合理范围内
-    """
-    loc = item.get(field, "")
-    if not loc:
-        return None
-
-    file_path, start_line, end_line = _parse_location(loc)
-    if start_line is None:
-        logger.warning("行号格式不支持: %s=%s", field, loc)
-        item["line_verified"] = False
-        return False
-
-    abs_path = resolve_file_path(file_path, repo_path)
-    if not os.path.isfile(abs_path):
-        return False
-
-    try:
-        with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
-            total_lines = sum(1 for _ in f)
-        if 1 <= start_line <= total_lines and (end_line is None or 1 <= end_line <= total_lines):
-            item["line_verified"] = True
-            return None  # 行号在合理范围内，未修改
-        else:
-            item["line_verified"] = False
-            return False
-    except Exception:
-        return False
-
-
 # ─── 主流程 ──────────────────────────────────────────────────────
 
 def _parse_args():
@@ -565,22 +448,15 @@ def _process_single_yaml_file(fpath, fname, stats, ctx):
     if not isinstance(data, dict):
         return
 
-    yaml_type = data.get("type", "clause")
     stats["total_yaml"] += 1
 
-    if yaml_type == "design":
-        dev_count, fixed, unconfirmed = verify_design_yaml(data, ctx["repo_path"])
-        stats["total_deviations"] += dev_count
-        stats["total_line_fixed"] += fixed
-        stats["total_line_unconfirmed"] += unconfirmed
-    else:
-        fail, oor, fixed, unconfirmed = verify_clause_yaml(
-            data, ctx["diff_hunks_by_file"], ctx["repo_path"], ctx["is_pr_mode"]
-        )
-        stats["total_fail"] += fail
-        stats["total_out_of_range"] += oor
-        stats["total_line_fixed"] += fixed
-        stats["total_line_unconfirmed"] += unconfirmed
+    fail, oor, fixed, unconfirmed = verify_clause_yaml(
+        data, ctx["diff_hunks_by_file"], ctx["repo_path"], ctx["is_pr_mode"]
+    )
+    stats["total_fail"] += fail
+    stats["total_out_of_range"] += oor
+    stats["total_line_fixed"] += fixed
+    stats["total_line_unconfirmed"] += unconfirmed
 
     # 仅当字段被修改时才写回（避免丢失 PASS 条例的原文格式）
     if data.pop("_dirty", False):
@@ -594,8 +470,9 @@ def _process_single_yaml_file(fpath, fname, stats, ctx):
 def _process_yaml_dir(yaml_dir, diff_hunks_by_file, repo_path, is_pr_mode):
     """遍历 yaml 目录，逐文件校对并写回。返回统计 dict。"""
     stats = dict(total_yaml=0, total_fail=0, total_out_of_range=0,
-                 total_line_fixed=0, total_line_unconfirmed=0, total_deviations=0)
-    ctx = {"diff_hunks_by_file": diff_hunks_by_file, "repo_path": repo_path, "is_pr_mode": is_pr_mode}
+                 total_line_fixed=0, total_line_unconfirmed=0)
+    ctx = {"diff_hunks_by_file": diff_hunks_by_file, "repo_path": repo_path,
+           "is_pr_mode": is_pr_mode}
 
     for fname in sorted(os.listdir(yaml_dir)):
         if not fname.endswith((".yaml", ".yml")):
@@ -633,7 +510,6 @@ def main() -> int:
     logger.info(f"  FAIL/SUSPICIOUS 项: {stats['total_fail']} 个")
     if is_pr_mode:
         logger.info(f"  范围外(out_of_range): {stats['total_out_of_range']} 个")
-    logger.info(f"  设计偏差项: {stats['total_deviations']} 个")
     logger.info(f"  行号修正: {stats['total_line_fixed']} 处")
     logger.info(f"  行号待确认: {stats['total_line_unconfirmed']} 处")
     return 0

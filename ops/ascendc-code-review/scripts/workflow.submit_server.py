@@ -41,7 +41,6 @@ yaml collector 服务 — 接收子 Agent 通过 curl 提交的 yaml 内容，�
 import http.server
 import logging
 import os
-import re
 import signal
 import sys
 import urllib.parse
@@ -53,6 +52,18 @@ logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = ""
 PORT = 0
+
+# clause 类 FAIL/SUSPICIOUS 的合法 confidence 取值。报告侧按同一集合分级渲染
+# （见 workflow.assemble_report.py 的 _classify_findings），增删档位须同步两处。
+VALID_CONFIDENCE = ("HIGH", "MED", "LOW")
+
+# severity 的合法取值（条款声明的严重级别），与 assemble_report.py 的
+# _SEVERITY_ORDER / resolve_severity 兜底口径保持一致
+VALID_SEVERITY = ("高", "中", "低")
+
+# confidence 的合法键名。大小写与首尾空白变体由 lower().strip() 归一覆盖；
+# 缩写只显式列出已知的，不做模糊匹配以免误伤其他字段。
+CONFIDENCE_KEYS = ("confidence", "conf")
 
 
 def _try_fix_mojibake(s):
@@ -77,8 +88,8 @@ def _safe_filename(name):
 
 
 def _unique_fname(fname, output_dir):
-    """文件名已存在时追加 _dup1, _dup2... 避免覆盖（large PR 下同一 clause_id
-    被多个 group 检视，若子 Agent 漏写 group 会导致撞名覆盖，此处保底保留全部结果）"""
+    """文件名已存在时追加 _dup1, _dup2... 避免覆盖（补派重试或子 Agent 漏写 group
+    都可能对同一 clause 重复提交，此处保底保留全部结果、不静默覆盖）"""
     candidate = fname
     idx = 1
     while os.path.exists(os.path.join(output_dir, candidate)):
@@ -126,7 +137,7 @@ def _validate_evidence_list(items, key: str) -> list:
                 f"evidence.{key}[{i}] 必须是 mapping (type/score/desc), "
                 f"实际类型: {type(item).__name__}"
             )
-        elif not item.get("score"):
+        elif item.get("score") is None or str(item.get("score")).strip() == "":
             errors.append(f"evidence.{key}[{i}].score 缺失或为空")
     return errors
 
@@ -153,8 +164,24 @@ def _validate_fail_evidence(data: dict) -> list:
             errors.append(f"evidence.{key} 必须是 list, 实际类型: {type(val).__name__}")
         else:
             errors.extend(_validate_evidence_list(val, key))
-    if not ev.get("confidence_value"):
+    if ev.get("confidence_value") is None or str(ev.get("confidence_value")).strip() == "":
         errors.append("evidence.confidence_value 缺失或为空")
+    return errors
+
+
+def _validate_required_desc(data: dict) -> list:
+    """problem_desc / fix_suggestion 必填。clause 与 style/sunset 豁免分支共用。"""
+    errors = []
+    if not data.get("problem_desc"):
+        if data.get("description"):
+            errors.append("字段名错误: 应为 'problem_desc'，实际写成了 'description'")
+        else:
+            errors.append("缺少必填字段: problem_desc")
+    if not data.get("fix_suggestion"):
+        if data.get("suggestion"):
+            errors.append("字段名错误: 应为 'fix_suggestion'，实际写成了 'suggestion'")
+        else:
+            errors.append("缺少必填字段: fix_suggestion")
     return errors
 
 
@@ -165,107 +192,73 @@ def _validate_yaml_schema(data: dict) -> list:
         if not data.get(field):
             errors.append(f"缺少必填字段: {field}")
 
+    # 键名大小写/别名变体（Confidence:、conf:）会被各处的精确键名判断漏过，
+    # 静默按「未填写」处理——与 problem_desc / fix_suggestion 同类的真实错误。
+    # 放在各分支早返回之前，一并覆盖 clause、PASS、style/sunset 三条路径。
+    for key in data:
+        if key != "confidence" and str(key).strip().lower() in CONFIDENCE_KEYS:
+            errors.append(f"字段名错误: 应为 'confidence'，实际写成了 '{key}'")
+
     status = data.get("status", "")
     if status == "PASS":
         errors.extend(_validate_pass_schema(data))
+        if "severity" in data:
+            errors.append("PASS 条例禁止携带 severity 字段（仅 FAIL/SUSPICIOUS 需要）")
         return errors
     if status not in ("FAIL", "SUSPICIOUS"):
         errors.append(f"status 值非法: 期望 PASS/FAIL/SUSPICIOUS, 实际 '{status}'")
         return errors
 
-    # problem_desc 必填（常见错误：子 Agent 写成 description）
-    if not data.get("problem_desc"):
-        if data.get("description"):
-            errors.append("字段名错误: 应为 'problem_desc'，实际写成了 'description'")
-        else:
-            errors.append("缺少必填字段: problem_desc")
+    # severity 必填且取值受限：它是报告「检视意见」大表的分档依据（高/中/低），
+    # 取条款声明的严重级别；缺失或写错会使该条目落错档
+    severity = data.get("severity")
+    if severity is None:
+        errors.append("缺少必填字段: severity（条款声明的严重级别，高/中/低）")
+    elif str(severity).strip() not in VALID_SEVERITY:
+        errors.append(f"severity 值非法: 期望 {'/'.join(VALID_SEVERITY)}, 实际 '{severity}'")
 
-    # fix_suggestion 必填（常见错误：子 Agent 写成 suggestion）
-    if not data.get("fix_suggestion"):
-        if data.get("suggestion"):
-            errors.append("字段名错误: 应为 'fix_suggestion'，实际写成了 'suggestion'")
-        else:
-            errors.append("缺少必填字段: fix_suggestion")
+    # 非假设检验类条款豁免：category 为 style（cpp-style 专项）或 sunset（日落确定性匹配）
+    # 的条款不走假设检验、不产生证据分值，FAIL/SUSPICIOUS 时跳过 evidence/confidence 校验
+    # （problem_desc/fix_suggestion/code_snippet 仍然必填）
+    if data.get("category") in ("style", "sunset"):
+        if "evidence" in data:
+            errors.append("category: style/sunset 条例禁止携带 evidence 字段（此类条款不走假设检验）")
+        if "confidence" in data:
+            errors.append("category: style/sunset 条例禁止携带 confidence 字段（此类条款不走假设检验）")
+        errors.extend(_validate_required_desc(data))
+        errors.extend(_validate_fail_snippet(data))
+        return errors
+
+    errors.extend(_validate_required_desc(data))
+
+    # confidence 取值受限：它决定报告分级（HIGH→发现问题 / MED→需关注 / LOW→疑似），
+    # 写错或拼错会静默改变分级，故在此拦截。缺省时不报错——assemble_report 按 status
+    # 兜底（FAIL→high，其余→med），是既有可接受输入。
+    conf = data.get("confidence")
+    if "confidence" in data and conf is None:
+        # 写了键却留空：落盘为 null，与「完全未写该字段」在产物中不可区分，
+        # 子 Agent 本意是赋值却静默走 status 兜底
+        errors.append("confidence 值非法: 字段存在但为空（完全不写该字段时不报错）")
+    elif conf is not None and conf not in VALID_CONFIDENCE:
+        errors.append(f"confidence 值非法: 期望 {'/'.join(VALID_CONFIDENCE)}, 实际 '{conf}'")
 
     errors.extend(_validate_fail_snippet(data))
     errors.extend(_validate_fail_evidence(data))
     return errors
 
 
-def _validate_design_strategies(strategies) -> list:
-    """校验 strategies 列表"""
-    errors = []
-    if strategies is None:
-        errors.append("design yaml 缺少 strategies 字段（S1-S7 + D8 判定列表）")
-        return errors
-    if not isinstance(strategies, list):
-        errors.append(f"strategies 必须是 list, 实际类型: {type(strategies).__name__}")
-        return errors
-    if len(strategies) == 0:
-        errors.append("strategies 为空列表（至少需要 S1-S7 + D8 共 8 项）")
-        return errors
-    for i, s in enumerate(strategies):
-        if not isinstance(s, dict):
-            errors.append(f"strategies[{i}] 必须是 mapping, 实际类型: {type(s).__name__}")
-            continue
-        if not s.get("id"):
-            errors.append(f"strategies[{i}].id 缺失")
-        if not s.get("name"):
-            errors.append(f"strategies[{i}].name 缺失")
-        if "verdict" not in s:
-            errors.append(f"strategies[{i}].verdict 缺失（期望 ✅/❌/N/A）")
-    return errors
-
-
-_LOCATION_RE = re.compile(
-    r"^[\w./\-]+\.\w+(?::\d+(?:-\d+)?)?$"
-)
-
-
-def _validate_design_items(data: dict, field: str, id_field: str) -> list:
-    """校验 deviations 或 doc_violations 列表"""
-    errors = []
-    items = data.get(field)
-    if items is None:
-        return errors
-    if not isinstance(items, list):
-        errors.append(f"{field} 必须是 list, 实际类型: {type(items).__name__}")
-        return errors
-    loc_key = "violation_location" if field == "doc_violations" else "code_location"
-    for i, item in enumerate(items):
-        if not isinstance(item, dict):
-            errors.append(f"{field}[{i}] 必须是 mapping, 实际类型: {type(item).__name__}")
-            continue
-        if not item.get(id_field):
-            errors.append(f"{field}[{i}].{id_field} 缺失")
-        if not item.get("desc"):
-            errors.append(f"{field}[{i}].desc 缺失")
-        loc_val = item.get(loc_key, "")
-        if not loc_val:
-            errors.append(f"{field}[{i}].{loc_key} 缺失")
-        elif not _LOCATION_RE.match(str(loc_val)):
-            errors.append(
-                f"{field}[{i}].{loc_key} 格式非法（期望 文件路径:行号 或 文件路径:起始行-中止行，"
-                f"禁止拼接多位置或附加说明文本，多位置请拆成多条记录），实际: {loc_val!r}"
-            )
-    return errors
-
-
-def _validate_design_schema(data: dict) -> list:
-    """校验 design 类 yaml schema，返回错误列表。"""
-    errors = []
-    errors.extend(_validate_design_strategies(data.get("strategies")))
-    errors.extend(_validate_design_items(data, "deviations", "strategy_id"))
-    errors.extend(_validate_design_items(data, "doc_violations", "doc_name"))
-    return errors
-
-
 def _resolve_group_and_fname(data: dict, url_group: str, clause: str) -> tuple:
-    """解析 group 并生成文件名，返回 (group, fname)"""
+    """解析 group 并生成文件名，返回 (group, fname)。
+
+    **提交参数 group 优先于 yaml 的 group_name**：文件名按 group 前缀解析
+    （见 workflows/pr-review.md 与 workflows/file-review.md 的波次完整性校验），
+    若任由子 Agent 在 yaml 里写 group_name，组名会被其字面量或笔误污染，
+    导致条例被误判缺失。yaml 中的 group_name 仅在未传 group 参数时作兜底。
+    """
     raw_group = data.get("group_name")
     if not isinstance(raw_group, str):
         raw_group = ""
-    group = raw_group or url_group
+    group = url_group or raw_group
 
     group_safe = _safe_filename(group) if group else ""
     clause_safe = _safe_filename(clause)
@@ -313,11 +306,14 @@ class CollectorHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(400, "yaml root must be a mapping")
             return
 
-        # schema 校验：按 yaml 类型分流
+        # schema 校验（design 类已停用：设计一致性检查不再执行，收到一律拒绝）
         if data.get("type") == "design":
-            errors = _validate_design_schema(data)
-        else:
-            errors = _validate_yaml_schema(data)
+            # 注意：send_error 的 message 进入 HTTP 状态行（latin-1），中文会触发
+            # UnicodeEncodeError 并中断连接；说明文字必须放 explain（响应体，UTF-8 安全）
+            self.send_error(400, "design type deprecated",
+                            "design 类 yaml 已停用（设计一致性检查不再执行），禁止提交")
+            return
+        errors = _validate_yaml_schema(data)
         if errors:
             self.send_error(400, "schema validation failed", "; ".join(errors))
             return

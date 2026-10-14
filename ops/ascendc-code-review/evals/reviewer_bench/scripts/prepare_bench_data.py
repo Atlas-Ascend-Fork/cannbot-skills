@@ -15,7 +15,7 @@
   2. gen_bench_config.py（秒级）：读 manifest → 组装 prompt → 输出 batch_review config
 
 用法:
-    python scripts/prepare_bench_data.py --reports-dir benchmark_tasks/top20_transformer_filtered
+    python scripts/prepare_bench_data.py --reports-dir benchmark_tasks/top20_redline_and_topk_filtered
     python scripts/prepare_bench_data.py --reports-dir benchmark_tasks/ops-cv-ground-truth-reports
 """
 import logging
@@ -146,8 +146,9 @@ def get_changed_code_files(bare_dir: Path, commit: str) -> list:
 
 def main():
     parser = argparse.ArgumentParser(description='准备评测数据：恢复代码 + 生成 diff')
-    parser.add_argument('--reports-dir', default='benchmark_tasks/top20_transformer_filtered',
-                        help='ground-truth 报告目录（直接包含 .md 文件）')
+    parser.add_argument('--reports-dir', required=True,
+                        help='ground-truth 报告目录（直接包含 .md 文件，如 '
+                             'benchmark_tasks/top20_redline_and_topk_filtered）')
     parser.add_argument('--output', default='manifest.json', help='输出 manifest 路径')
     parser.add_argument('--data-dir', default='bench_data',
                         help='代码和 diff 的存放目录')

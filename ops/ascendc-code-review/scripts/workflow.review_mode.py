@@ -11,6 +11,9 @@
 """
 检视模式路由器。读 workflow.review-thresholds.yaml，按变更行数/文件数判定 mode，
 输出 JSON {mode, routing, guidance}。code-fetch / file-review 入口调用，阈值单一来源在 yaml。
+
+四档中 minimal/compact/standard 按行数分档，oversized 另需文件数同时达阈值。
+routing 恒为 pr-review——oversized 不切换流程，只让调用方向用户给出拆分建议。
 """
 import argparse
 import json
@@ -34,11 +37,12 @@ def load_cfg():
         return yaml.safe_load(f)
 
 
-def is_large(lines, files, large_cfg):
-    """大型 PR 双高判定：文件数 > min_files 且 行数 >= min_lines。files 为空则不触发。"""
+def is_oversized(lines, files, oversized_cfg):
+    """超大 PR 双高判定：文件数 > min_files 且 行数 >= min_lines。files 为空则不触发
+    （文件检视不传 --files，故永不取到本档）。"""
     if files is None:
         return False
-    return files > large_cfg["min_files"] and lines >= large_cfg["min_lines"]
+    return files > oversized_cfg["min_files"] and lines >= oversized_cfg["min_lines"]
 
 
 def pick_mode(lines, modes_cfg):
@@ -52,9 +56,9 @@ def pick_mode(lines, modes_cfg):
 
 def decide(lines, files, cfg):
     """返回 (mode, routing, guidance)。"""
-    if is_large(lines, files, cfg["large_pr"]):
-        large = cfg["large_pr"]
-        return "large", large["routing"], large["guidance"]
+    if is_oversized(lines, files, cfg["oversized"]):
+        oversized = cfg["oversized"]
+        return "oversized", oversized["routing"], oversized["guidance"]
     name, entry = pick_mode(lines, cfg["review_modes"])
     return name, entry["routing"], entry["guidance"]
 
@@ -62,7 +66,8 @@ def decide(lines, files, cfg):
 def main():
     ap = argparse.ArgumentParser(description="检视模式路由器")
     ap.add_argument("--lines", type=int, required=True,
-                    help="变更行数（PR=diff 新增+删除排除注释空行；文件检视=代码总行数）")
+                    help="变更行数（PR=diff 新增+删除；文件检视=代码总行数。"
+                         "统计口径见 workflow.review-thresholds.yaml 顶部「统计口径（行数）」段）")
     ap.add_argument("--files", type=int, default=None, help="变更文件数（文件检视模式可省略）")
     args = ap.parse_args()
     try:
@@ -71,8 +76,9 @@ def main():
         logger.error("%s", exc)
         sys.exit(2)
     mode, routing, guidance = decide(args.lines, args.files, cfg)
+    # 机器可读 JSON 走 stdout（供调用方 $(...) 捕获，与 create_review_dir.py 约定一致）；人读日志走 stderr
     logger.info("mode=%s routing=%s lines=%d files=%s", mode, routing, args.lines, args.files)
-    logger.info(json.dumps({"mode": mode, "routing": routing, "guidance": guidance}, ensure_ascii=False))
+    print(json.dumps({"mode": mode, "routing": routing, "guidance": guidance}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

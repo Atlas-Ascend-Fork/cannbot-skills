@@ -12,7 +12,7 @@
 - 若用户提供文件路径 → 确认文件存在，Read 代码
 - 若用户直接粘贴代码片段 → 直接使用
 - 若用户只说了函数名 → Grep 定位，Read 对应部分
-- 若用户提到了 PR 号 → 可用 `scripts/get_gitcode_pr_diff.py --help` 查看用法后获取 diff，或用 `scripts/clone_pr_source.py --help` 查看用法后拉取源码
+- 若用户提到了 PR 号 → 可用 `{skill_base}/scripts/get_gitcode_pr_diff.py --help` 查看用法后获取 diff，或用 `{skill_base}/scripts/clone_pr_source.py --help` 查看用法后拉取源码
 
 ### Step 2 — 加载方法论
 
@@ -29,22 +29,22 @@ Read `core/methodology.md` 掌握假设检验流程（5 步：代码段识别 �
 
 ### Step 4 — 侧别过滤
 
-按文件路径判定侧别（`op_kernel/` → Kernel，`op_host/` → Tiling）。
+按文件路径判定侧别（`op_kernel/` → Kernel，`op_host/`/`op_graph/`/`op_api/` → Host）。
 排除不适用的条例。
 
 ### Step 5 — 加载条例文档
 
-Grep `^{条例ID}` 定位起始行号，再 Grep 下一个 `^####` 标题定位结束行号，Read offset={start} limit={end-start}，禁止 Read 整个文档。
+用 `grep -nE '^#+ .*{条例ID}([ :.]|$)' {规则文件}` 定位起始行（条款标题形如 `#### SEC-1.1 …`、`## KERNEL-1: …`），向下找第一个井号数 ≤ 起始标题的标题行为结束，Read offset={start} limit={end-start}，禁止 Read 整个文档。
 **必须关注**该条例章节中是否包含「专属检视方法」「检视策略」——若有，严格按该指引执行，不可跳过。
-若条例来自 ascendc-api / ascendc-perf / simt-api-analysis / mc2-specific，先用 `/ascendc-docs-search` 查阅对应 API 最新文档。
+若条例来自 ascendc-kernel-rules / ascendc-sunset-api / simt-api-analysis / mc2-specific，先用 `/ascendc-docs-search` 查阅对应 API 最新文档。
 
 ### Step 6 — 逐条例检视 + 输出
 
 按 methodology 的 5 步流程逐条例执行并输出：
 
-PASS（自信值<50%）→ 仅列 `[条例ID] PASS`
+PASS（自信值<70%，证据不足不判违规）→ 仅列 `[条例ID] PASS`
 
-FAIL（≥70%）/ SUSPICIOUS（50-69%）→ 展开：
+FAIL（≥80%）/ SUSPICIOUS（70-79%）→ 展开（SUSPICIOUS 附「建议人工确认」标注）。分档与 `core/methodology.md` 置信度标准一致（HIGH≥80 / MED 70-79 / LOW<70）：
 ```
 [条例ID] FAIL 置信度:HIGH
 - 问题描述：{描述}
@@ -55,7 +55,7 @@ FAIL（≥70%）/ SUSPICIOUS（50-69%）→ 展开：
 
 全部完成后输出汇总行：
 ```
-快速检视 — {文件名} | 侧别: {Kernel/Tiling} | {N} PASS / {M} FAIL / {K} SUSPICIOUS
+快速检视 — {文件名} | 侧别: {Kernel/Host/混合} | {N} PASS / {M} FAIL / {K} SUSPICIOUS
 ```
 
 ---

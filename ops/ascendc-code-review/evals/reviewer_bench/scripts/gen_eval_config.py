@@ -14,10 +14,10 @@ AI 检视报告与 ground-truth 报告，输出召回率/精确率。
 
 用法:
     # 指定 ground-truth 目录，自动找最新检视报告
-    python scripts/gen_eval_config.py --reports-dir benchmark_tasks/top20_transformer_filtered
+    python scripts/gen_eval_config.py --reports-dir benchmark_tasks/top20_redline_and_topk_filtered
 
     # 显式指定检视报告目录
-    python scripts/gen_eval_config.py --run-dir reports/run_xxx --reports-dir benchmark_tasks/top20_transformer_filtered
+    python scripts/gen_eval_config.py --run-dir reports/run_xxx --reports-dir benchmark_tasks/top20_redline_and_topk_filtered
 """
 import logging
 import argparse
@@ -41,8 +41,9 @@ def parse_args():
     parser = argparse.ArgumentParser(description="生成评测配置")
     parser.add_argument("--run-dir", default=None, help="batch_review 的 run 目录（默认自动找最新）")
     parser.add_argument("--manifest", default="manifest.json", help="prepare_bench_data.py 输出的 manifest")
-    parser.add_argument("--reports-dir", default="benchmark_tasks/top20_transformer_filtered",
-                        help="ground-truth 报告目录（benchmark_tasks/ 下的子路径）")
+    parser.add_argument("--reports-dir", required=True,
+                        help="ground-truth 报告目录（benchmark_tasks/ 下的子路径，如 "
+                             "benchmark_tasks/top20_redline_and_topk_filtered）")
     parser.add_argument("--template-config", default="src/batch_review/review-config.json")
     parser.add_argument("--output", default="eval-config.json")
     parser.add_argument("--prompt-file", default="prompts/eval_prompt.md",

@@ -2,17 +2,16 @@
 
 <适用>
 语言: C++
-侧别: All, Tiling
+侧别: All
 领域: true
 触发: 必须触发
 默认启用: true
 
-适用场景: Tiling 侧（Host 侧）和 Kernel 侧（Device 侧）的 C++ 安全编码规范
-不适用场景: Python 代码（见 python-secure.md）、编译链接安全（见 compile-secure.md）
+适用场景: Host 侧（含 tiling 实现）和 Kernel 侧（Device 侧）的 C++ 安全编码规范
 介绍: CANN C++ 安全编码规范，24 条条款覆盖 8 个安全类别
 类别(All): 总体原则(类型安全/内存安全/未定义行为),, 内存与指针安全(sizeof误用), 输入验证(外部输入合法性/内存操作长度校验), 类与对象安全(非trivially copyable对象位操作), 标准库安全(敏感信息清零/结构体兼容性)
-类别(Tiling): 内存与指针安全(资源句柄释放后赋值/字符串空间), 资源管理(申请成功判断/new-delete配对/分配错误处理), 安全函数使用(安全函数库/destMax参数/返回值检查), 标准库安全(空指针string/c_str指针保存), LOG规范(空指针/格式化占位符)
-> **说明**：安全编码红线规范，所有代码必须 100% 遵守。条款标注适用范围：`[适用: All]` / `[适用: Tiling]`
+类别(Host): 内存与指针安全(资源句柄释放后赋值/字符串空间), 资源管理(申请成功判断/new-delete配对/分配错误处理), 安全函数使用(安全函数库/destMax参数/返回值检查), 标准库安全(空指针string/c_str指针保存), LOG规范(空指针/格式化占位符)
+> **说明**：安全编码红线规范，所有代码必须 100% 遵守。条款标注适用范围：`[适用: All]` / `[适用: Host]`
 </适用>
 
 <检视负载>
@@ -25,41 +24,41 @@
 
 | 规范编号 | 规范名称 | 类别 | 严重级别 |
 |---------|---------|------|---------|
-| 1.1 | 保证静态类型安全 | 总体原则 | 高 |
-| 1.2 | 保证内存安全 | 总体原则 | 高 |
-| 1.3 | 禁止使用未定义行为 | 总体原则 | 高 |
-| 2.2 | 禁止通过对指针变量进行sizeof操作来获取数组大小 | 内存安全 | 中 |
-| 3.1 | 外部输入合法性校验 | 输入验证 | 高 |
-| 3.2 | 内存操作长度校验 | 输入验证 | 高 |
-| 6.1 | 禁止逐位操作非 trivially copyable 对象 | 类与对象 | 中 |
-| 7.3 | 敏感信息使用后清零 | 标准库 | 高 |
-| 7.4 | 结构体字段末尾添加 | 标准库 | 中 |
-| 7.5 | 接口变更考虑兼容性 | 标准库 | 中 |
+| SEC-1.1 | 保证静态类型安全 | 总体原则 | 高 |
+| SEC-1.2 | 保证内存安全 | 总体原则 | 高 |
+| SEC-1.3 | 禁止使用未定义行为 | 总体原则 | 高 |
+| SEC-2.2 | 禁止通过对指针变量进行sizeof操作来获取数组大小 | 内存安全 | 中 |
+| SEC-3.1 | 外部输入合法性校验 | 输入验证 | 高 |
+| SEC-3.2 | 内存操作长度校验 | 输入验证 | 高 |
+| SEC-6.1 | 禁止逐位操作非 trivially copyable 对象 | 类与对象 | 中 |
+| SEC-7.3 | 敏感信息使用后清零 | 标准库 | 高 |
+| SEC-7.4 | 结构体字段末尾添加 | 标准库 | 中 |
+| SEC-7.5 | 接口变更考虑兼容性 | 标准库 | 中 |
 
-### 仅 Tiling 适用 `[适用: Tiling]`（14 条）
+### 仅 Host 适用 `[适用: Host]`（14 条）
 
 | 规范编号 | 规范名称 | 类别 | 严重级别 |
 |---------|---------|------|---------|
-| 2.1 | 资源释放后指针置新值 | 内存安全 | 中 |
-| 2.3 | 字符串存储有足够空间 | 内存安全 | 高 |
-| 4.1 | 资源申请后判断是否成功 | 资源管理 | 高 |
-| 4.2 | new/delete 配对使用 | 资源管理 | 高 |
-| 4.3 | new 操作符错误处理 | 资源管理 | 高 |
-| 5.1 | 使用安全函数替代危险函数 | 安全函数 | 高 |
-| 5.2 | 正确设置安全函数 destMax 参数 | 安全函数 | 高 |
-| 5.3 | 检查安全函数返回值 | 安全函数 | 高 |
-| 7.1 | 禁止从空指针创建 std::string | 标准库 | 高 |
-| 7.2 | 不要保存 c_str/data 指针 | 标准库 | 中 |
-| 8.1 | LOG API 禁止传入空指针 | LOG API 安全 | 高 |
-| 8.2 | LOG API 参数必须与格式化占位符逐位一致（数量、类型、顺序） | LOG API 安全 | 高 |
-| 8.3 | LOG API 禁止传入已释放内存的指针 | LOG API 安全 | 高 |
-| 8.4 | LOG 消息英语行文语法正确、表意清晰 | LOG API 规范 | 低 |
+| SEC-2.1 | 资源释放后指针置新值 | 内存安全 | 中 |
+| SEC-2.3 | 字符串存储有足够空间 | 内存安全 | 高 |
+| SEC-4.1 | 资源申请后判断是否成功 | 资源管理 | 高 |
+| SEC-4.2 | new/delete 配对使用 | 资源管理 | 高 |
+| SEC-4.3 | new 操作符错误处理 | 资源管理 | 高 |
+| SEC-5.1 | 使用安全函数替代危险函数 | 安全函数 | 高 |
+| SEC-5.2 | 正确设置安全函数 destMax 参数 | 安全函数 | 高 |
+| SEC-5.3 | 检查安全函数返回值 | 安全函数 | 高 |
+| SEC-7.1 | 禁止从空指针创建 std::string | 标准库 | 高 |
+| SEC-7.2 | 不要保存 c_str/data 指针 | 标准库 | 中 |
+| SEC-8.1 | LOG API 禁止传入空指针 | LOG API 安全 | 高 |
+| SEC-8.2 | LOG API 参数必须与格式化占位符逐位一致（数量、类型、顺序） | LOG API 安全 | 高 |
+| SEC-8.3 | LOG API 禁止传入已释放内存的指针 | LOG API 安全 | 高 |
+| SEC-8.4 | LOG 消息英语行文语法正确、表意清晰 | LOG API 规范 | 低 |
 
 ---
 
 ### 1. 总体原则
 
-#### 1.1 保证静态类型安全 `[适用: All]`
+#### SEC-1.1 保证静态类型安全 `[适用: All]`
 
 > **Kernel 侧说明**：Ascend C 模板类需注意类型转换（如 half ↔ float）和范围错误（FP16 溢出）。
 
@@ -74,7 +73,7 @@ C++应该是静态类型安全的，这样可以减少运行时的错误，提�
 
 可以通过约束这些特性的使用，或者使用C++的新特性，例如std::variant（C++17）、std::span（C++20）等来解决这些问题，提升C++代码的健壮性。
 
-#### 1.2 保证内存安全 `[适用: All]`
+#### SEC-1.2 保证内存安全 `[适用: All]`
 
 > **Kernel 侧说明**：Ascend C 使用 UB（Unified Buffer）和 GM（Global Memory），需要通过 `DataCopy` API 安全访问，避免越界和未初始化访问。
 
@@ -89,7 +88,7 @@ C++语言的内存完全由程序员自己控制，所以在操作内存的时�
 
 建议使用更加安全的C++的特性，比如RAII，引用，智能指针等，来提升代码的健壮性。
 
-#### 1.3 禁止使用编译器"未定义行为" `[适用: All]`
+#### SEC-1.3 禁止使用编译器"未定义行为" `[适用: All]`
 
 遵循ISO C++标准，标准中未定义的行为禁止使用。对于编译器实现的特性或者GCC等编译器提供的扩展特性也需要谨慎使用，这些特性会降低代码的可移植性。
 
@@ -97,7 +96,7 @@ C++语言的内存完全由程序员自己控制，所以在操作内存的时�
 
 ### 2. 内存与指针安全
 
-#### 2.1 指向资源句柄或描述符的变量，在资源释放后立即赋予新值 `[适用: Tiling]`
+#### SEC-2.1 指向资源句柄或描述符的变量，在资源释放后立即赋予新值 `[适用: Host]`
 
 > **Kernel 侧不适用**：Kernel 无动态资源管理，Buffer 由 `InitBuffer` 静态分配，无需释放后置空。
 
@@ -128,7 +127,7 @@ EXIT:
 }
 ```
 
-#### 2.2 禁止通过对指针变量进行sizeof操作来获取数组大小 `[适用: All]`
+#### SEC-2.2 禁止通过对指针变量进行sizeof操作来获取数组大小 `[适用: All]`
 
 > **Kernel 侧说明**：Kernel 中 `LocalTensor<T>` 通过 API（如 `GetSize()`）获取大小，不能用 sizeof。
 
@@ -156,7 +155,7 @@ char *buffer = (char *)malloc(SIZE);
 (void)memset(buffer, 0, SIZE); // 使用申请的缓冲区大小
 ```
 
-#### 2.3 确保字符串存储有足够的空间容纳字符数据和null结束符 `[适用: Tiling]`
+#### SEC-2.3 确保字符串存储有足够的空间容纳字符数据和null结束符 `[适用: Host]`
 
 > **Kernel 侧不适用**：Kernel 无 C 风格字符串处理。但 GM 数据搬运时需确保目标 Buffer 有足够空间。
 
@@ -167,7 +166,7 @@ char *buffer = (char *)malloc(SIZE);
 
 ### 3. 输入验证
 
-#### 3.1 外部输入数据需要做合法性校验 `[适用: All]`
+#### SEC-3.1 外部输入数据需要做合法性校验 `[适用: All]`
 
 > **Kernel 侧说明**：Kernel 中的 `TilingData` 参数（如 `constInfo.*`、`baseInfo.*`）已在 Tiling 阶段校验，无需重复校验。校验职责归属 Tiling 层。
 
@@ -196,7 +195,7 @@ char *buffer = (char *)malloc(SIZE);
 | isActualLenDimsNull 标志位 | Tiling 传递 | `if (flag == 1) { return staticSize; } else { return gm[bIdx]; }` |
 | 空 Tensor 专用 Kernel | ShapeSize == 0 | 专用模板 `FiaKernelEmptyTensor`，InitOutput 为 0 |
 
-**【Tiling 侧校验示例】**
+**【tiling 代码校验示例】**
 
 ```cpp
 // Tiling 阶段校验 Shape、Dtype、范围
@@ -243,7 +242,7 @@ if (constInfo.isActualLenDimsNull == 1) {
 - 外部入参参与循环、递归条件的运算，必须严格校验边界和终止条件
 - 文件路径来自外部数据时，必须对其做合法性校验
 
-#### 3.2 外部输入作为内存操作相关函数的复制长度时，需要校验其合法性 `[适用: All]`
+#### SEC-3.2 外部输入作为内存操作相关函数的复制长度时，需要校验其合法性 `[适用: All]`
 
 > **Kernel 侧说明**：Kernel 中 `DataCopy` 的搬运长度需校验，确保不超过 UB 容量和 GM 数据范围。
 
@@ -254,7 +253,7 @@ if (constInfo.isActualLenDimsNull == 1) {
 
 ### 4. 资源管理
 
-#### 4.1 资源申请后必须判断是否成功 `[适用: Tiling]`
+#### SEC-4.1 资源申请后必须判断是否成功 `[适用: Host]`
 
 > **Kernel 侧不适用**：Kernel 无动态资源申请（malloc/new），Buffer 由 `InitBuffer` 静态分配，编译期确定。
 
@@ -276,20 +275,20 @@ struct tm *make_tm(int year, int mon, int day, int hour, int min, int sec)
 }
 ```
 
-#### 4.2 new和delete配对使用，new[]和delete[]配对使用 `[适用: Tiling]`
+#### SEC-4.2 new和delete配对使用，new[]和delete[]配对使用 `[适用: Host]`
 
 > **Kernel 侧不适用**：Kernel 禁止 new/delete。
 
 ##### 专属检视方法
 
-除 Tiling 侧（`op_host/`）外，**测试代码**（`tests/`、`ut/`、`st/` 目录下的 `.cpp/.h`）同样适用 new/delete 配对检查——测试代码中 `new` 创建的对象若无对应 `delete`，会导致内存泄漏。
+除 tiling 代码（`op_host/`）外，**测试代码**（`tests/`、`ut/`、`st/` 目录下的 `.cpp/.h`）同样适用 new/delete 配对检查——测试代码中 `new` 创建的对象若无对应 `delete`，会导致内存泄漏。
 
 检视指引：
 - Grep 测试文件中的 `new ` 创建对象语句 → 追踪同一作用域或对象生命周期内是否有对应 `delete`
 - 重点关注：测试函数内的局部 `new`（函数结束前未释放）、SetUp/TearDown 中的成员对象创建与销毁配对、`new[]` 是否用 `delete[]`（而非 `delete`）释放
 - 豁免：智能指针（`std::unique_ptr`/`std::shared_ptr`/`std::make_unique`/`std::make_shared`）管理的对象、RAII 模式封装的对象、测试框架自动管理的 fixture 成员
 
-#### 4.3 使用恰当的方式处理new操作符的内存分配错误 `[适用: Tiling]`
+#### SEC-4.3 使用恰当的方式处理new操作符的内存分配错误 `[适用: Host]`
 
 > **Kernel 侧不适用**：Kernel 禁止 new。
 
@@ -297,7 +296,7 @@ struct tm *make_tm(int year, int mon, int day, int hour, int min, int sec)
 
 ### 5. 安全函数使用
 
-#### 5.1 使用社区提供的安全函数库的安全函数，禁止使用内存操作类危险函数 `[适用: Tiling]`
+#### SEC-5.1 使用社区提供的安全函数库的安全函数，禁止使用内存操作类危险函数 `[适用: Host]`
 
 > **Kernel 侧不适用**：Kernel 无 memcpy_s/memset_s，使用 Ascend C API（如 `Duplicate`、`DataCopyPad`）。
 
@@ -312,11 +311,11 @@ struct tm *make_tm(int year, int mon, int day, int hour, int min, int sec)
 | 格式化输入 | scanf | scanf_s |
 | 内存初始化 | memset | memset_s |
 
-#### 5.2 正确设置安全函数中的destMax参数 `[适用: Tiling]`
+#### SEC-5.2 正确设置安全函数中的destMax参数 `[适用: Host]`
 
 > **Kernel 侧不适用**：Kernel 无安全函数。
 
-#### 5.3 必须检查安全函数返回值，并进行正确的处理 `[适用: Tiling]`
+#### SEC-5.3 必须检查安全函数返回值，并进行正确的处理 `[适用: Host]`
 
 > **Kernel 侧不适用**：Kernel 无安全函数。
 
@@ -338,7 +337,7 @@ struct tm *make_tm(int year, int mon, int day, int hour, int min, int sec)
 
 ### 6. 类与对象安全
 
-#### 6.1 禁止逐位操作非trivially copyable对象 `[适用: All]`
+#### SEC-6.1 禁止逐位操作非trivially copyable对象 `[适用: All]`
 
 > **Kernel 侧说明**：Kernel 模板类都是 POD 类型，可以使用 `Duplicate` 进行内存操作。
 
@@ -346,27 +345,27 @@ struct tm *make_tm(int year, int mon, int day, int hour, int min, int sec)
 
 ### 7. 标准库安全
 
-#### 7.1 禁止从空指针创建std::string `[适用: Tiling]`
+#### SEC-7.1 禁止从空指针创建std::string `[适用: Host]`
 
 > **Kernel 侧不适用**：Kernel 无 std::string。
 
-#### 7.2 不要保存std::string类型的 `c_str`和 `data`成员函数返回的指针 `[适用: Tiling]`
+#### SEC-7.2 不要保存std::string类型的 `c_str`和 `data`成员函数返回的指针 `[适用: Host]`
 
 > **Kernel 侧不适用**：Kernel 无 std::string。
 
-#### 7.3 内存中的敏感信息使用完毕后立即清0 `[适用: All]`
+#### SEC-7.3 内存中的敏感信息使用完毕后立即清0 `[适用: All]`
 
 > **Kernel 侧说明**：Kernel 中 UB 数据可通过 `Duplicate` 清零，GM 数据需在 Host 侧处理。
 
 口令、密钥等敏感信息使用完毕后立即清零，避免被攻击者获取。
 
-#### 7.4 对外结构体接口新增字段时必须在结构体最后添加 `[适用: All]`
+#### SEC-7.4 对外结构体接口新增字段时必须在结构体最后添加 `[适用: All]`
 
 > **Kernel 侧说明**：`TilingData` 结构体新增字段需在末尾添加，保持 ABI 兼容性。
 
 为了最大程度上在ABI层面的兼容，对外结构体接口添加新字段时必须在结构体最后添加。
 
-#### 7.5 外部接口或数据结构变更必须考虑兼容性 `[适用: All]`
+#### SEC-7.5 外部接口或数据结构变更必须考虑兼容性 `[适用: All]`
 
 > **Kernel 侧说明**：Kernel 接口（如 TilingData 结构体）变更需考虑版本兼容性。
 
@@ -376,9 +375,9 @@ struct tm *make_tm(int year, int mon, int day, int hour, int min, int sec)
 
 ### 8. LOG 规范
 
-> **适用范围**：仅 Tiling 侧（Host 侧）。Kernel 侧使用 `AscendC::PRINTF`，无下列风险。
+> **适用范围**：仅 tiling 代码（Host 侧）。Kernel 侧使用 `AscendC::PRINTF`，无下列风险。
 
-Tiling 侧使用 `OP_LOGE` / `OP_LOGD` / `OP_LOGW` 等格式化 LOG 宏。11.1–11.3 为安全强制要求（防段错误/未定义行为），11.4 为质量建议。
+tiling 代码使用 `OP_LOGE` / `OP_LOGD` / `OP_LOGW` 等格式化 LOG 宏。11.1–11.3 为安全强制要求（防段错误/未定义行为），11.4 为质量建议。
 
 LOG 宏签名（业务代码标准调用形式）：
 
@@ -389,11 +388,11 @@ OP_LOGD(context->GetNodeName(), "format string %lu", arg1);
 
 ---
 
-#### 8.1 LOG API 禁止传入空指针作为字符串参数 `[适用: Tiling]`
+#### SEC-8.1 LOG API 禁止传入空指针作为字符串参数 `[适用: Host]`
 
 **【问题说明】**
 
-`%s` 会解引用传入指针，若指针为 `nullptr`，将访问地址 0（受 OS 保护），导致段错误。Tiling 侧常见场景：从 `context` 获取 Desc/Attr 后未判空直接传入 LOG。
+`%s` 会解引用传入指针，若指针为 `nullptr`，将访问地址 0（受 OS 保护），导致段错误。tiling 代码常见场景：从 `context` 获取 Desc/Attr 后未判空直接传入 LOG。
 
 **错误示例**
 
@@ -420,7 +419,7 @@ OP_LOGE(context->GetNodeName(),
 
 ---
 
-#### 8.2 LOG API 参数必须与格式化占位符逐位一致（数量、类型、顺序） `[适用: Tiling]`
+#### SEC-8.2 LOG API 参数必须与格式化占位符逐位一致（数量、类型、顺序） `[适用: Host]`
 
 **【问题说明】**
 
@@ -479,11 +478,11 @@ OP_CHECK_IF(tempD0 != d0Size,
 
 ---
 
-#### 8.3 LOG API 禁止传入已释放内存的指针 `[适用: Tiling]`
+#### SEC-8.3 LOG API 禁止传入已释放内存的指针 `[适用: Host]`
 
 **【问题说明】**
 
-Tiling 侧手动管理的堆内存（`new` / `malloc`）释放后若仍传入 `%s`，行为未定义，大概率触发段错误。典型场景：在函数末尾统一释放资源，但 LOG 语句写在释放之后。
+tiling 代码手动管理的堆内存（`new` / `malloc`）释放后若仍传入 `%s`，行为未定义，大概率触发段错误。典型场景：在函数末尾统一释放资源，但 LOG 语句写在释放之后。
 
 **错误示例**
 
@@ -506,7 +505,7 @@ errMsg = nullptr;
 
 ---
 
-#### 建议 8.4 LOG 消息的英语行文应语法正确、表意清晰 `[适用: Tiling]`
+#### 建议 SEC-8.4 LOG 消息的英语行文应语法正确、表意清晰 `[适用: Host]`
 
 **【问题说明】**
 

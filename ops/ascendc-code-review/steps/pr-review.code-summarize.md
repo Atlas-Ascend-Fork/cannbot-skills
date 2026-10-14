@@ -24,7 +24,7 @@ Agent({
 3. 返回结构化结果（含侧别识别，供后续阶段使用）
 
 【执行指南位置】
-Read 本文件（steps/pr-review.code-summarize.md）的「子 Agent 执行指南」章节获取完整指令。
+Read `{skill_base}/steps/pr-review.code-summarize.md` 的「子 Agent 执行指南」章节获取完整指令。
 "
 })
 ```
@@ -39,18 +39,18 @@ Read 本文件（steps/pr-review.code-summarize.md）的「子 Agent 执行指�
 
 1. **理解优先** — 先读懂代码整体设计，再按模板填空，禁止机械填表
 2. **证据驱动** — 每个结论必须有 Read/Grep 证据支撑，禁止推测
-3. **侧别必识别** — Kernel/Tiling 侧别判定是后续条例过滤的关键输入
+3. **侧别必识别** — Kernel/Host 侧别判定是后续条例过滤的关键输入
 
 ---
 
 ## 关键知识
 
-### Tiling/Kernel 分层
+### Kernel/Host 分层
 
 | 侧别 | 文件位置 | 代码特征 | 职责 |
 |------|---------|---------|------|
-| **Kernel 侧** | `op_kernel/*.cpp/.h` | `__aicore__`、`AscendC::`、`pipe.InitBuffer` | 在 AI Core 上执行计算，不做参数校验 |
-| **Tiling 侧** | `op_host/*.cpp/.h` | `gert::TilingContext`、`TilingData` | 参数校验、资源计算、多核切分 |
+| **Kernel 侧** | `op_kernel/**/*.cpp/.h` | `__aicore__`、`AscendC::`、`pipe.InitBuffer` | 在 AI Core 上执行计算，不做参数校验 |
+| **Host 侧** | `op_host/**/*.cpp/.h`、`op_graph/**/*.cpp/.h`、`op_api/**/*.cpp` | `gert::TilingContext`、`TilingData`、`gert::InferShapeContext`、`gert::InferDataTypeContext`、`IMPL_OP`、`REG_OP`、`aclnn` | tiling 参数校验与多核切分、图推断（InferShape/InferDataType）、aclnn 适配 |
 
 ### 变量来源判定
 
@@ -76,9 +76,9 @@ Read 本文件（steps/pr-review.code-summarize.md）的「子 Agent 执行指�
 
 ```
 Step 1: 读取代码     — 先 Read diff，再 Read 变更文件完整源码
-Step 2: 识别侧别     — 按 Tiling/Kernel 分层特征判定侧别
+Step 2: 识别侧别     — 按 Kernel/Host 分层特征判定侧别
 Step 3: 梳理脉络     — 每个变更文件独立成章，汇总跨文件关联
-Step 3.5: 业务语义   — Kernel侧: 数学运算+计算模式+同步契约; Tiling侧: 切分策略+校验语义+Buffer规划
+Step 3.5: 业务语义   — Kernel侧: 数学运算+计算模式+同步契约; Host侧(含tiling): 切分策略+校验语义+Buffer规划
 Step 4: 追踪关联     — Read include 头文件 + Grep 跨文件调用链
 Step 5: 变量溯源     — 对 diff 中出现的类成员/全局变量 grep 声明→初始化→校验链
 Step 6: 分析设计     — Kernel侧：流水线模式/切分/Buffer管理（需量化）
@@ -94,7 +94,7 @@ Step 8: 返回结果     — 结构化返回侧别和脉络摘要
 
 ### Step 2: 识别侧别
 
-按关键知识中的侧别特征表判定。如有 TilingData 结构定义文件（`*_tiling_data.h`），也必须 Read，确认字段名与代码中一致。PR 场景需对每个变更文件识别侧别，输出「Kernel/Tiling/混合」。
+按关键知识中的侧别特征表判定（目录映射：`op_kernel/` → Kernel；`op_host/`、`op_graph/`、`op_api/` → Host）。如有 TilingData 结构定义文件（`*_tiling_data.h`），也必须 Read，确认字段名与代码中一致。PR 场景需对每个变更文件识别侧别，输出「Kernel/Host/混合」。
 
 ### Step 3: 梳理脉络
 
@@ -136,7 +136,7 @@ Step 8: 返回结果     — 结构化返回侧别和脉络摘要
 
 **e. 同步契约分层** — 标注同步机制所属层次（MTE↔Vector / AIC↔AIV / 跨核）
 
-#### 3.5T: Tiling 侧业务语义（仅 Tiling/混合侧执行）
+#### 3.5T: tiling 业务语义（仅 Host/混合侧且代码含 tiling 实现——`gert::TilingContext`/`TilingData`——时执行）
 
 **a. 校验策略分析** — 对每个 OP_CHECK_IF 标注校验的数学不变量
 
@@ -217,15 +217,15 @@ Grep 变更文件中的编译期常量，填入输出「常量清单」表：常
 ```markdown
 # PR 代码概要
 
-PR: #{number} | 算子: {name} | 侧别: {Kernel/Tiling/混合}
+PR: #{number} | 算子: {name} | 侧别: {Kernel/Host/混合}
 
 ## 变更文件概览
 
 | # | 文件 | 侧别 | 变更类型 | 说明 |
 |---|------|------|---------|------|
-| 1 | {path} | {Tiling/Kernel} | {新增/修改/删除} | {一句话说明} |
+| 1 | {path} | {Kernel/Host} | {新增/修改/删除} | {一句话说明} |
 
-## 文件1: {path}（{Tiling/Kernel}侧）
+## 文件1: {path}（{Kernel/Host}侧）
 
 ### 变更概要
 {该文件改了什么、为什么改}
@@ -253,7 +253,7 @@ PR: #{number} | 算子: {name} | 侧别: {Kernel/Tiling/混合}
 | 参数 | 取值 | 业务含义 | 变更? |
 |------|------|---------|-------|
 
-### 业务语义（Tiling 侧，若本文件为 Tiling 侧）
+### 业务语义（tiling 实现，若本文件为 Host 侧 tiling 代码）
 
 **切分策略**: {类型} | **Buffer策略**: {策略}
 
@@ -273,7 +273,7 @@ PR: #{number} | 算子: {name} | 侧别: {Kernel/Tiling/混合}
 | 变量 | 声明(文件:行) | 初始化(文件:行) | 校验(文件:行) | 来源类型 |
 |------|-------------|----------------|-------------|---------|
 
-## 文件2: {path}（{Tiling/Kernel}侧）
+## 文件2: {path}（{Kernel/Host}侧）
 ...
 
 ## 函数清单（全变更文件汇总）
@@ -344,7 +344,7 @@ PR: #{number} | 算子: {name} | 侧别: {Kernel/Tiling/混合}
 ## 返回格式
 
 ```
-侧别: {Kernel侧 / Tiling侧 / 混合}
+侧别: {Kernel侧 / Host侧 / 混合}
 算子名: {operator_name}
 功能概述: {一句话功能描述}
 入口函数: {函数名}

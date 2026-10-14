@@ -11,9 +11,9 @@
 """
 检视工作目录创建工具
 
-由 plan-design / clause-grouping 子 Agent（router）在阶段0调用，
-在 /tmp 下创建本次检视的结构化 yaml 输出目录，供后续 clause-review /
-design-check 子 Agent 落盘 yaml 结果。
+由 plan-design 子 Agent（router）在阶段0调用，
+在 /tmp 下创建本次检视的结构化 yaml 输出目录，供后续 clause-review
+子 Agent 落盘 yaml 结果。
 
 目录命名规则：
   - PR 检视:    pr{pr号}_{随机串}      例如 pr1234_a3b7x9

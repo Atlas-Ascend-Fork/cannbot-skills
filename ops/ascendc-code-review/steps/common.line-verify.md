@@ -1,21 +1,21 @@
-# 行号校对（文件检视 + 设计一致性）
+# 行号校对（文件检视）
 
 ## 执行步骤
 
 调用 `{skill_base}/scripts/workflow.line_verify.py` 扫描 yaml 目录，原地修正行号。
 
-**文件检视模式**（无 diff，设计一致性 ❌ 项也走此路径，无 diff 红线）：
+**文件检视模式**（无 diff，无 diff 红线）：
 
 ```bash
-python3 {skill_base}/scripts/workflow.line_verify.py --dir {yaml_output_dir} --repo {repo_path或源码根目录}
+python3 {skill_base}/scripts/workflow.line_verify.py \
+    --dir {yaml_output_dir} \
+    --repo {repo_path或源码根目录}
 ```
 
 **脚本行为**：
-- 扫描 `{yaml_output_dir}` 下所有 yaml 文件
-- 对 clause 类 yaml 的 FAIL/SUSPICIOUS 项：grep 源码定位实际行号，原地更新 `code_snippet.start_line/end_line`
-- 对 design 类 yaml 的 `deviations` / `doc_violations`：校对 `code_location` / `violation_location` 行号
-- 无 diff 红线（文件检视不做范围过滤，design 类始终不做范围过滤）
-- 校对失败的项标记 `line_verified: false`
+- 扫描 `{yaml_output_dir}` 下所有 clause 类 yaml
+- 对 FAIL/SUSPICIOUS 项：grep 源码定位实际行号，原地更新 `code_snippet.start_line/end_line`
+- 校对失败的项标记 `line_verified: false`（报告代码位置尾部据此标注「行号待确认」）
 
 ## 输入
 
@@ -25,7 +25,7 @@ python3 {skill_base}/scripts/workflow.line_verify.py --dir {yaml_output_dir} --r
 ## 输出
 
 - yaml 文件原地更新行号字段
-- stdout 打印校对摘要（处理 yaml 数、FAIL/SUSPICIOUS 项数、行号修正数、待确认数）
+- stderr 日志输出校对摘要（无需捕获；处理 yaml 数、FAIL/SUSPICIOUS 项数、行号修正数、待确认数）
 
 ## 约束
 

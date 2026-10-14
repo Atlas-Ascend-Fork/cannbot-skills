@@ -2,7 +2,7 @@
 
 <适用>
 语言: C++
-侧别: All, Host, Kernel
+侧别: All
 领域: true
 触发: 必须触发
 默认启用: true
@@ -25,36 +25,36 @@
 
 | 序号 | 问题类型 | 类别 | 严重级别 |
 |-----|---------|------|---------|
-| 3 | 生命周期内使用局部变量指针，避免野指针 | 内存安全 | 高 |
-| 6 | 必须考虑nan/inf/+0/-0等特殊值和边界值处理 | 数值安全 | 高 |
-| 9 | 可整数计算时不允许转浮点数计算 | 数值安全 | 中 |
-| 11 | 宏定义中临时变量命名不能和外部变量冲突 | 编码规范 | 中 |
+| TOPK-3 | 生命周期内使用局部变量指针，避免野指针 | 内存安全 | 高 |
+| TOPK-6 | 必须考虑nan/inf/+0/-0等特殊值和边界值处理 | 数值安全 | 高 |
+| TOPK-9 | 可整数计算时不允许转浮点数计算 | 数值安全 | 中 |
+| TOPK-11 | 宏定义中临时变量命名不能和外部变量冲突 | 编码规范 | 中 |
 
 ### 仅 Host 侧适用 `[适用: Host]`（7 条）
 
 | 序号 | 问题类型 | 类别 | 严重级别 |
 |-----|---------|------|---------|
-| 1 | 必须校验函数返回值 | 编码规范 | 高 |
-| 2 | 使用GetInputDesc获取Dtype，context获取Shape | API使用 | 高 |
-| 4 | 属性从context获取，禁止CompileInfo传递 | API使用 | 高 |
-| 5 | 属性获取类型需与ir原型一致 | 类型安全 | 高 |
-| 7 | 融合规则/InferShape/Tiling外部输入校验 | 输入验证 | 高 |
-| 12 | dlopen管理的so禁用thread_local | 并发安全 | 高 |
-| 13 | 在使用SyncAll的场景，需要使用SetScheduleMode设置BATCH_MODE_SCHEDULE | 并发安全 | 高 |
+| TOPK-1 | 必须校验函数返回值 | 编码规范 | 高 |
+| TOPK-2 | 使用GetInputDesc获取Dtype，context获取Shape | API使用 | 高 |
+| TOPK-4 | 属性从context获取，禁止CompileInfo传递 | API使用 | 高 |
+| TOPK-5 | 属性获取类型需与ir原型一致 | 类型安全 | 高 |
+| TOPK-7 | 融合规则/InferShape/Tiling外部输入校验 | 输入验证 | 高 |
+| TOPK-12 | dlopen管理的so禁用thread_local | 并发安全 | 高 |
+| TOPK-13 | 在使用SyncAll的场景，需要使用SetScheduleMode设置BATCH_MODE_SCHEDULE | 并发安全 | 高 |
 
 ### 仅 Kernel 侧适用 `[适用: Kernel]`（3 条）
 
 | 序号 | 问题类型 | 类别 | 严重级别 |
 |-----|---------|------|---------|
-| 8 | atomic累加需src(ub)与dst(gm)清零处理 | 内存安全 | 高 |
-| 10 | 通信算子融合需核间同步 | 并发安全 | 高 |
-| 14 | 在支持superKernel场景，调用全核同步API（SyncAll、CrossCoreWaitFlag）时禁止做BlockDim的限制 | 并发安全 | 高 |
+| TOPK-8 | atomic累加需src(ub)与dst(gm)清零处理 | 内存安全 | 高 |
+| TOPK-10 | 通信算子融合需核间同步 | 并发安全 | 高 |
+| TOPK-14 | 在支持superKernel场景，调用全核同步API（SyncAll、CrossCoreWaitFlag）时禁止做BlockDim的限制 | 并发安全 | 高 |
 
 ---
 
 ## 详细规范
 
-### 1. 必须校验函数返回值 `[适用: Host]`
+### TOPK-1. 必须校验函数返回值 `[适用: Host]`
 
 > **交叉引用**：涉及指针返回值的判空检视策略，参见 ascendc-red-line.md 条例6。
 
@@ -81,7 +81,7 @@ int64_t attrValue = *ret;  // 未校验 ret 是否为 nullptr，可能解引用�
 
 ---
 
-### 2. 使用GetInputDesc获取Dtype，context获取Shape `[适用: Host]`
+### TOPK-2. 使用GetInputDesc获取Dtype，context获取Shape `[适用: Host]`
 
 **问题说明**
 
@@ -108,7 +108,7 @@ ge::DataType dtype = tensor->GetDataType();  // 不推荐
 
 ---
 
-### 3. 生命周期内使用局部变量指针，避免野指针 `[适用: All]`
+### TOPK-3. 生命周期内使用局部变量指针，避免野指针 `[适用: All]`
 
 > **交叉引用**：未初始化导致的野指针检视策略，参见 ascendc-red-line.md 条例5；指针判空策略参见 ascendc-red-line.md 条例6。
 
@@ -160,7 +160,7 @@ AscendC::Add(zLocal, xLocal, yLocal, tileLength_);  // 已释放，野指针
 
 ---
 
-### 4. 属性从context获取，禁止CompileInfo传递 `[适用: Host]`
+### TOPK-4. 属性从context获取，禁止CompileInfo传递 `[适用: Host]`
 
 **问题说明**
 
@@ -182,7 +182,7 @@ compileInfo->GetAttrValue(ATTR_INDEX);  // 不推荐
 
 ---
 
-### 5. 属性获取类型需与ir原型一致 `[适用: Host]`
+### TOPK-5. 属性获取类型需与ir原型一致 `[适用: Host]`
 
 **问题说明**
 
@@ -216,7 +216,7 @@ auto* attrActivateLeft = attrs->GetAttrPointer<int>(INDEX_ATTR_ACTIVATE_LEFT);  
 
 ---
 
-### 6. 必须考虑nan/inf/+0/-0等特殊值和边界值处理 `[适用: All]`
+### TOPK-6. 必须考虑nan/inf/+0/-0等特殊值和边界值处理 `[适用: All]`
 
 > **交叉引用**：除零检视策略参见 ascendc-red-line.md 条例1。
 
@@ -235,9 +235,9 @@ auto* attrActivateLeft = attrs->GetAttrPointer<int>(INDEX_ATTR_ACTIVATE_LEFT);  
 
 ---
 
-### 7. 融合规则/InferShape/Tiling外部输入校验 `[适用: Host]`
+### TOPK-7. 融合规则/InferShape/Tiling外部输入校验 `[适用: Host]`
 
-> **交叉引用**：除零检视策略参见 ascendc-red-line.md 条例1；外部输入合法性校验策略参见 cpp-secure.md SEC-3.1。
+> **交叉引用**：除零检视策略参见 ascendc-red-line.md RED-1；外部输入合法性校验策略参见 cpp-secure.md SEC-3.1。
 
 **问题说明**
 
@@ -252,7 +252,7 @@ auto* attrActivateLeft = attrs->GetAttrPointer<int>(INDEX_ATTR_ACTIVATE_LEFT);  
 
 ---
 
-### 8. atomic累加需src(ub)与dst(gm)清零处理 `[适用: Kernel]`
+### TOPK-8. atomic累加需src(ub)与dst(gm)清零处理 `[适用: Kernel]`
 
 **问题说明**
 
@@ -271,7 +271,7 @@ AscendC::AtomicAdd(dstGM[0], srcLocal, srcLength);
 
 ---
 
-### 9. 可整数计算时不允许转浮点数计算 `[适用: All]`
+### TOPK-9. 可整数计算时不允许转浮点数计算 `[适用: All]`
 
 **问题说明**
 
@@ -294,7 +294,7 @@ float totalElements = (float)batchSize * (float)seqLen * (float)headNum;  // 不
 
 ---
 
-### 10. 通信算子融合需核间同步 `[适用: Kernel]`
+### TOPK-10. 通信算子融合需核间同步 `[适用: Kernel]`
 
 **问题说明**
 
@@ -309,7 +309,7 @@ AscendC::SyncAll();  // 核间全同步
 
 ---
 
-### 11. 宏定义中临时变量命名不能和外部变量冲突 `[适用: All]`
+### TOPK-11. 宏定义中临时变量命名不能和外部变量冲突 `[适用: All]`
 
 **问题说明**
 
@@ -335,7 +335,7 @@ AscendC::SyncAll();  // 核间全同步
 
 ---
 
-### 12. dlopen管理的so禁用thread_local `[适用: Host]`
+### TOPK-12. dlopen管理的so禁用thread_local `[适用: Host]`
 
 **问题说明**
 
@@ -349,7 +349,7 @@ AscendC::SyncAll();  // 核间全同步
 
 避免在会被 `dlopen/dlclose` 管理的动态库中使用 `thread_local` 变量。
 
-### 13 在使用SyncAll的场景，需要使用SetScheduleMode设置BATCH_MODE_SCHEDULE `[适用: Host]`
+### TOPK-13 在使用SyncAll的场景，需要使用SetScheduleMode设置BATCH_MODE_SCHEDULE `[适用: Host]`
 
 > **Kernel 侧说明**：Kernel 中 `GlobalTensor` 和 `LocalTensor` 通过 API 获取，一般不需要判空，但 GM 地址偏移需校验。
 
@@ -381,7 +381,7 @@ constexpr uint32_t BATCH_MODE_SCHEDULE = 1;
 context_->SetScheduleMode(BATCH_MODE_SCHEDULE);
 ```
 
-### 14 在支持superKernel场景，调用全核同步API（SyncAll、CrossCoreWaitFlag）时禁止做BlockDim的限制 `[适用: Kernel]`
+### TOPK-14 在支持superKernel场景，调用全核同步API（SyncAll、CrossCoreWaitFlag）时禁止做BlockDim的限制 `[适用: Kernel]`
 
 > **Kernel 侧说明**：Kernel 中 `GlobalTensor` 和 `LocalTensor` 通过 API 获取，一般不需要判空，但 GM 地址偏移需校验。
 

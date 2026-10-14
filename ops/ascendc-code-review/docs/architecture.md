@@ -1,9 +1,6 @@
 # 代码检视 Skill 规范
 
-## 触发
-扩展能力、新增规则、新增场景、新增检视条例、怎么加规则、扩展检视、接入新规范、添加检视条例、扩展代码检视、怎么扩展、如何添加、能力扩充、代码检视规范、reviewer skill 设计
-
----
+> 面向本 skill 的维护者：目录结构、各类文件的格式规范与扩展方式。不是用户可触发的检视场景。
 
 ## 一、架构总览
 
@@ -17,39 +14,37 @@ ascendc-code-review/
 │   └── methodology.md               检视方法论（假设检验、证据框架、置信度标准）
 │
 ├── workflows/                       工作流，按场景命名：{scene}.md
-│   ├── file-review.md              「检视代码」→ 文件检视（含可选设计一致性检查）
-│   ├── pr-review.md                「检视 PR」→ PR检视（含可选设计一致性检查）
-│   ├── pr-large-review.md          review_mode.py 判 mode=large → 大型PR检视（按文件组并行，阈值见 scripts/workflow.review-thresholds.yaml）
+│   ├── file-review.md              「检视代码」→ 文件检视
+│   ├── pr-review.md                「检视 PR」→ PR检视
 │   ├── quick-review.md             「快速检视」→ 定向问题排查
-│   ├── extend.md                   本文件：系统规范
-│   └── ...                         新增场景按同模式添加（scope 必须与 workflow 文件名一致）
+│   ├── ...                         新增场景按同模式添加（scope 必须与 workflow 文件名一致）
 │   └── quick-review 无需 steps/ — 主 Agent 直接执行，无子 Agent，不引用 step 文件
 │
 ├── steps/                           可执行积木，命名规则：{scope}.{step}.md
 │   │                                scope = 对应 workflow 文件名去掉 .md 后缀
 │   │                                scope = "common" 表示跨场景公共步骤
-│   ├── common.{step}.md            跨场景公共（plan-design、line-verify、report-write、
-│   │                                docs-detect、design-check）
+│   ├── common.{step}.md            跨场景公共（api-prestudy、plan-design、line-verify、
+│   │                                report-write、report-filter）
 │   ├── file-review.{step}.md       文件检视（code-summarize、clause-review）
 │   ├── pr-review.{step}.md         PR检视（code-fetch、code-summarize、clause-review、line-verify）
-│   ├── pr-large-review.{step}.md   大型PR（file-split、global-pre-scan、code-summarize、
-│   │                                clause-review、clause-grouping、synthesize、merge）
 │   └── ...
 │
 ├── references/                      规则文档，按领域命名：{domain}.md
 │   ├── cpp-secure.md                C++安全编码
 │   ├── cpp-general.md               C++通用编码
-│   ├── ascendc-api.md               AscendC API最佳实践
-│   ├── ascendc-perf.md              AscendC高性能编程
+│   ├── ascendc-kernel-rules.md      Kernel侧编码规范
+│   ├── ascendc-sunset-api.md         日落API检查
 │   ├── ascendc-topk.md              TOPK高频问题
-│   ├── compile-secure.md            安全编译
-│   ├── ...                          另有 cpp-style、python-secure、simt-api-analysis、mc2-specific 等
+│   ├── ...                          另有 cpp-style、simt-api-analysis、mc2-specific 等
 │
-└── scripts/                         工具脚本：{tool}.py
-    ├── clause.check_bounds.py              数值边界静态分析
-    ├── get_gitcode_pr_diff.py        PR diff获取
-    ├── clone_pr_source.py            PR源码克隆
-    └── ...
+├── scripts/                         工具脚本：{tool}.py
+│   ├── clause.check_bounds.py              数值边界静态分析
+│   ├── get_gitcode_pr_diff.py        PR diff获取
+│   ├── clone_pr_source.py            PR源码克隆
+│   └── ...
+│
+└── docs/                            维护者文档
+    └── architecture.md              本文件：目录结构、文件格式规范、扩展方式
 ```
 
 ### 1.2 三层职责
@@ -106,8 +101,6 @@ ascendc-code-review/
 | 执行 | steps/{x}.code-summarize.md（执行指南部分） | 不限 | 子Agent |
 | 执行 | common.line-verify.md | ≤20 | 主Agent |
 | 执行 | common.report-write.md | ≤90 | 主Agent |
-| 派发 | common.docs-detect.md（派发部分） | ≤30 | 主Agent |
-| 派发 | common.design-check.md（派发部分） | ≤30 | 主Agent |
 | 知识 | core/methodology.md | ≤130 | 通用检视子 agent |
 | 知识 | references/*.md | 不限 | 通用检视子 agent（按需） |
 
@@ -124,7 +117,7 @@ SKILL.md (34行)
 pr-review.md (88行)          ← 主Agent只看到阶段蓝图，不接触步骤细节
   │
   ├─ 阶段0 ──────────────────────────────────────
-  │   │  获取 diff + 代码概要 + API 预研 + 设计文档探测 + 检视计划设计
+  │   │  获取 diff + 代码概要 + API 预研 + 检视计划设计
   │   │
   │   ├─ steps/pr-review.code-fetch.md (20行)       主Agent执行
   │   │
@@ -133,9 +126,8 @@ pr-review.md (88行)          ← 主Agent只看到阶段蓝图，不接触步�
   │   │   └─ 执行指南 (~230行) → 仅子Agent读到
   │   │
   │   ├─ steps/common.api-prestudy.md                 API 预研子 Agent (并行, 仅 Kernel 侧)
-  │   ├─ steps/common.docs-detect.md                  设计文档探测子 Agent (并行)
   │   │
-  │   └─ steps/common.plan-design.md (~90行)         检视计划子 Agent (三个子 Agent 返回后派发)
+  │   └─ steps/common.plan-design.md (~90行)         检视计划子 Agent (已派发子 Agent 全部返回后派发)
   │       读概要 → 匹配/筛查/合并 → 检视计划
   │
   ├─ 阶段1 ──────────────────────────────────────
@@ -154,7 +146,7 @@ pr-review.md (88行)          ← 主Agent只看到阶段蓝图，不接触步�
   │
   └─ 阶段3 ──────────────────────────────────────
       └─ steps/common.report-write.md (65行)          主Agent执行
-          证据表 + 报告文件
+          yaml 结果 → 检视概览 + 检视意见大表报告
 ```
 
 **谁读什么，读多少**：
@@ -267,8 +259,6 @@ steps/{scope}.{step-name}.md
 | common.plan-design.md | 检视计划设计（条例匹配/合并/分组/筛查） |
 | common.line-verify.md | 行号校对 |
 | common.report-write.md | 报告生成 |
-| common.docs-detect.md | 设计文档探测（与 code-summarize/api-prestudy 同级并行） |
-| common.design-check.md | 设计实现一致性 S1-S7 检查（含设计映射，复用摘要+API预研） |
 
 如果发现某步骤在多个工作流中重复出现，鼓励提取为 `common.*`，让后续的新工作流受益。场景特有的逻辑（如 PR 检视的越界校验）才用 `{工作流}.*` 前缀。
 
@@ -333,7 +323,7 @@ FAIL/SUSPICIOUS必须附：问题描述 + 代码片段（≥10行） + 修复建
 ```markdown
 <适用>
 语言: {C++ / Python / Build / 不限}
-侧别: {All / Kernel / Tiling / Host / N/A}
+侧别: {All / Kernel / Host / N/A}
 领域: {true / false}
 触发: {领域规则的关键词列表，非领域规则填 —}
 默认启用: {true / false}
@@ -352,17 +342,17 @@ FAIL/SUSPICIOUS必须附：问题描述 + 代码片段（≥10行） + 修复建
 ```
 
 - 数字（如 3/5/10）= 一个通用检视子 agent 一次检视该文件条款的上限；越小表示检视负载越重（少打包）
-- 专项文件（如 cpp-style、doc-style）写「此条款文档由专项检视子 agent 独立托管，不参与条款派发流程」，不进通用检视波次
+- 专项文件（如 cpp-style）写「此条款文档由专项检视子 agent 独立托管，不参与条款派发流程」，不进通用检视波次
 
 ### 4.2 字段说明
 
 | 字段 | 必需 | 说明 |
 |------|------|------|
 | 语言 | 是 | `C++` `Python` `Build` `不限`。与代码文件扩展名匹配 |
-| 侧别 | 是 | 逗号分隔。`All`（全部适用）`Kernel` `Tiling` `Host` `N/A`（Python等不涉及侧别的语言） |
+| 侧别 | 是 | 逗号分隔。`All`（全部适用）`Kernel` `Host` `N/A`（Python等不涉及侧别的语言）。`Host` = host 进程代码：`op_host/`（tiling 与 infershape/inferdatatype）、`op_graph/`（图推断）、`op_api/`（aclnn） |
 | 领域 | 是 | `true`=领域规则（需代码命中触发特征才启用），`false`=通用规则（始终纳入） |
 | 触发 | 领域=true时必需 | 逗号分隔的关键词列表。代码中出现任一关键词即激活该规则文件。关键词应具体有区分度。保留值 `必须触发` 表示无条件激活（不依赖代码命中关键词），用于红线/高频规范（如 cpp-secure、ascendc-topk） |
-| 默认启用 | 是 | `true`=默认纳入检视，`false`=需用户显式要求（如cpp-style） |
+| 默认启用 | 是 | `true`=默认纳入检视，`false`=需用户显式要求（预留能力，当前所有规则文件均为 true；cpp-style 虽默认启用但由专项子 agent 托管） |
 | 排除场景 | 否 | 领域规则的排除条件。如MC2的"纯通信无计算融合"排除逻辑 |
 
 #### `<适用>` 头是规则自发现的唯一接口
@@ -397,12 +387,12 @@ Step 2: 逐文件匹配：语言 → 侧别 → 默认启用 → 领域触发
 | SEC-2.1 | 有符号整数运算不溢出 | 数值安全 | 高 | [适用: All] |
 | SEC-2.3 | 除法/余数运算除零保护 | 数值安全 | 高 | [适用: All] |
 | SEC-3.1 | 禁止使用未初始化的变量 | 内存安全 | 高 | [适用: All] |
-| SEC-5.1 | 资源申请后判断是否成功 | 资源管理 | 高 | [适用: Tiling] |
+| SEC-5.1 | 资源申请后判断是否成功 | 资源管理 | 高 | [适用: Host] |
 ```
 
 **范畴列**：用于跨文档同类合并路由。常见范畴：`数值安全` `内存安全` `输入验证` `API使用` `并发安全` `资源管理` `类型安全` `数据搬运` `性能优化` `精度保护` `Tiling设计` `通信同步` `编译配置` `代码风格`
 
-**适用范围列**：用于条例级侧别过滤。格式：`[适用: All]` `[适用: Kernel]` `[适用: Tiling]` `[适用: Host]`。路由优先级：条例级标记 > 文件级全局侧别。
+**适用范围列**：用于条例级侧别过滤。格式：`[适用: All]` `[适用: Kernel]` `[适用: Host]`。路由优先级：条例级标记 > 文件级全局侧别。
 
 ### 4.4 条例详情结构
 
@@ -445,12 +435,10 @@ Step 2: 逐文件匹配：语言 → 侧别 → 默认启用 → 领域触发
 
 | 领域前缀 | 领域 | 适用仓库 | 示例文件 |
 |---------|------|---------|---------|
-| `cpp` | 通用C++ | 所有仓 | cpp_secure.md, cpp_general.md, cpp_style.md |
-| `ascendc` | AscendC算子 | ops-transformer, ops-math, ops-nn, ops-cv | ascendc_api.md, ascendc_perf.md, ascendc_topk.md |
-| `mc2` | MC²通算融合 | ops-transformer | mc2_specific.md |
-| `simt` | SIMT编程 | ops-transformer | simt_api.md |
-| `python` | Python脚本 | 所有仓 | python_secure.md |
-| `compile` | 编译配置 | 所有仓 | compile_secure.md |
+| `cpp` | 通用C++ | 所有仓 | cpp-secure.md, cpp-general.md, cpp-style.md |
+| `ascendc` | AscendC算子 | ops-transformer, ops-math, ops-nn, ops-cv | ascendc-kernel-rules.md, ascendc-sunset-api.md, ascendc-topk.md |
+| `mc2` | MC²通算融合 | ops-transformer | mc2-specific.md |
+| `simt` | SIMT编程 | ops-transformer | simt-api-analysis.md |
 | `ops-math` | 数学算子仓专用 | ops-math | *预留* |
 | `ops-nn` | 神经网络仓专用 | ops-nn | *预留* |
 | `ops-cv` | 计算机视觉仓专用 | ops-cv | *预留* |
@@ -460,13 +448,12 @@ Step 2: 逐文件匹配：语言 → 侧别 → 默认启用 → 领域触发
 
 | 后缀 | 含义 | 示例 |
 |------|------|------|
-| `secure` | 安全编码规范 | cpp_secure, ascendc_api(含安全) |
-| `api` | API使用规范 | ascendc_api, simt_api |
-| `perf` | 性能优化规范 | ascendc_perf |
-| `general` | 通用编码规范 | cpp_general |
-| `style` | 代码风格规范 | cpp_style |
-| `topk` | 高频问题清单 | ascendc_topk |
-| `specific` | 领域专项规则 | mc2_specific |
+| `secure` | 安全编码规范 | cpp-secure |
+| `api` | API使用规范 | ascendc-sunset-api, simt-api-analysis |
+| `general` | 通用编码规范 | cpp-general |
+| `style` | 代码风格规范 | cpp-style |
+| `topk` | 高频问题清单 | ascendc-topk |
+| `specific` | 领域专项规则 | mc2-specific |
 
 #### 条例编号前缀
 
@@ -474,16 +461,17 @@ Step 2: 逐文件匹配：语言 → 侧别 → 默认启用 → 领域触发
 
 | 前缀 | 来源文件 | 命名空间 |
 |------|---------|---------|
-| `SEC` | cpp_secure.md | C++安全 |
-| `GEN` | cpp_general.md | C++通用 |
-| `API` | ascendc_api.md | AscendC API |
-| `PERF` / `PREC` / `TIL` | ascendc_perf.md | AscendC性能/精度/Tiling |
-| `TOPK` | ascendc_topk.md | TOPK高频问题 |
-| `SIMT` | simt_api.md | SIMT API转换 |
-| `MC2` | mc2_specific.md | MC²领域 |
-| `CMP` | compile_secure.md | 编译安全 |
-| `PY` | python_secure.md | Python安全 |
-| — | cpp_style.md | 代码风格（默认不启用，数字编号） |
+| `SEC` | cpp-secure.md | C++安全 |
+| `GEN` | cpp-general.md | C++通用 |
+| `KERNEL` | ascendc-kernel-rules.md | AscendC Kernel侧编码 |
+| `SUNSET` | ascendc-sunset-api.md | CANN日落API |
+| `TOPK` | ascendc-topk.md | TOPK高频问题 |
+| `RED` | ascendc-red-line.md | 红线问题（必须触发） |
+| `SIMT` | simt-api-analysis.md | SIMT API转换 |
+| `MC2` | mc2-specific.md | MC²领域 |
+| `LOG` | ascendc-log.md | AscendC日志上报 |
+| `HOST` | ascendc-host-rules.md | AscendC Host工程布局 |
+| `STYLE` | cpp-style.md | 代码风格（专项托管） |
 
 新增领域时同步声明前缀。如 `ops-math` 领域用 `MATH` 前缀，新建 `ops-math_specific.md` 文件。
 
@@ -498,6 +486,7 @@ Step 2: 逐文件匹配：语言 → 侧别 → 默认启用 → 领域触发
 2. `<检视负载>` 声明头（见 4.1.1）
 3. `## 快速索引` 表（含范畴和适用范围列）
 4. 每条条例的完整详情（问题描述/错误示例/正确示例）
+5. 同步更新 `references/README.md` 规则集总览表（追加/修改一行：分类/前缀/侧别/触发机制/派发方式/条款数/定位，取值须与文件实际声明头一致）
 
 **注册**：文件放入 `references/` 即自动生效，无需注册。
 

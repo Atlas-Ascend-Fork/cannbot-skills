@@ -6,7 +6,7 @@ API 预研报告是通用检视子 agent 查阅 API 物理约束的主要来源�
 
 file-review 和 pr-review 共用。Phase 0 与 code-summarize **并行**执行。
 
-仅当 code-summarize 判定侧别包含 Kernel 时触发；纯 Tiling 侧跳过。
+仅当变更文件含 `op_kernel/` 路径时触发；纯 Host 侧跳过。判定依据为 diff/文件路径（本步骤与 code-summarize **并行**派发，此时概要侧别尚未产出，禁止依赖概要判定）。
 
 ## 派发
 
@@ -37,7 +37,7 @@ Step 1 — 提取代码中使用的 API
 |------|-----|---------|
 | 数据搬运 | DataCopy, DataCopyPad | 32 字节对齐要求、同步机制（EnQue/DeQue 配对）、blockLen 单位（代际差异） |
 | 内存管理 | InitBuffer, AllocTensor, FreeTensor, EnQue, DeQue | 配对要求、UB 容量限制、生命周期 |
-| 向量计算 | Add, Sub, Mul, Div, Cast | 参数限制（repeatTimes≤255）、RoundMode 正确性 |
+| 向量计算 | Add, Sub, Mul, Div, Cast | 参数限制（repeatTime≤255，优先 count 形态）、RoundMode 正确性 |
 | 归约操作 | ReduceSum, ReduceMax | FP32 中间精度保护、累加器 dtype |
 
 1.3 若代码中出现核心清单外的 API（如 Compare, Exp, Sqrt），也一并记录。
@@ -48,7 +48,7 @@ Step 2 — 按代际查阅官方文档
 对 Step 1 提取的每个 API，使用 /ascendc-docs-search skill 查阅官方文档，提取：
 - 函数签名（参数类型、返回值）
 - 对齐要求（字节数）
-- 参数限制（repeatTimes、dtype 约束、shape 约束）
+- 参数限制（repeatTime、dtype 约束、shape 约束）
 - 配对/同步要求（哪些 API 必须成对使用）
 - 精度约束（中间精度、累加器要求）
 - RoundMode 选项及默认值
@@ -117,5 +117,5 @@ Step 3 — 输出预研报告
 
 ## 输出
 
-- 预研报告路径：`./operators/{operator_name}/api_prestudy.md`
-- 后续 Phase 1 的 clause-review sub-agent 在检视 API-\*、PERF-\*、PREC-\* 条款时，Read 此文件获取 API 约束上下文（含代际维度），减少重复查阅
+- 预研报告路径：file 检视 `./operators/{operator_name}/api_prestudy.md`；PR 检视 `./operators/pr-{pr_number}/api_prestudy.md`（以上游 workflow 传入的输出路径为准）
+- 后续 Phase 1 的 clause-review sub-agent 在检视 KERNEL-\* 条款时，Read 此文件获取 API 约束上下文（含代际维度），减少重复查阅

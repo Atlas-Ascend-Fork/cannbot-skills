@@ -6,7 +6,7 @@ workflow 按 plan-design 产出的检视计划，逐波派发子 Agent。每组�
 
 ```
 【已由上游完成】
-- 代码侧别识别：{Kernel侧/Tiling侧}
+- 代码侧别识别：{Kernel侧/Host侧}
 - 条款过滤：已按侧别过滤，保留以下条款
 - 代码概要：{code_summary_path}
 - API 预研报告：{api_prestudy_path}（仅 Kernel 侧，若存在）
@@ -17,13 +17,12 @@ workflow 按 plan-design 产出的检视计划，逐波派发子 Agent。每组�
 检视条款：{条例ID-1} {条例标题}、{条例ID-2} {条例标题}
 
 【执行要求】
-- 第一步加载 ascendc-code-review skill，然后 Read skill 目录下的 `core/methodology.md` 掌握假设检验方法、置信度标准和红线问题
+- 第一步加载 ascendc-code-review skill，然后 Read `{skill_base}/core/methodology.md` 掌握假设检验方法、置信度标准和红线问题
 - 若提供了代码概要，Read 获取全局视角（重点关注「API 调用索引」、「跨文件防御摘要」和「跨文件关系」）
 - API 约束信息：若已提供 API 预研报告，以其为主要来源。若预研报告未覆盖当前条款涉及的 API，使用 `/ascendc-docs-search` 补充查阅
-- 对每条分配的条例，Grep `^{条例ID}` 在 references/ 中定位起始行号，再 Grep 下一个 `^####` 标题定位结束行号，Read offset={start} limit={end-start}。**只读该条例章节，禁止 Read 整个规则文档。**若条例包含专属检视方法，必须严格按该指引执行
-- 若分配的条款包含 RB-\*（RegBase 路线专项），需额外加载 `ascendc-regbase-best-practice` skill 获取 API 白名单和参考实现文档
+- 对每条分配的条例（含所属规则文件名），定位条款章节并只读该章节：起始行 = `grep -nE '^#+ .*{条例ID}([ :.]|$)' {规则文件}` 的首个命中行（各文件条款标题形如 `#### SEC-1.1 …`、`##### 规则 GEN-1.1 …`、`## KERNEL-1: …`、`### TOPK-3 …`）；结束行 = 从起始行向下第一个**井号数不多于起始标题井号数**的标题行的前一行（用 `grep -nE '^#{2,6} '` 逐行核对级别）。Read offset={起始} limit={结束-起始}。**只读该条例章节，禁止 Read 整个规则文档。**若条例包含专属检视方法，必须严格按该指引执行
 - 若 file_input 含多个文件，对每条条例在所有文件中检查，结果标注文件路径
-- 严格按假设检验驱动流程执行（H0/H1、证据收集、自信值计算）。**例外**：若条例的专属检视方法已声明不走假设检验（如 cpp-style），按专属方法执行，不收集证据分值
+- 严格按假设检验驱动流程执行（H0/H1、证据收集、自信值计算）。**例外**：若条例的专属检视方法已声明不走假设检验（如 cpp-style 的 22 条、ascendc-sunset-api 的 SUNSET-1/2），按专属方法执行，不收集证据分值；此类条款 FAIL/SUSPICIOUS 的 yaml 提交时使用对应 category（cpp-style → `category: style`，SUNSET-* → `category: sunset`），不带 evidence/confidence 字段（collector 已豁免校验）
 - 所有条款检视完成后，**将每条结果按下方 yaml schema 通过 curl 提交到 collector 端点**。提交命令模板：
   ```
   curl -s -X POST "http://127.0.0.1:{collector_port}/submit?clause={条例ID}" --data-binary @- <<'YAML_EOF'
@@ -49,7 +48,7 @@ workflow 按 plan-design 产出的检视计划，逐波派发子 Agent。每组�
 ```yaml
 type: clause
 clause_id: SEC-2.1
-clause_title: 有符号整数运算不溢出
+clause_title: 资源释放后指针置新值
 category: clause          # clause | style（style 对应原 [STYLE] 标记的代码风格条例）
 status: PASS
 ```
@@ -59,9 +58,10 @@ status: PASS
 ```yaml
 type: clause
 clause_id: SEC-2.1
-clause_title: 有符号整数运算不溢出
+clause_title: 资源释放后指针置新值
 category: clause
 status: FAIL              # FAIL | SUSPICIOUS
+severity: 高              # 条款声明的严重级别（高/中/低），报告分档依据
 confidence: HIGH          # HIGH | MED | LOW
 problem_desc: {问题描述}
 code_snippet:
@@ -101,7 +101,7 @@ clause_id: STYLE-1.1
 clause_title: C++文件使用小写+下划线命名
 category: style
 status: FAIL
-severity: 中               # 原快速索引中的严重级别（中/低）
+severity: 中               # 条款声明的严重级别（高/中/低）
 problem_desc: {问题描述}
 code_snippet:
   file_path: {完整文件路径}
@@ -119,8 +119,9 @@ fix_suggestion: {修复建议}
 - `假设检验证据` → `evidence.positive` + `evidence.negative` + `evidence.confidence_value`
 - `修复建议` → `fix_suggestion`
 - `[STYLE]` 前缀 → `category: style`
+- 条款「严重级别」声明 → `severity`（高/中/低）
 
-禁止为 PASS 条例输出 confidence 或 evidence 字段。禁止生成报告文件。
+禁止为 PASS 条例输出 confidence、evidence 或 severity 字段。禁止生成报告文件。
 
 ### ⚠️ code_snippet / evidence 字段填写规范
 
@@ -148,3 +149,15 @@ collector 会校验 yaml schema，格式错误将返回 400 拒绝提交。提�
 5. **evidence 必须是 mapping，positive / negative 必须是 list**
    - ✅ 正确写法：evidence 下面缩进写 positive（列表）/ negative（列表）/ confidence_value
    - ❌ 错误写法：整个 evidence 写成一段字符串描述
+
+6. **confidence 必须是 HIGH / MED / LOW 之一（区分大小写），且仅 clause 类的 FAIL/SUSPICIOUS 可携带**
+   - ✅ 正确写法：`confidence: HIGH`
+   - ❌ 错误写法1：小写或别名，如 `confidence: low`、`confidence: MEDIUM`
+   - ❌ 错误写法2：键名大小写错误，如 `Confidence: HIGH`（会被 400 拒绝：字段名错误）
+   - ❌ 错误写法3：写出键但留空，如 `confidence:`（落盘为 null，与未填写不可区分）
+
+7. **severity 必须是 高 / 中 / 低 之一（FAIL/SUSPICIOUS 必填，取条款声明的严重级别；style/sunset 类同样适用）**
+   - ✅ 正确写法：`severity: 高`
+   - ❌ 错误写法1：英文或别名，如 `severity: HIGH`、`severity: 中等`
+   - ❌ 错误写法2：FAIL/SUSPICIOUS 缺失该字段（会被 400 拒绝）
+   - ❌ 错误写法3：写出键但留空，如 `severity:`（落盘为 null，与未填写不可区分）
