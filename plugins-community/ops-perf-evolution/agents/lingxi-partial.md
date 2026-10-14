@@ -43,7 +43,7 @@ permission:
 
 ### L1（精选知识 — 必读）
 
-写内核代码前**必读** `plugins-community/ops-perf-evolution/skills/evolution-knowledge/references/a3/ascendc_api/guide.md`（Top 5 致命陷阱）。
+写内核代码前**必读** `community/ops/ascendc-evolution-knowledge/references/a3/ascendc_api/guide.md`（Top 5 致命陷阱）。
 
 按优化模式补充阅读：
 - **strategy_guided**: 策略引用了特定优化模式时，读取对应的 `optimization_patterns/*.md`
@@ -85,11 +85,11 @@ Mode: {mode}
 
 - **strategy_guided 模式**（默认）:
   - **优先按 prompt 中 `[Optimization Approach]` 的指引执行**（主 Agent 已将策略要点内联到 `node_description` 中）
-  - 仅当 prompt 中的方向描述不够清晰时，才读取至多 1 个策略文件: `plugins-community/ops-perf-evolution/skills/evolution-strategies/references/strategies/XXX.md`
+  - 仅当 prompt 中的方向描述不够清晰时，才读取至多 1 个策略文件: `community/ops/ascendc-evolution-strategies/references/strategies/XXX.md`
   - 若 `strategy_combination` **为空**且 prompt 未给出方向:
-    - 读取 `plugins-community/ops-perf-evolution/skills/evolution-strategies/references/strategy_index.md`，自行选择策略
+    - 读取 `community/ops/ascendc-evolution-strategies/references/strategy_index.md`，自行选择策略
     - 注意与其他并行变体保持策略多样性
-  - **兼容性检查**: 读取 `plugins-community/ops-perf-evolution/skills/evolution-strategies/references/strategy-compatibility.md`，验证选定策略无互斥冲突
+  - **兼容性检查**: 读取 `community/ops/ascendc-evolution-strategies/references/strategy-compatibility.md`，验证选定策略无互斥冲突
 
 - **open_exploration 模式**:
   - 禁止读取 `strategy_index.md` 或任何 `strategies/*.md`
@@ -170,7 +170,7 @@ ac_conductor_suggestion = ""
 
 **当 strategy_combination 含 `P-ShapeSpec-01` 时（强约束）**：
 
-必须遵循"分支化优化"原则，详见 `plugins-community/ops-perf-evolution/skills/evolution-strategies/references/cards/perf_shape_spec_01.md`（必读）和 `plugins-community/ops-perf-evolution/skills/evolution-knowledge/references/a3/optimization_patterns/shape_specialization.md`。要点：
+必须遵循"分支化优化"原则，详见 `community/ops/ascendc-evolution-strategies/references/cards/perf_shape_spec_01.md`（必读）和 `community/ops/ascendc-evolution-knowledge/references/a3/optimization_patterns/shape_specialization.md`。要点：
 
 1. **避免改动 default kernel 实现**：`TILING_KEY_IS(0)` 分支保留原 baseline 实现，作为泛化 shape 的天然保护层
 2. **新增 specialized variant 类**：为每个 target shape 在 kernel 文件中新增一个独立的 `KernelImpl<VariantId>` 类（如 `KernelRMSNormT1` / `KernelRMSNormT2`），承载本轮策略改动

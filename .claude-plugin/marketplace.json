@@ -744,7 +744,7 @@
     {
       "name": "ops-perf-evolution-skills",
       "description": "Ascend C 算子性能进化优化 Skills（5 个）。进化知识库、策略库、世界模型、报告生成、ops 仓库算子评估。",
-      "source": "./plugins-community/ops-perf-evolution/skills",
+      "source": "./community/ops",
       "strict": false,
       "version": "1.0.0",
       "author": {
@@ -758,11 +758,11 @@
       ],
       "category": "skills",
       "skills": [
-        "./evolution-knowledge",
-        "./evolution-report",
-        "./evolution-strategies",
-        "./evolution-world-model",
-        "./ops-evaluation"
+        "./ascendc-evolution-knowledge",
+        "./ascendc-evolution-report",
+        "./ascendc-evolution-strategies",
+        "./ascendc-evolution-world-model",
+        "./ascendc-ops-evaluation"
       ]
     },
     {
@@ -784,27 +784,6 @@
       "skills": [
         "./npu-arch",
         "./ops-profiling"
-      ]
-    },
-    {
-      "name": "ops-perf-evolution",
-      "source": "./plugins-community/ops-perf-evolution",
-      "description": "Ascend C 算子性能进化优化 Agent Team。对已有 AscendC 内核或 ops 仓库算子进行多轮并行进化优化，含 1 个 Orchestrator Agent 和 4 个路径专用 Subagent。",
-      "version": "1.0.1",
-      "author": {
-        "name": "CANNBot"
-      },
-      "keywords": [
-        "ascendc",
-        "evolution",
-        "perf-optimize",
-        "kernel",
-        "operator"
-      ],
-      "category": "development",
-      "dependencies": [
-        "ops-perf-evolution-skills",
-        "ops-perf-evolution-shared-skills"
       ]
     },
     {

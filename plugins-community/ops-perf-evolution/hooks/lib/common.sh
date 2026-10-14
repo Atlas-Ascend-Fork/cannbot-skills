@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+# ----------------------------------------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# ----------------------------------------------------------------------------------------------------------
 # common.sh — shared helpers for Z-Search loop hooks.
 #
 # Sourced by:
@@ -44,7 +53,7 @@ _resolve_plugin_root() {
 PLUGIN_ROOT="$(_resolve_plugin_root)"
 
 # Locate state_ops.py relative to the plugin root (skills are plugin-bundled).
-STATE_OPS_PY="${PLUGIN_ROOT}/skills/evolution-world-model/scripts/state_ops.py"
+STATE_OPS_PY="${PLUGIN_ROOT}/skills/ascendc-evolution-world-model/scripts/state_ops.py"
 
 # Locate the user project root. CLAUDE_PROJECT_DIR is set by Claude Code;
 # fall back to the hook process cwd when invoked outside Claude Code.
@@ -102,7 +111,7 @@ find_evo_dir() {
     fi
     python3 -c "
 import sys
-sys.path.insert(0, '${PLUGIN_ROOT}/skills/evolution-world-model/scripts')
+sys.path.insert(0, '${PLUGIN_ROOT}/skills/ascendc-evolution-world-model/scripts')
 from state_ops import find_evo_dir
 d = find_evo_dir('${start}')
 # Normalize backslashes so the result is safe to re-embed into quoted

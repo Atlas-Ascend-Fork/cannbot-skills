@@ -3,9 +3,15 @@
 > **记录规则**：单条不超过 **200 字**，按【领域】+ 问题 + 修复要点组织；技术细节、验证数据与发布过程放 PR 描述 / commit message，不写入日志。
 
 ### 【2026-10-12】
+#### 新特性 New Features
+- 【算子性能进化】`community/ops/ascendc-evolution-strategies` 新增策略前置条件 69 份（P101-P147 等）、策略卡 43 份及 tiling-design/scenario-routing 参考材料；瓶颈枚举扩至 26 种、算子族枚举扩至 24 种（query_strategies.py、profiling_evidence.py BOTTLENECK_STRATEGY_MAP、cards/SCHEMA.md 三处同步）。
 
+#### 变更 Changes
 - 【triton-op-generator】插件编排层迁移至 cannbot 仓（plugins-official/triton-op-generator），本仓删除插件目录；8 个 triton 系列 Skill 保留在 ops/ 继续维护。
 - 【知识迁移】triton 系列 Skill 的领域知识卡片切换为 cannbot-knowledge 知识库供给：删除 triton-op-coding/references（9 个）、triton-op-designer/references/cases（23 个）、triton-latency-optimizer/references 优化点文档（28 个）+ operators/ 已入库部分 + docs_triton_IR/；SKILL.md 与 Index.md 改为 KB 路径引用（KB 暂未收录的 4 张 operators 卡暂保留本地）。knowledge-query 结构探测新增 cannbot 安装器依赖仓候选（.cannbot/dependencies/*/cannbot-knowledge/knowledge）。
+- 【算子性能进化】X 系列进化发现正文解耦至 cannbot-knowledge 仓：移除 references/discovered 89 份正文副本（已迁至知识仓 optimizations/evolution_strategies/discovered/，OKF frontmatter、文件名小写）；generate_index_json.py 改为扫描知识仓生成带 doc_repo 标记的 discovered 索引（知识仓不可解析时告警并复用现有 INDEX.json 条目），discover_strategies.py 新发现默认写入知识仓（三级解析，写前不可解析则 fail-loud exit 3），prepare_strategy_resources.py X 卡注入经知识仓根解析读取；SKILL.md×2、SOURCE_KEY.md、cards/SCHEMA.md、strategy-index.md 同步改指知识仓路径。
+- 【算子性能进化】策略卡与 Playbook 正文解耦至 cannbot-knowledge 仓：移除 references/cards 162 份、references/playbooks 143 份正文副本（该两目录内容已全部迁至知识仓，仅保留 SCHEMA.md 与 perf_shape_spec_01.md 规范文档），98 份前置条件 strategy_meta 改写为 doc_repo/doc_path/playbook_path 指针；load_playbook.py 支持 CANNBOT_KNOWLEDGE_ROOT 环境变量、.cannbot/knowledge.env 向上查找、兄弟检出三级解析，全落空时 fail-loud 退出（exit 3）。
+- 【算子性能进化】ascendc-evolution-world-model（wm_ops.py 等脚本）与 ascendc-ops-evaluation 适配策略卡外置后的索引结构。
 
 ### 【2026-10-10】
 #### 变更 Changes

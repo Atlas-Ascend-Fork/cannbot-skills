@@ -5,11 +5,11 @@ mode: primary
 skills:
   - npu-arch
   - ops-profiling
-  - ops-evaluation
-  - evolution-report
-  - evolution-knowledge
-  - evolution-strategies
-  - evolution-world-model
+  - ascendc-ops-evaluation
+  - ascendc-evolution-report
+  - ascendc-evolution-knowledge
+  - ascendc-evolution-strategies
+  - ascendc-evolution-world-model
 permission:
   external_directory: allow
 ---
@@ -182,9 +182,9 @@ Ascend C 算子性能进化优化 Orchestrator，负责调度进化 Agent 对已
 | 资源类型 | 路径 | 说明 |
 |---------|------|------|
 | 性能采集 Skill | `ops/ops-profiling` | 仲裁性能争议时参考 |
-| 评估 Skill | `plugins-community/ops-perf-evolution/skills/ops-evaluation` | 仲裁 ops 仓库评估争议时参考 |
-| 世界模型 Skill | `plugins-community/ops-perf-evolution/skills/evolution-world-model` | 进化决策树参考 |
-| 策略 Skill | `plugins-community/ops-perf-evolution/skills/evolution-strategies` | 优化策略参考 |
-| 报告 Skill | `plugins-community/ops-perf-evolution/skills/evolution-report` | 报告生成参考 |
-| 知识库 Skill | `plugins-community/ops-perf-evolution/skills/evolution-knowledge` | 优化知识参考 |
+| 评估 Skill | `community/ops/ascendc-ops-evaluation` | 仲裁 ops 仓库评估争议时参考 |
+| 世界模型 Skill | `community/ops/ascendc-evolution-world-model` | 进化决策树参考 |
+| 策略 Skill | `community/ops/ascendc-evolution-strategies` | 优化策略参考 |
+| 报告 Skill | `community/ops/ascendc-evolution-report` | 报告生成参考 |
+| 知识库 Skill | `community/ops/ascendc-evolution-knowledge` | 优化知识参考 |
 | NPU 架构 Skill | `ops/npu-arch` | 硬件能力查询参考（含芯片规格，数据源为 CANN 包 platform_config 与白皮书） |

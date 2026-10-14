@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+# ----------------------------------------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# ----------------------------------------------------------------------------------------------------------
 # loop-stop.sh — Stop hook for Z-Search loop.
 #
 # Activated by hooks/hooks.json. Triggered when the agent attempts to
@@ -9,7 +18,7 @@
 #   2. If state.json absent or stage is terminal (done/aborted) → exit 0 (allow stop).
 #   3. Otherwise run rule checks (R2-R5) and block (exit 2) if violations found.
 #
-# Rules (see .claude/skills/evolution-world-model/references/state_schema.md):
+# Rules (see .claude/skills/ascendc-evolution-world-model/references/state_schema.md):
 #   R2.1 stage=round_generate but partials are running/pending
 #   R2.x stage=round_refine/round_react/round_checkpoint but evaluation_results.json missing
 #   R3   drift_status=replan_required and stage in {round_select, round_generate}

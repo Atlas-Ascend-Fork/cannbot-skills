@@ -40,7 +40,7 @@ skills: []
 
 ### L1（精选知识 — 必读）
 
-写内核代码前**必读** `plugins-community/ops-perf-evolution/skills/evolution-knowledge/references/a3/ascendc_api/guide.md`（Top 5 致命陷阱）。
+写内核代码前**必读** `community/ops/ascendc-evolution-knowledge/references/a3/ascendc_api/guide.md`（Top 5 致命陷阱）。
 
 按优化模式补充阅读：
 - **strategy_guided**: 策略引用了特定优化模式时，读取对应的 `optimization_patterns/*.md`
@@ -85,7 +85,7 @@ grep -rl "EZ9999" ops/ascendc-docs-search/references/troubleshooting_docs/
 
 **当 strategy_combination 含 `P-ShapeSpec-01` 时（强约束）**：
 
-必须遵循"分支化优化"原则，详见 `plugins-community/ops-perf-evolution/skills/evolution-strategies/references/cards/perf_shape_spec_01.md`（必读）和 `plugins-community/ops-perf-evolution/skills/evolution-knowledge/references/a3/optimization_patterns/shape_specialization.md`。要点：
+必须遵循"分支化优化"原则，详见 `community/ops/ascendc-evolution-strategies/references/cards/perf_shape_spec_01.md`（必读）和 `community/ops/ascendc-evolution-knowledge/references/a3/optimization_patterns/shape_specialization.md`。要点：
 
 1. **避免改动 default kernel 实现**：`TILING_KEY_IS(0)` 分支保留原 baseline 实现，作为泛化 shape 的天然保护层
 2. **新增 specialized variant 类**：为每个 target shape 在 kernel 文件中新增一个独立的 `KernelImpl<VariantId>` 类（如 `KernelRMSNormT1` / `KernelRMSNormT2`），承载本轮策略改动
@@ -119,7 +119,7 @@ grep -rl "EZ9999" ops/ascendc-docs-search/references/troubleshooting_docs/
 校验路径后，将 modified_files/ 中的文件复制到 worktree 的对应位置，执行构建（最多3次重试）：
 
 ```bash
-python3 {z_search_root}/plugins-community/ops-perf-evolution/skills/ops-evaluation/scripts/build_ops.py \
+python3 {z_search_root}/community/ops/ascendc-ops-evaluation/scripts/build_ops.py \
     --repo-root {worktree_repo_root} \
     --op-name {build_op_name} \
     --soc {soc} \
@@ -133,7 +133,7 @@ python3 {z_search_root}/plugins-community/ops-perf-evolution/skills/ops-evaluati
 ### 阶段6: 评估（带设备排队锁）
 
 ```bash
-python3 {z_search_root}/plugins-community/ops-perf-evolution/skills/ops-evaluation/scripts/evaluate_ops_direct.py \
+python3 {z_search_root}/community/ops/ascendc-ops-evaluation/scripts/evaluate_ops_direct.py \
     {op_name} \
     --call-spec {call_spec_path} \
     --baseline-path {baseline_install_path} \

@@ -7,9 +7,9 @@ permissionMode: bypassPermissions
 tools: Agent(ops-partial), Agent(general-purpose), Read, Write, Edit, Bash, Glob, Grep, Task
 skills:
   - npu-arch
-  - ops-evaluation
+  - ascendc-ops-evaluation
   - ops-profiling
-  - evolution-report
+  - ascendc-evolution-report
 ---
 
 # Ops Evolution Agent
@@ -58,13 +58,13 @@ skills:
 
 - **联网搜索**: 遇到不熟悉的算子类型或优化技巧时，可使用 WebSearch 搜索学术论文、工业实践、开源实现（如 FlashAttention、Triton kernel 等）
 - **跨粒度思考**: 不要局限于策略库中的指令级优化（P1-P88），主动考虑：算法级（减少计算量、近似算法）、数据流级（改变遍历顺序、融合操作、减少中间结果）、硬件级（特定指令、DMA 模式）
-- **策略选择协议（分层检索）**: 读取 `plugins-community/ops-perf-evolution/skills/evolution-strategies/references/strategy-index.md` 后，按以下顺序选择策略：
+- **策略选择协议（分层检索）**: 读取 `community/ops/ascendc-evolution-strategies/references/strategy-index.md` 后，按以下顺序选择策略：
   · **Step 1 — L0 通用策略 (必选)**: 查"按算子类型快速查表"的 L0 列，选择所有匹配的 D/P/A 策略
   · **Step 2 — L1 高级策略 (按需)**: 根据算子特征判断：Cube+Vector 融合（matmul+vector 后处理）→ 查 CV Matmul 行；Flash Attention 模式 → 查 Flash Attention 行；量化/反量化 → 查 Quantization 行 + P48/P49；MoE 专家并行 → 查 CV FFN (MoE) 行 + P50；多核 M×N 分块 → P47（对角线调度）；AIC/AIV 混合 → P51（动态核配比）
   · **Step 3 — 瓶颈驱动 (Refine 阶段)**: profiling_evidence 可用时，查"按瓶颈类型查表"追加/替换策略
   · **原则**: L0 保证基本正确性和性能，L1 针对特定场景提供 2-5x 额外提升。Init 阶段优先用 L0 + 少量 L1，Refine 阶段按 profiling 证据精准追加 L1
   · **ops 仓特别说明**: ops-nn/cv 仓算子更可能需要 L1（CV 融合、量化），ops-math/transformer 仓算子更多用 L0
-- **知识库查询协议**: `plugins-community/ops-perf-evolution/skills/evolution-knowledge/references/a3/` 采用渐进式披露，先读 guide.md 快速参考，按需深入。
+- **知识库查询协议**: `community/ops/ascendc-evolution-knowledge/references/a3/` 采用渐进式披露，先读 guide.md 快速参考，按需深入。
   **Init 阶段必读**: `hardware/guide.md`（硬件关键参数和瓶颈判断）、`optimization_patterns/guide.md`（优化模式选择决策树）、按算子族读 `algorithm_insights/{family}.md`（匹配时）
   **子 agent prompt 构造时参考**: `ascendc_api/guide.md`（注入避坑提醒）
   **策略提炼时查阅**: `proven_solutions/INDEX.md`（判断新颖性、避免重复）
@@ -84,7 +84,7 @@ skills:
 - **新会话**：从步骤1开始正常执行。state.json 在步骤3末尾自动创建。
 - **重入会话**（崩溃恢复 / context compression 后重入）：**第一件事**就是读 state.json：
   ```bash
-  python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/state_ops.py read --evo-dir "$EVO_DIR"
+  python3 community/ops/ascendc-evolution-world-model/scripts/state_ops.py read --evo-dir "$EVO_DIR"
   ```
   根据 `stage` 字段决定从哪个步骤续上：
   - `init` / `shared_prep` / `baseline_build` / `wm_init` → 从步骤3 续上
@@ -158,7 +158,7 @@ fi
 # 创建设备池目录，同步获取 session 级设备租约（选择显存占用最低的空闲卡）
 DEVICE_POOL_DIR=$(pwd)/output/{op_name}_ops-evo_{timestamp}/device_pool
 mkdir -p $DEVICE_POOL_DIR
-SESSION_DEVICE=$(python3 plugins-community/ops-perf-evolution/skills/ops-evaluation/scripts/device_lease.py \
+SESSION_DEVICE=$(python3 community/ops/ascendc-ops-evaluation/scripts/device_lease.py \
     acquire-session --pool-dir $DEVICE_POOL_DIR --op-name {op_name} \
     --session-id {op_name}_ops-evo_{timestamp} --timeout 60)
 
@@ -179,7 +179,7 @@ EVAL_LOCK_PATH=$DEVICE_POOL_DIR/eval.lock   # 评估锁路径（供子 agent 使
 
 **Session 结束时释放设备**（在进化主循环结束后执行）:
 ```bash
-python3 plugins-community/ops-perf-evolution/skills/ops-evaluation/scripts/device_lease.py \
+python3 community/ops/ascendc-ops-evaluation/scripts/device_lease.py \
     release-session --pool-dir $DEVICE_POOL_DIR --session-id {op_name}_ops-evo_{timestamp}
 ```
 
@@ -196,7 +196,7 @@ mkdir -p "$EVO_DIR/shared"
 
 **[注意] Session 锚定（必须执行）**: 在创建目录后立即写入 session 身份锚定，防止后续步骤因上下文压缩而"失忆"误用历史目录：
 ```bash
-python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/session_anchor.py write \
+python3 community/ops/ascendc-evolution-world-model/scripts/session_anchor.py write \
     --op-name {op_name} \
     --evo-dir "$EVO_DIR" \
     --requested-rounds {max_rounds}
@@ -213,7 +213,7 @@ cp -r {OP_PATH}/ output/{op_name}_ops-evo_{timestamp}/shared/original/   # 保�
 #### 3.2. 构建baseline
 
 ```bash
-python3 plugins-community/ops-perf-evolution/skills/ops-evaluation/scripts/build_ops.py \
+python3 community/ops/ascendc-ops-evaluation/scripts/build_ops.py \
     --repo-root {REPO_ROOT} \
     --op-name {BUILD_OP_NAME} \
     --soc {soc} \
@@ -259,7 +259,7 @@ bash build_and_install.sh
 使用 evaluate_ops_direct.py 评估 baseline 性能（baseline 对自己，获取绝对时间）。**multi-shape 模式下 baseline 一次性测齐 target + generalization 全集**，供后续变体评估按 name 对齐查 baseline_time_us：
 
 ```bash
-python3 plugins-community/ops-perf-evolution/skills/ops-evaluation/scripts/evaluate_ops_direct.py {op_name} \
+python3 community/ops/ascendc-ops-evaluation/scripts/evaluate_ops_direct.py {op_name} \
     --call-spec $(pwd)/output/{op_name}_ops-evo_{timestamp}/shared/call_spec.json \
     --baseline-path $(pwd)/output/{op_name}_ops-evo_{timestamp}/baseline \
     --evolved-path $(pwd)/output/{op_name}_ops-evo_{timestamp}/baseline \
@@ -293,37 +293,37 @@ python3 plugins-community/ops-perf-evolution/skills/ops-evaluation/scripts/evalu
    - **derived_params**：`peak_bw_gbps = ddr_rate × freq_mhz / 1000`（910B ddr_rate=32）；`peak_vector_tflops_per_core = vec_calc_size / dtype_size × freq_mhz × 2 / 1e6`；`peak_cube_tflops_per_core = 16×16×16 × 2 × freq_mhz / 1e6`；`max_tile_fp16_double_buf = (ub_size // 12) // 16 × 16`
    - 写入 `world_model.json` 顶层 `hw_params` 字段：`{ chip_model, ub_size_bytes, core_num, peak_bw_gbps, peak_vector_tflops_per_core, alignment_bytes, max_tile_fp16_double_buf }`
    - hw_params 为 null 时节点描述缺少硬件参数指导（tile_size 建议值等），严重影响优化质量。仅在查询报错时才允许 hw_params = null。
-2. **必读知识库**: 读取 `plugins-community/ops-perf-evolution/skills/evolution-knowledge/references/a3/hardware/guide.md` 和 `optimization_patterns/guide.md`；算子匹配特定族（attention/reduction/elementwise）时额外读 `algorithm_insights/{family}.md`；`proven_solutions/INDEX.md` 中有同类算子方案时读对应条目
+2. **必读知识库**: 读取 `community/ops/ascendc-evolution-knowledge/references/a3/hardware/guide.md` 和 `optimization_patterns/guide.md`；算子匹配特定族（attention/reduction/elementwise）时额外读 `algorithm_insights/{family}.md`；`proven_solutions/INDEX.md` 中有同类算子方案时读对应条目
 3. 读取 shared/original/ 下的算子代码，分析算子特性（计算模式、数据类型、形状特征）：内存密集型 vs 计算密集型？尾块对齐问题（形状非32字节整数倍）？数据类型特殊处理（FP16/BF16精度）？
-4. 读取 `plugins-community/ops-perf-evolution/skills/evolution-strategies/references/strategy-index.md`，识别最相关策略
+4. 读取 `community/ops/ascendc-evolution-strategies/references/strategy-index.md`，识别最相关策略
 5. 设计节点：`parallel_num × 2` 个策略导向节点（`mode="strategy_guided"`）+ `max(1, ⌈parallel_num / 4⌉)` 个开放探索节点（`mode="open_exploration"`），确保:
    - 策略多样性（各 strategy_guided 节点 strategy_combination 不完全相同）、难度梯度（difficulty 2-4 均有覆盖）、类型覆盖（P性能/D数据类型/A精度，按需）
    - 每个节点必须包含 optimization_type 字段（bandwidth/tiling/algorithm），三类各至少有 1 个节点，确保 Select 保底轮有候选
    - **若 hw_params 非 null**：利用硬件参数增强节点描述（如"tile_size 建议 {max_tile_fp16_double_buf//2}，最大可达 {max_tile_fp16_double_buf}"），并做 Roofline 定性分析（算术强度 vs 拐点）确认内存/计算密集判断
 
-   开放探索节点（ID 依次为 `x0`、`x1`、…，格式相同仅 ID 递增）：完整字段结构见 `evolution-world-model/references/schema.md` 的 node schema，其中 `"mode": "open_exploration"`、`"strategy_combination": []`、`"optimization_type": "algorithm"`、`difficulty: 3`、`description` 固定为 `"开放探索：不使用策略库，读取最优内核代码和流水线数据，从第一原理自主推理并实现新优化方向"`，其余字段按 schema 默认值初始化（`depth: 1, parent_id: "root", status: "open", score: null, retry_count: 0` 等）。
+   开放探索节点（ID 依次为 `x0`、`x1`、…，格式相同仅 ID 递增）：完整字段结构见 `ascendc-evolution-world-model/references/schema.md` 的 node schema，其中 `"mode": "open_exploration"`、`"strategy_combination": []`、`"optimization_type": "algorithm"`、`difficulty: 3`、`description` 固定为 `"开放探索：不使用策略库，读取最优内核代码和流水线数据，从第一原理自主推理并实现新优化方向"`，其余字段按 schema 默认值初始化（`depth: 1, parent_id: "root", status: "open", score: null, retry_count: 0` 等）。
 
 6. **写入 session 身份锚定到 world_model.json**（必须在写入 world_model.json 时执行）：
    ```bash
-   python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/wm_ops.py session \
+   python3 community/ops/ascendc-evolution-world-model/scripts/wm_ops.py session \
        --wm-path "$EVO_DIR/world_model.json" --session-id "{op_name}_ops-evo_${TIMESTAMP}" \
        --evo-dir "$EVO_DIR" --op-name {op_name} --requested-rounds {max_rounds}
    ```
 7. 将步骤5设计的节点写入 `$EVO_DIR/world_model.json` 的 `decision_tree.nodes`（上面的 session 命令已创建文件，此处追加或覆盖），并设置运行时标志 `world_model_active = true`
 8. **（必须执行）** 挂载 baseline profiling 证据到根级 `baseline_evidence` 字段（后续 SELECT 的 baseline 对齐惩罚 `w_baseline_mismatch` 和 partial-agent prompt 的 Baseline 行注入的数据源）：
    ```bash
-   python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/wm_ops.py attach-baseline-evidence \
+   python3 community/ops/ascendc-evolution-world-model/scripts/wm_ops.py attach-baseline-evidence \
        --wm-path "$EVO_DIR/world_model.json" \
        --baseline-eval "$EVO_DIR/baseline_evaluation.json"
    ```
    若 baseline 无 pipeline 数据，该命令会将 `baseline_evidence` 写为 null，下游消费者（SELECT / prompt 注入）自动跳过对齐逻辑。不应把 null 视为错误。
 
-**世界模型JSON格式**: 参考 `plugins-community/ops-perf-evolution/skills/evolution-world-model/references/schema.md`。**兜底策略**: 若初始化失败，输出警告，设置 `world_model_active = false`，后续使用分层采样。
+**世界模型JSON格式**: 参考 `community/ops/ascendc-evolution-world-model/references/schema.md`。**兜底策略**: 若初始化失败，输出警告，设置 `world_model_active = false`，后续使用分层采样。
 
 **[必须执行] 初始化 state.json 运行时状态游标**：
 
 ```bash
-python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/state_ops.py init \
+python3 community/ops/ascendc-evolution-world-model/scripts/state_ops.py init \
     --evo-dir "$EVO_DIR" --agent ops-evo --session-id "{op_name}_ops-evo_${TIMESTAMP}" \
     --max-rounds {max_rounds} --parallel-num {parallel_num}
 ```
@@ -332,7 +332,7 @@ python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/script
 
 **[注意] 路径纪律**: `EVO_DIR` 和 `TIMESTAMP` 在步骤3创建后即不可变。若"不确定当前使用的是哪个目录"，**必须**优先读取 session 锚定，禁止用 `ls -lt output/`、`find output/ -name '*evo*'` 或任何动态搜索方式确定目录：
 ```bash
-python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/session_anchor.py read --op-name {op_name}
+python3 community/ops/ascendc-evolution-world-model/scripts/session_anchor.py read --op-name {op_name}
 ```
 
 ---
@@ -341,7 +341,7 @@ python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/script
 
 **路径纪律（每轮必须遵守）**: `EVO_DIR` 和 `TIMESTAMP` 为 session 级常量，不可通过任何方式动态重新发现。每轮 refine 后更新 session anchor 的 `actual_rounds_completed`：
 ```bash
-python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/session_anchor.py update \
+python3 community/ops/ascendc-evolution-world-model/scripts/session_anchor.py update \
     --op-name {op_name} \
     --actual-rounds $r
 ```
@@ -398,7 +398,7 @@ while should_continue and r <= max_rounds:
 
   **冷却与上限**：冷却 `r - last_supervisor_round ≥ 2`；硬上限 `supervisor_used_count < max_rounds`。触发但被冷却/上限挡住时，跳过本轮 Supervisor，不终止进化。
 
-  **若可介入（触发条件成立 且 通过冷却和硬上限）**：不立即终止，准备 Supervisor 输入：运行 `python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/wm_ops.py summary --path {world_model_path}` 获取世界模型概览；汇总每轮节点ID、策略组合、状态、得分为 `per_round_summary`；读取最优内核 profiling 数据（profiling_one_liner 和 profiling_evidence 摘要）。
+  **若可介入（触发条件成立 且 通过冷却和硬上限）**：不立即终止，准备 Supervisor 输入：运行 `python3 community/ops/ascendc-evolution-world-model/scripts/wm_ops.py summary --path {world_model_path}` 获取世界模型概览；汇总每轮节点ID、策略组合、状态、得分为 `per_round_summary`；读取最优内核 profiling 数据（profiling_one_liner 和 profiling_evidence 摘要）。
 
   使用 Agent 工具启动 1 个 Supervisor Agent（`subagent_type="general-purpose"`，`description="Supervisor: analyze stagnation round {r}"`，`run_in_background=false`，prompt 见下方 **[Supervisor Agent Prompt 模板]**）。
 
@@ -410,7 +410,7 @@ while should_continue and r <= max_rounds:
 
 #### [Supervisor Agent Prompt 模板]
 
-读取 `plugins-community/ops-perf-evolution/skills/evolution-strategies/references/prompts/supervisor-prompt.md` 获取完整模板，填充 `{变量}` 后作为 prompt 启动 Supervisor Agent（`subagent_type="general-purpose"`，`run_in_background=false`）。4.5.1/4.5.2 中需要注入 `[SPECIAL SITUATION]` 时，在填充后的模板 `[CONTEXT]` 段末尾追加。
+读取 `community/ops/ascendc-evolution-strategies/references/prompts/supervisor-prompt.md` 获取完整模板，填充 `{变量}` 后作为 prompt 启动 Supervisor Agent（`subagent_type="general-purpose"`，`run_in_background=false`）。4.5.1/4.5.2 中需要注入 `[SPECIAL SITUATION]` 时，在填充后的模板 `[CONTEXT]` 段末尾追加。
 
 **（二）Drift 检查（必须执行，在 SELECT 之前）**：读取 `$EVO_DIR/state.json` 的 `drift_status` 字段。
 
@@ -422,7 +422,7 @@ DRIFT=$(python3 -c "import json; print(json.load(open('$EVO_DIR/state.json'))['d
 
 ```
 [DRIFT_REPLAN 模式] 本轮进化连续停滞，必须执行 fresh-source exploration：
-- 必须读 plugins-community/ops-perf-evolution/skills/evolution-knowledge/references/a3/proven_solutions/INDEX.md 至少 3 个未在前几轮 inspirations 中出现过的条目
+- 必须读 community/ops/ascendc-evolution-knowledge/references/a3/proven_solutions/INDEX.md 至少 3 个未在前几轮 inspirations 中出现过的条目
 - 必须在实现中至少尝试 1 个之前未用过的策略（与父节点的 strategy_combination 不重合）
 - open_exploration 节点不受策略库约束，可自由从第一原理推理新方向（`strategy_combination` 恒为 `[]`，不可注入策略 ID — hook R15 强制）
 - 派生 open_exploration 子节点写 `description` 时**必须读父节点 `diagnosis.next_round_hint`**，把 `prefer`/`rationale` 的意图（不是策略 ID 字面）化为具体探索方向；`avoid` 由脚本自动落入 anti 过滤。description ≥100 字符引用 profiling facts，不可占位（hook R16 强制）
@@ -438,14 +438,14 @@ DRIFT=$(python3 -c "import json; print(json.load(open('$EVO_DIR/state.json'))['d
 
 #### 4.2 SELECT 世界模型节点选择
 
-**若 `world_model_active = true`**（参考 `plugins-community/ops-perf-evolution/skills/evolution-world-model/references/operations.md` 的 **操作二：Select**）:
+**若 `world_model_active = true`**（参考 `community/ops/ascendc-evolution-world-model/references/operations.md` 的 **操作二：Select**）:
 
-0. **精简读取**：先执行 `python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/wm_ops.py summary --path {world_model_path}` 获取概览，仅阅读 summary 输出；只在需要修改节点字段时才读取完整 `world_model.json`。
+0. **精简读取**：先执行 `python3 community/ops/ascendc-evolution-world-model/scripts/wm_ops.py summary --path {world_model_path}` 获取概览，仅阅读 summary 输出；只在需要修改节点字段时才读取完整 `world_model.json`。
 
 1. **脚本化选择（必须执行，保证分支多样性约束生效）**：
 
 ```bash
-SELECTIONS=$(python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/wm_ops.py select \
+SELECTIONS=$(python3 community/ops/ascendc-evolution-world-model/scripts/wm_ops.py select \
   --path "output/{op_name}_ops-evo_{timestamp}/world_model.json" \
   --n {parallel_num})
 echo "$SELECTIONS"
@@ -467,7 +467,7 @@ echo "$SELECTIONS"
 WORKTREE_BASE=$(pwd)/output/{op_name}_ops-evo_{timestamp}/worktrees
 
 for p in 0..parallel_num-1:
-    python3 plugins-community/ops-perf-evolution/skills/ops-evaluation/scripts/worktree_manager.py \
+    python3 community/ops/ascendc-ops-evaluation/scripts/worktree_manager.py \
         create \
         --repo-root {REPO_ROOT} \
         --worktree-base $WORKTREE_BASE \
@@ -489,7 +489,7 @@ for p in 0..parallel_num-1:
 
 **ops-partial 子agent prompt模板**:
 
-读取 `plugins-community/ops-perf-evolution/skills/evolution-strategies/references/prompts/ops-partial-prompt.md` 获取完整 prompt 模板，按下方变量填充规则填充后启动子 agent。
+读取 `community/ops/ascendc-evolution-strategies/references/prompts/ops-partial-prompt.md` 获取完整 prompt 模板，按下方变量填充规则填充后启动子 agent。
 
 **Prompt 变量填充规则**（从步骤4.2 SELECT的分配结果中，获取 parallel_p 对应节点的信息填入提示词）:
 - `{node_id}`: 节点ID（如 "n1", "x0"），world_model_active=false 则填 "free"；`{mode}`: 节点 mode 值（"strategy_guided"/"open_exploration"/"profiling_driven"），world_model_active=false 则填 "strategy_guided"
@@ -518,7 +518,7 @@ for p in 0..parallel_num-1:
 **v3.2 Strategy Resources 变量填充**（必须执行）: `{strategy_resources_block}` 由 helper 脚本一次性生成（封装 Preconditions 过滤 + Playbook 加载 + Excluded 段拼装）。**每个 partial 启动前**，主 agent 必须为该节点执行：
 
 ```bash
-python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/prepare_strategy_resources.py \
+python3 community/ops/ascendc-evolution-world-model/scripts/prepare_strategy_resources.py \
     --strategy-ids "{strategy_combination_csv}" \
     --kernel-dir "$(pwd)/output/{op_name}_ops-evo_{timestamp}/shared/original/" \
     --evo-dir "$(pwd)/output/{op_name}_ops-evo_{timestamp}/" \
@@ -538,7 +538,7 @@ KEYS=$(jq -r '.source_keys[]' \
     "$(pwd)/output/{op_name}_ops-evo_{timestamp}/artifacts/lineage.jsonl" \
     | sort -u | paste -sd,)
 if [[ -n "$KEYS" ]]; then
-    python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/state_ops.py add-read-keys \
+    python3 community/ops/ascendc-evolution-world-model/scripts/state_ops.py add-read-keys \
         --evo-dir "$(pwd)/output/{op_name}_ops-evo_{timestamp}/" \
         --keys "$KEYS"
 fi
@@ -553,7 +553,7 @@ drift_status=replan_required 时，主 agent 应在 SELECT 前调 `state_ops cle
 **4.3.3.1 产物检查（必须执行，在 refine 之前）**
 
 ```bash
-python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/check_round_artifacts.py \
+python3 community/ops/ascendc-evolution-world-model/scripts/check_round_artifacts.py \
   --results-dir "output/{op_name}_ops-evo_{timestamp}/round_{r}" \
   --shared-dir "output/{op_name}_ops-evo_{timestamp}/shared" \
   --parallel-map '{parallel_map_json}' \
@@ -572,7 +572,7 @@ python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/script
 
 ```bash
 # 保留最优变体的 worktree（供后续轮次参考），清理其余
-python3 plugins-community/ops-perf-evolution/skills/ops-evaluation/scripts/worktree_manager.py \
+python3 community/ops/ascendc-ops-evaluation/scripts/worktree_manager.py \
     cleanup \
     --repo-root {REPO_ROOT} \
     --worktree-base $WORKTREE_BASE \
@@ -587,7 +587,7 @@ python3 plugins-community/ops-perf-evolution/skills/ops-evaluation/scripts/workt
 
 **4.4.1 脚本化更新（必须执行，一条命令保证闭环）**
 ```bash
-python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/wm_ops.py refine \
+python3 community/ops/ascendc-evolution-world-model/scripts/wm_ops.py refine \
     --wm-path "output/{op_name}_ops-evo_{timestamp}/world_model.json" \
     --round {r} \
     --results-dir "output/{op_name}_ops-evo_{timestamp}/round_{r}" \
@@ -631,7 +631,7 @@ print(f'[OK] Refine 验证通过，round_{r} 所有节点已写入世界模型')
    "
    ```
 
-2. 对每个 passed 节点的 `facts`，参考 `plugins-community/ops-perf-evolution/skills/evolution-knowledge/references/a3/profiling_reference/optimization_quickref.md` 和 `INDEX.md`（含 18 项标准 `bottleneck_labels` 词表），给出**结构化诊断**：
+2. 对每个 passed 节点的 `facts`，参考 `community/ops/ascendc-evolution-knowledge/references/a3/profiling_reference/optimization_quickref.md` 和 `INDEX.md`（含 18 项标准 `bottleneck_labels` 词表），给出**结构化诊断**：
 
    ```yaml
    diagnosis_text: |          # 必填，≥20 字符，描述瓶颈和根因假设
@@ -646,13 +646,13 @@ print(f'[OK] Refine 验证通过，round_{r} 所有节点已写入世界模型')
 
    **next_round_hint 必写**（passed 节点）：派生子节点时 prefer 抢占新槽位、avoid 进入 anti 过滤。无需偏置时也要写空 prefer/avoid + 说明理由的 rationale，例：`{prefer:[], avoid:[], rationale:"已达标，下轮保持 profiling 默认推荐探索，无主动偏置"}`。`|prefer|+|avoid| ≤ 3`，prefer∩avoid=∅，ID 须在 INDEX.json。
 
-   18 项词表（详见 `evolution-knowledge#a3/profiling_reference/INDEX.md`）：
+   18 项词表（详见 `ascendc-evolution-knowledge#a3/profiling_reference/INDEX.md`）：
    - **主 14 个**：`mte2_stall, mte3_stall, tiling_imbalance, scalar_loading, scalar_compute, compute_bound, near_optimal, no_overlap, partial_overlap, undersize_transfer, icache_miss, bus_contention, l2_cache_thrash, ub_memory_pressure`
    - **精细化 4 个**：`fake_mte2_bound, fake_compute_bound, bank_conflict, db_not_effective`
 
 3. 用 Edit 工具把 diagnosis 写入 `world_model.json` 对应节点，写完后**必须**跑校验：
    ```bash
-   python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/wm_ops.py validate-diagnosis \
+   python3 community/ops/ascendc-evolution-world-model/scripts/wm_ops.py validate-diagnosis \
      --wm-path "output/{op_name}_ops-evo_{timestamp}/world_model.json" \
      --strict
    ```
@@ -660,7 +660,7 @@ print(f'[OK] Refine 验证通过，round_{r} 所有节点已写入世界模型')
 
 4. **必须**调 `finalize-ledger` 把刚写入的 diagnosis 回填到 `artifacts/lineage.jsonl` 与 `attempt-ledger.md`，**同时把 `next_round_hint` 应用到 open 子节点的 `strategy_combination`**（refine 派生时 LLM diagnosis 尚未存在，hint 必须在此处迟到生效）：
    ```bash
-   python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/wm_ops.py finalize-ledger \
+   python3 community/ops/ascendc-evolution-world-model/scripts/wm_ops.py finalize-ledger \
      --wm-path "output/{op_name}_ops-evo_{timestamp}/world_model.json" \
      --evo-dir   "output/{op_name}_ops-evo_{timestamp}"
    ```
@@ -675,7 +675,7 @@ print(f'[OK] Refine 验证通过，round_{r} 所有节点已写入世界模型')
 - `"strategy_infeasible"`: 策略本身不可行 → 脚本封锁该方向（difficulty=5）
 
 ```bash
-python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/wm_ops.py diagnose \
+python3 community/ops/ascendc-evolution-world-model/scripts/wm_ops.py diagnose \
     --wm-path "output/{op_name}_ops-evo_{timestamp}/world_model.json" \
     --node-id {node_id} \
     --failure-type {impl_error|strategy_infeasible} \
@@ -691,7 +691,7 @@ python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/script
 触发条件（满足任一）：瓶颈迁移 + 性能不达标 | CSV 盲区 | 停滞破局 | 用户要求。仅对本轮最优 passed 节点执行：
 
 ```bash
-python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/wm_ops.py deep-profiling \
+python3 community/ops/ascendc-evolution-world-model/scripts/wm_ops.py deep-profiling \
     --wm-path "output/{op_name}_ops-evo_{timestamp}/world_model.json" \
     --node-id {best_node_id} \
     --work-dir "output/{op_name}_ops-evo_{timestamp}/{best_solution_ref}" \
@@ -725,7 +725,7 @@ print(json.dumps([{'id': c, 'score': nodes[c].get('score'),
 若判断为证伪，调用 `diagnose` 升级为硬封锁（A6 语义：passed + strategy_infeasible → direction_sealed）：
 
 ```bash
-python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/wm_ops.py diagnose \
+python3 community/ops/ascendc-evolution-world-model/scripts/wm_ops.py diagnose \
     --wm-path "output/{op_name}_ops-evo_{timestamp}/world_model.json" \
     --node-id {candidate_id} \
     --failure-type strategy_infeasible \
@@ -786,9 +786,9 @@ Supervisor 返回结果处理（4.5.1/4.5.2 共用，仅输出标签不同）：
 对每个满足条件的 open_exploration 节点：
 
 1. 读取该变体的修改文件 `output/{op_name}_ops-evo_{timestamp}/{node.solution_ref}/modified_files/op_kernel/` 和 `implementation_note.txt`
-2. 读取 `plugins-community/ops-perf-evolution/skills/evolution-strategies/references/strategy-index.md`，判断新颖性：该优化手段是否超出现有所有策略的范畴？（不是组合，而是一种新方法论）
+2. 读取 `community/ops/ascendc-evolution-strategies/references/strategy-index.md`，判断新颖性：该优化手段是否超出现有所有策略的范畴？（不是组合，而是一种新方法论）
 3. **若确认新颖**：
-   a. 列出 `plugins-community/ops-perf-evolution/skills/evolution-strategies/references/discovered/disc_X*.md`，确定下一个 X 编号（如 X1、X2…）
+   a. 列出 `community/ops/ascendc-evolution-strategies/references/discovered/disc_X*.md`，确定下一个 X 编号（如 X1、X2…）
    b. 写入新策略文件 `discovered/disc_X{n}.md`，格式：
       ```markdown
       ---
@@ -846,7 +846,7 @@ Supervisor 返回结果处理（4.5.1/4.5.2 共用，仅输出标签不同）：
 
 1. **泛化评估**: 对该节点的 `solution_ref` 安装路径补跑泛化 shape：
    ```bash
-   python3 plugins-community/ops-perf-evolution/skills/ops-evaluation/scripts/evaluate_ops_direct.py {op_name} \
+   python3 community/ops/ascendc-ops-evaluation/scripts/evaluate_ops_direct.py {op_name} \
        --call-spec $EVO_DIR/shared/call_spec.json \
        --baseline-path $EVO_DIR/baseline \
        --evolved-path $EVO_DIR/{best_node.solution_ref} \
@@ -918,11 +918,11 @@ Supervisor 返回结果处理（4.5.1/4.5.2 共用，仅输出标签不同）：
 
 ```bash
 # 1. 读取 session anchor（不可失败）；2. 交叉校验 world_model.json 中的 session 字段
-python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/session_anchor.py verify \
+python3 community/ops/ascendc-evolution-world-model/scripts/session_anchor.py verify \
     --op-name {op_name} \
     --evo-dir "$EVO_DIR"
 
-python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/wm_ops.py session-verify \
+python3 community/ops/ascendc-evolution-world-model/scripts/wm_ops.py session-verify \
     --wm-path "$EVO_DIR/world_model.json" \
     --evo-dir "$EVO_DIR"
 ```
@@ -952,7 +952,7 @@ python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/script
 
 **步骤5 完成后，必须继续执行步骤6 生成进化报告。**
 
-### 步骤6: 生成进化报告 (evolution-report) 【必须执行】
+### 步骤6: 生成进化报告 (ascendc-evolution-report) 【必须执行】
 
 > **[注意] 强制步骤**: 无论进化结果如何（成功/失败/停滞），步骤6 都必须执行。这是进化流程的标准收尾步骤，不可跳过。
 
@@ -960,9 +960,9 @@ python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/script
 
 ```bash
 # 优先从 session anchor 读取 evo_dir（防止上下文压缩后失忆）
-EVO_DIR=$(python3 plugins-community/ops-perf-evolution/skills/evolution-world-model/scripts/session_anchor.py read --op-name {op_name} | python3 -c "import sys,json; print(json.load(sys.stdin)['evo_dir'])")
+EVO_DIR=$(python3 community/ops/ascendc-evolution-world-model/scripts/session_anchor.py read --op-name {op_name} | python3 -c "import sys,json; print(json.load(sys.stdin)['evo_dir'])")
 
-python3 plugins-community/ops-perf-evolution/skills/evolution-report/scripts/generate_report.py \
+python3 community/ops/ascendc-evolution-report/scripts/generate_report.py \
     "$EVO_DIR" \
     --pipeline ops-evo
 ```
@@ -977,7 +977,7 @@ python3 plugins-community/ops-perf-evolution/skills/evolution-report/scripts/gen
 
 ## 实现细节
 
-世界模型与 lingxi-evo 完全相同，参考 `plugins-community/ops-perf-evolution/skills/evolution-world-model/references/schema.md` 和 `operations.md`。
+世界模型与 lingxi-evo 完全相同，参考 `community/ops/ascendc-evolution-world-model/references/schema.md` 和 `operations.md`。
 
 ops-partial 子 agent 的并行启动与结果收集规则见 §4.3.2（同一条消息发送所有 Agent 调用；TaskOutput 逐个收集；超时 TaskStop）。某轮所有子agent均失败（编译失败或精度不通过）时 `stagnation_count += 1`。
 
@@ -991,6 +991,6 @@ ops-partial 子 agent 的并行启动与结果收集规则见 §4.3.2（同一�
 ## 重要说明
 
 - 所有输出保存在 output/ 目录下，中文输出
-- 不要编写评估脚本，使用 ops-evaluation skill 中的脚本
+- 不要编写评估脚本，使用 ascendc-ops-evaluation skill 中的脚本
 - 每个变体在独立 worktree 中构建，无需手动恢复代码
 - def.cpp 受限修改：仅改编译选项/优化属性，禁改输入输出/类型约束

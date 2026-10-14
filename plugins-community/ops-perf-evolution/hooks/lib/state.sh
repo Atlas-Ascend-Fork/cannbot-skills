@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+# ----------------------------------------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# ----------------------------------------------------------------------------------------------------------
 # state.sh — Stop hook rule checks against state.json.
 #
 # Sourced by hooks/loop-stop.sh.
@@ -178,11 +187,11 @@ except Exception:
     # 仅检查"字段存在"，不强制 18 词表内（容错给 LLM 学习空间）。
     # 触发条件：stage 在 round_refine/round_react/round_checkpoint 或 done 之前
     local wm_path="${evo_dir}/world_model.json"
-    if [[ -f "${wm_path}" ]] && [[ -f "${PLUGIN_ROOT}/skills/evolution-world-model/scripts/wm_ops.py" ]]; then
+    if [[ -f "${wm_path}" ]] && [[ -f "${PLUGIN_ROOT}/skills/ascendc-evolution-world-model/scripts/wm_ops.py" ]]; then
         case "${stage}" in
             round_refine|round_react|round_checkpoint|round_select)
                 local r13_output
-                r13_output="$(python3 "${PLUGIN_ROOT}/skills/evolution-world-model/scripts/wm_ops.py" \
+                r13_output="$(python3 "${PLUGIN_ROOT}/skills/ascendc-evolution-world-model/scripts/wm_ops.py" \
                     validate-diagnosis --wm-path "${wm_path}" 2>/dev/null)"
                 if [[ -n "${r13_output}" ]]; then
                     # 解析 issues_count > 0 表示有缺 diagnosis 的节点

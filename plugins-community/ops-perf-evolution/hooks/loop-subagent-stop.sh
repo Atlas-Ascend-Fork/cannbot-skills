@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+# ----------------------------------------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# ----------------------------------------------------------------------------------------------------------
 # loop-subagent-stop.sh — SubagentStop hook.
 #
 # Triggered every time a subagent (spawned via Task tool) terminates.
@@ -72,7 +81,7 @@ fi
 
 # Run the transcript audit. transcript_audit.py prints violations to stderr
 # (one per line) and exits 1 if any.
-audit_py="${PLUGIN_ROOT}/skills/evolution-world-model/scripts/transcript_audit.py"
+audit_py="${PLUGIN_ROOT}/skills/ascendc-evolution-world-model/scripts/transcript_audit.py"
 if [[ ! -f "${audit_py}" ]]; then
     hook_log "transcript_audit.py not found at ${audit_py}; skipping audit"
     hook_allow
@@ -96,7 +105,7 @@ _write_subagent_exit_marker() {
 
     # Determine the target parallel dir from eval --output paths.
     # transcript_audit.py list-calls extracts all Bash invocations.
-    local audit_script="${PLUGIN_ROOT}/skills/evolution-world-model/scripts/transcript_audit.py"
+    local audit_script="${PLUGIN_ROOT}/skills/ascendc-evolution-world-model/scripts/transcript_audit.py"
     local output_paths
     output_paths="$(python3 "${audit_script}" list-calls \
         --transcript "${transcript}" --tool Bash 2>/dev/null \
@@ -171,7 +180,7 @@ with open('${marker_file}', 'w', encoding='utf-8') as f:
 
         # Update parent state.json partial_status via session anchor
         local anchor_pattern="${PROJECT_ROOT}/output/.ops-evo_current_session_*.json"
-        local state_ops="${PLUGIN_ROOT}/skills/evolution-world-model/scripts/state_ops.py"
+        local state_ops="${PLUGIN_ROOT}/skills/ascendc-evolution-world-model/scripts/state_ops.py"
         for af in ${anchor_pattern}; do
             [[ -f "${af}" ]] || continue
             local evo_dir

@@ -9,8 +9,8 @@ Ascend C 算子性能进化优化模式适用于**已有 AscendC 内核或 ops �
 ```
 步骤 0: 参数确认 + 路径判断  (Ops 仓库 / 基线内核)
 步骤 1: 环境检测 + 设备绑定  (NPU、CANN、目标路径)
-步骤 2: 基线性能评估        (ops-profiling / ops-evaluation)
-步骤 3: 世界模型初始化      (evolution-world-model)
+步骤 2: 基线性能评估        (ops-profiling / ascendc-ops-evaluation)
+步骤 3: 世界模型初始化      (ascendc-evolution-world-model)
 步骤 4: 多轮进化优化        (每轮：策略选择 → 并行生成变体 → 构建/评估 → 证据积累)
 步骤 5: 最佳方案确定 + 泛化验证
 步骤 6: 生成 evolution-report_*.html
@@ -139,11 +139,11 @@ output/add_layer_norm_custom_ops-evo_20260520_141500/
 |-------|------|---------|
 | `npu-arch` | NPU 架构与芯片规格查询（数据源：CANN 包 platform_config、白皮书） | 所有 |
 | `ops-profiling` | 性能采集与分析 | 所有 |
-| `ops-evaluation` | ops 仓库算子构建与评估 | Ops 仓库路径 |
-| `evolution-knowledge` | 优化知识与模式参考 | 所有 |
-| `evolution-strategies` | 优化策略库查询 | 所有 |
-| `evolution-world-model` | 世界模型初始化与更新 | 所有 |
-| `evolution-report` | 生成进化优化汇总报告 | 所有 |
+| `ascendc-ops-evaluation` | ops 仓库算子构建与评估 | Ops 仓库路径 |
+| `ascendc-evolution-knowledge` | 优化知识与模式参考 | 所有 |
+| `ascendc-evolution-strategies` | 优化策略库查询 | 所有 |
+| `ascendc-evolution-world-model` | 世界模型初始化与更新 | 所有 |
+| `ascendc-evolution-report` | 生成进化优化汇总报告 | 所有 |
 
 ## 四、常见问题
 

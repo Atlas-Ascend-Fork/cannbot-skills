@@ -135,7 +135,7 @@ print(' '.join(sorted(all_skills)))
 " 2>/dev/null)
   if [ -z "$INCLUDED_SKILLS" ]; then
     warn "Failed to parse skill dependencies from AGENTS.md, using fallback"
-    INCLUDED_SKILLS="npu-arch ops-profiling ops-evaluation evolution-report evolution-knowledge evolution-strategies evolution-world-model"
+    INCLUDED_SKILLS="npu-arch ops-profiling ascendc-ops-evaluation ascendc-evolution-report ascendc-evolution-knowledge ascendc-evolution-strategies ascendc-evolution-world-model"
   fi
 else
   err "AGENTS.md not found at $PLUGIN_ROOT/AGENTS.md"
