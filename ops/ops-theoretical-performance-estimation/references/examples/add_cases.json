@@ -1,0 +1,13 @@
+{
+  "operator": "add",
+  "hardware_variant": "ascend950pr_9589",
+  "comment": "Elementwise Add(a,b)。两个等形输入；纯 ALU、流量主导，验 mte-bound 判定。",
+  "cases": [
+    {"case_id": "add_s_64K",  "inputs": [{"name":"a","shape":[65536],"dtype":"fp32"},{"name":"b","shape":[65536],"dtype":"fp32"}]},
+    {"case_id": "add_m_4M",   "inputs": [{"name":"a","shape":[4194304],"dtype":"fp32"},{"name":"b","shape":[4194304],"dtype":"fp32"}]},
+    {"case_id": "add_l_64M",  "inputs": [{"name":"a","shape":[67108864],"dtype":"fp32"},{"name":"b","shape":[67108864],"dtype":"fp32"}]},
+    {"case_id": "add_m_4M_fp16", "inputs": [{"name":"a","shape":[4194304],"dtype":"fp16"},{"name":"b","shape":[4194304],"dtype":"fp16"}]},
+    {"case_id": "addn_8x_1M", "comment": "动态输入个数：8 路同形 Add（repeat）",
+     "inputs": [{"name":"a","shape":[1048576],"dtype":"fp32","repeat":8}]}
+  ]
+}

@@ -1,0 +1,142 @@
+{
+  "operator": "softmax",
+  "summary": "softmax(x,axis)：max VF + normalize VF。全载 x 驻留 UB；非全载行切分、VF 间重读 x。",
+  "attrs": [
+    "axis"
+  ],
+  "reduce_axis_attr": "axis",
+  "compute_dtype": "same",
+  "gm_rw_contention": true,
+  "templates": [
+    {
+      "name": "row_resident_1pass",
+      "select": [],
+      "flow": [
+        {
+          "copy_in": "x"
+        },
+        {
+          "vf": "max",
+          "live": [
+            {
+              "name": "x",
+              "extent": "row"
+            }
+          ],
+          "ops": [
+            {
+              "op": "ReduceMax",
+              "on": "full"
+            }
+          ]
+        },
+        {
+          "vf": "normalize",
+          "live": [
+            {
+              "name": "x",
+              "extent": "row"
+            },
+            {
+              "name": "y",
+              "extent": "row"
+            }
+          ],
+          "ops": [
+            {
+              "op": "Sub",
+              "on": "full"
+            },
+            {
+              "op": "Exp",
+              "on": "full"
+            },
+            {
+              "op": "ReduceSum",
+              "on": "full"
+            },
+            {
+              "op": "Div",
+              "on": "full"
+            }
+          ]
+        },
+        {
+          "copy_out": "y",
+          "like": "x"
+        }
+      ]
+    },
+    {
+      "name": "row_split_2pass",
+      "gm_bandwidth_model": "l2_capacity",
+      "l2_concurrent_streams": 2,
+      "select": [],
+      "tiling": {
+        "core_split_units": "rows",
+        "total_tile_units": "rows * ceil(2*cols*db / (ub/4))",
+        "ub_bytes_per_unit": "ub/4",
+        "double_buffer": 2
+      },
+      "flow": [
+        {
+          "copy_in": "x"
+        },
+        {
+          "vf": "max",
+          "live": [
+            {
+              "name": "x",
+              "extent": "row"
+            }
+          ],
+          "ops": [
+            {
+              "op": "ReduceMax",
+              "on": "full"
+            }
+          ]
+        },
+        {
+          "copy_in": "x"
+        },
+        {
+          "vf": "normalize",
+          "live": [
+            {
+              "name": "x",
+              "extent": "row"
+            },
+            {
+              "name": "y",
+              "extent": "row"
+            }
+          ],
+          "ops": [
+            {
+              "op": "Sub",
+              "on": "full"
+            },
+            {
+              "op": "Exp",
+              "on": "full"
+            },
+            {
+              "op": "ReduceSum",
+              "on": "full"
+            },
+            {
+              "op": "Div",
+              "on": "full"
+            }
+          ]
+        },
+        {
+          "copy_out": "y",
+          "like": "x"
+        }
+      ]
+    }
+  ],
+  "launch_floor_model": "hardware"
+}

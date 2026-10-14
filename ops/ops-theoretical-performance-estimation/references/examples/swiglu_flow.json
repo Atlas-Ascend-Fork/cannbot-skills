@@ -1,0 +1,35 @@
+{
+  "operator": "swiglu",
+  "summary": "SwiGLU：out = silu(gate) * up，silu(a)=a*sigmoid(a)=a/(1+exp(-a))。双输入(gate=x, up)，输出同形。单 VF，超越函数(Exp/Div)+ALU 混合。低精度首尾 Cast。",
+  "attrs": [],
+  "compute_dtype": "fp32_for_lowp",
+  "gm_rw_contention": true,
+  "templates": [
+    {
+      "name": "elementwise",
+      "select": [],
+      "tiling": {
+        "core_split_units": "n",
+        "total_tile_units": "n",
+        "ub_bytes_per_unit": "(nin+1)*db + 8",
+        "double_buffer": 2
+      },
+      "flow": [
+        {"copy_in": "*"},
+        {"vf": "swiglu",
+         "ops": [
+           {"op": "Cast", "when": "lowp", "src_dtype": "@in", "dst_dtype": "fp32"},
+           {"op": "Cast", "when": "lowp", "src_dtype": "@in", "dst_dtype": "fp32"},
+           {"op": "Muls", "on": "full"},
+           {"op": "Exp", "on": "full"},
+           {"op": "Adds", "on": "full"},
+           {"op": "Div", "on": "full"},
+           {"op": "Mul", "on": "full"},
+           {"op": "Cast", "when": "lowp", "src_dtype": "fp32", "dst_dtype": "@in"}
+         ]},
+        {"copy_out": "y", "like": "x"}
+      ]
+    }
+  ],
+  "launch_floor_model": "hardware"
+}

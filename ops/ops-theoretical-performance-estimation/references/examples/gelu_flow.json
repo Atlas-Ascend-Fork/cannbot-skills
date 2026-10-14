@@ -1,0 +1,98 @@
+{
+  "operator": "gelu",
+  "summary": "GELU(tanh 近似)；单 VF；低精度首尾显式 Cast，中间 fp32。",
+  "attrs": [],
+  "compute_dtype": "fp32_for_lowp",
+  "gm_rw_contention": true,
+  "templates": [
+    {
+      "name": "elementwise",
+      "select": [],
+      "tiling": {
+        "core_split_units": "n",
+        "total_tile_units": "n",
+        "ub_bytes_per_unit": "2*db + 4",
+        "double_buffer": 2
+      },
+      "flow": [
+        {
+          "copy_in": "x"
+        },
+        {
+          "vf": "gelu",
+          "ops": [
+            {
+              "op": "Cast",
+              "when": "lowp",
+              "src_dtype": "@in",
+              "dst_dtype": "fp32"
+            },
+            {
+              "op": "Mul",
+              "on": "full"
+            },
+            {
+              "op": "Mul",
+              "on": "full"
+            },
+            {
+              "op": "Muls",
+              "on": "full"
+            },
+            {
+              "op": "Add",
+              "on": "full"
+            },
+            {
+              "op": "Muls",
+              "on": "full"
+            },
+            {
+              "op": "Exp",
+              "on": "full"
+            },
+            {
+              "op": "Adds",
+              "on": "full"
+            },
+            {
+              "op": "Reciprocal",
+              "on": "full"
+            },
+            {
+              "op": "Muls",
+              "on": "full"
+            },
+            {
+              "op": "Adds",
+              "on": "full"
+            },
+            {
+              "op": "Adds",
+              "on": "full"
+            },
+            {
+              "op": "Mul",
+              "on": "full"
+            },
+            {
+              "op": "Muls",
+              "on": "full"
+            },
+            {
+              "op": "Cast",
+              "when": "lowp",
+              "src_dtype": "fp32",
+              "dst_dtype": "@in"
+            }
+          ]
+        },
+        {
+          "copy_out": "y",
+          "like": "x"
+        }
+      ]
+    }
+  ],
+  "launch_floor_model": "hardware"
+}

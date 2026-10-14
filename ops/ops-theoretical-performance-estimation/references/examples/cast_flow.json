@@ -1,0 +1,39 @@
+{
+  "operator": "cast",
+  "summary": "Cast：单条类型转换，读写 dtype 不同。单 VF。",
+  "attrs": [
+    "to"
+  ],
+  "compute_dtype": "same",
+  "gm_rw_contention": true,
+  "templates": [
+    {
+      "name": "elementwise",
+      "select": [],
+      "tiling": {
+        "core_split_units": "n",
+        "total_tile_units": "n",
+        "ub_bytes_per_unit": "db*2",
+        "double_buffer": 2
+      },
+      "flow": [
+        {
+          "copy_in": "x"
+        },
+        {
+          "vf": "cast",
+          "ops": [
+            {
+              "op": "Cast",
+              "on": "full"
+            }
+          ]
+        },
+        {
+          "copy_out": "y"
+        }
+      ]
+    }
+  ],
+  "launch_floor_model": "hardware"
+}

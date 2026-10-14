@@ -1,0 +1,541 @@
+{
+  "schema_version": 1,
+  "hardware": "ascend950pr_dav_3510",
+  "sys_counter_frequency_hz": 1000000000,
+  "vector_core_frequency_hz": 1650000000,
+  "implemented_cases": [
+    {
+      "case_name": "add_fp32_independent",
+      "case_id": 1,
+      "op": "Add",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "dual_issue",
+      "expected_issue_per_cycle_min": 1.6,
+      "expected_issue_per_cycle_max": 2.2,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "mul_fp32_independent",
+      "case_id": 2,
+      "op": "Mul",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "dual_issue",
+      "expected_issue_per_cycle_min": 1.6,
+      "expected_issue_per_cycle_max": 2.2,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "muladddst_fp32",
+      "case_id": 4,
+      "op": "MulAddDst",
+      "dtype": "fp32",
+      "dependency": "dependent_dst_update",
+      "expected_class": "dependent_dst_update_baseline",
+      "expected_issue_per_cycle_min": 0.75,
+      "expected_issue_per_cycle_max": 1.25,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1,
+      "note": "This range describes the dependent destination-update harness. It is not independent peak throughput; use the asc-devkit performance and issue tables for that model."
+    },
+    {
+      "case_name": "sqrt_fp32",
+      "case_id": 5,
+      "op": "Sqrt",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "four_cycle_dual_issue",
+      "expected_issue_per_cycle_min": 0.35,
+      "expected_issue_per_cycle_max": 0.65,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "reducesum_fp32",
+      "case_id": 6,
+      "op": "ReduceSum",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "single_issue",
+      "expected_issue_per_cycle_min": 0.75,
+      "expected_issue_per_cycle_max": 1.25,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "sub_fp32_independent",
+      "case_id": 7,
+      "op": "Sub",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "dual_issue",
+      "expected_issue_per_cycle_min": 1.6,
+      "expected_issue_per_cycle_max": 2.2,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "max_fp32_independent",
+      "case_id": 8,
+      "op": "Max",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "dual_issue",
+      "expected_issue_per_cycle_min": 1.6,
+      "expected_issue_per_cycle_max": 2.2,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "min_fp32_independent",
+      "case_id": 9,
+      "op": "Min",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "dual_issue",
+      "expected_issue_per_cycle_min": 1.6,
+      "expected_issue_per_cycle_max": 2.2,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "abs_fp32_independent",
+      "case_id": 10,
+      "op": "Abs",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "dual_issue",
+      "expected_issue_per_cycle_min": 1.6,
+      "expected_issue_per_cycle_max": 2.2,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "relu_fp32_independent",
+      "case_id": 11,
+      "op": "Relu",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "dual_issue",
+      "expected_issue_per_cycle_min": 1.6,
+      "expected_issue_per_cycle_max": 2.2,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "neg_fp32_independent",
+      "case_id": 12,
+      "op": "Neg",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "dual_issue",
+      "expected_issue_per_cycle_min": 1.6,
+      "expected_issue_per_cycle_max": 2.2,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "log_fp32",
+      "case_id": 13,
+      "op": "Log",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "four_cycle_dual_issue",
+      "expected_issue_per_cycle_min": 0.35,
+      "expected_issue_per_cycle_max": 0.65,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "log2_fp32",
+      "case_id": 14,
+      "op": "Log2",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "four_cycle_dual_issue",
+      "expected_issue_per_cycle_min": 0.35,
+      "expected_issue_per_cycle_max": 0.65,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "log10_fp32",
+      "case_id": 15,
+      "op": "Log10",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "four_cycle_dual_issue",
+      "expected_issue_per_cycle_min": 0.35,
+      "expected_issue_per_cycle_max": 0.65,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "leakyrelu_fp32",
+      "case_id": 16,
+      "op": "LeakyRelu",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "prelu_fp32",
+      "case_id": 17,
+      "op": "Prelu",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "abssub_fp32",
+      "case_id": 18,
+      "op": "AbsSub",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "expsub_fp32",
+      "case_id": 19,
+      "op": "ExpSub",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "mulscast_f32_to_f16",
+      "case_id": 20,
+      "op": "MulsCast",
+      "src_dtype": "fp32",
+      "dst_dtype": "fp16",
+      "dependency": "independent",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "addc_u32",
+      "case_id": 21,
+      "op": "AddC",
+      "dtype": "uint32",
+      "dependency": "independent",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "subc_u32",
+      "case_id": 22,
+      "op": "SubC",
+      "dtype": "uint32",
+      "dependency": "independent",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "interleave_u32",
+      "case_id": 23,
+      "op": "Interleave",
+      "dtype": "uint32",
+      "dependency": "independent",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "deinterleave_u32",
+      "case_id": 24,
+      "op": "DeInterleave",
+      "dtype": "uint32",
+      "dependency": "independent",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "pack_u32_to_u16",
+      "case_id": 25,
+      "op": "Pack",
+      "src_dtype": "uint32",
+      "dst_dtype": "uint16",
+      "mode": "LOWEST",
+      "dependency": "independent",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "unpack_u16_to_u32",
+      "case_id": 26,
+      "op": "UnPack",
+      "src_dtype": "uint16",
+      "dst_dtype": "uint32",
+      "mode": "LOWEST",
+      "dependency": "independent",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "exp_fp32",
+      "case_id": 27,
+      "op": "Exp",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "four_cycle_dual_issue",
+      "expected_issue_per_cycle_min": 0.35,
+      "expected_issue_per_cycle_max": 0.65,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "exp_then_sub_fp32",
+      "case_id": 28,
+      "op": "ExpThenSub",
+      "dtype": "fp32",
+      "dependency": "dependent_chain",
+      "expected_class": "mixed_dependent_flow",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 2
+    },
+    {
+      "case_name": "add_u32_independent",
+      "case_id": 29,
+      "op": "Add",
+      "dtype": "uint32",
+      "dependency": "independent",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "add_s32_independent",
+      "case_id": 30,
+      "op": "Add",
+      "dtype": "int32",
+      "dependency": "independent",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "exp_fp16",
+      "case_id": 31,
+      "op": "Exp",
+      "dtype": "fp16",
+      "dependency": "independent",
+      "expected_class": "to_measure",
+      "elements_per_inst": 128,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "exp_add2_fp32",
+      "case_id": 32,
+      "op": "ExpAddN",
+      "dtype": "fp32",
+      "dependency": "mixed_dependent_flow",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 3,
+      "overlap_calibration": {
+        "transcendental_count_per_group": 1,
+        "alu_count_per_group": 2,
+        "vector_cycles_per_group_sum_model": 3.0,
+        "vector_cycles_per_group_max_resource_model": 2.0,
+        "vector_cycles_per_group_issue_port_limit": 1.5,
+        "note": "sum = exp(4/2) + 2*add(1/2); max = max(exp_thru 2, issue (1+2)/2=1.5, alu 2*0.5=1.0)"
+      }
+    },
+    {
+      "case_name": "exp_add4_fp32",
+      "case_id": 33,
+      "op": "ExpAddN",
+      "dtype": "fp32",
+      "dependency": "mixed_dependent_flow",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 5,
+      "overlap_calibration": {
+        "transcendental_count_per_group": 1,
+        "alu_count_per_group": 4,
+        "vector_cycles_per_group_sum_model": 4.0,
+        "vector_cycles_per_group_max_resource_model": 2.5,
+        "vector_cycles_per_group_issue_port_limit": 2.5,
+        "note": "sum = 2 + 4*0.5; max = max(exp_thru 2, issue (1+4)/2=2.5, alu 4*0.5=2.0) = 2.5"
+      }
+    },
+    {
+      "case_name": "exp_add8_fp32",
+      "case_id": 34,
+      "op": "ExpAddN",
+      "dtype": "fp32",
+      "dependency": "mixed_dependent_flow",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 9,
+      "overlap_calibration": {
+        "transcendental_count_per_group": 1,
+        "alu_count_per_group": 8,
+        "vector_cycles_per_group_sum_model": 6.0,
+        "vector_cycles_per_group_max_resource_model": 4.5,
+        "vector_cycles_per_group_issue_port_limit": 4.5,
+        "note": "sum = 2 + 8*0.5; max = max(exp_thru 2, issue (1+8)/2=4.5, alu 8*0.5=4.0) = 4.5"
+      }
+    },
+    {
+      "case_name": "exp_mul_add_fp32",
+      "case_id": 35,
+      "op": "ExpMulAdd",
+      "dtype": "fp32",
+      "dependency": "mixed_dependent_flow",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 3,
+      "overlap_calibration": {
+        "transcendental_count_per_group": 1,
+        "alu_count_per_group": 2,
+        "vector_cycles_per_group_sum_model": 3.0,
+        "vector_cycles_per_group_max_resource_model": 2.0,
+        "vector_cycles_per_group_issue_port_limit": 1.5,
+        "note": "softmax/gelu fragment: Exp+Mul+Add; same prediction class as exp_add2"
+      }
+    },
+    {
+      "case_name": "sqrt_add4_fp32",
+      "case_id": 36,
+      "op": "SqrtAddN",
+      "dtype": "fp32",
+      "dependency": "mixed_dependent_flow",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 5,
+      "overlap_calibration": {
+        "transcendental_count_per_group": 1,
+        "alu_count_per_group": 4,
+        "vector_cycles_per_group_sum_model": 4.0,
+        "vector_cycles_per_group_max_resource_model": 2.5,
+        "vector_cycles_per_group_issue_port_limit": 2.5,
+        "note": "generality check with a different 4-cycle transcendental (Sqrt)"
+      }
+    },
+    {
+      "case_name": "exp_add4_indep_fp32",
+      "case_id": 37,
+      "op": "ExpAddNIndep",
+      "dtype": "fp32",
+      "dependency": "independent_mixed_flow",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 5,
+      "overlap_calibration": {
+        "transcendental_count_per_group": 1,
+        "alu_count_per_group": 4,
+        "vector_cycles_per_group_sum_model": 4.0,
+        "vector_cycles_per_group_max_resource_model": 2.5,
+        "vector_cycles_per_group_issue_port_limit": 2.5,
+        "note": "ALU adds independent of exp and on separate lanes; isolates pure throughput overlap from dependent-chain latency seen in exp_add4_fp32"
+      }
+    },
+    {
+      "case_name": "div_fp32",
+      "case_id": 39,
+      "op": "Div",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "four_cycle_dual_issue",
+      "expected_issue_per_cycle_min": 0.35,
+      "expected_issue_per_cycle_max": 0.65,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "reducemax_fp32",
+      "case_id": 40,
+      "op": "ReduceMax",
+      "dtype": "fp32",
+      "dependency": "independent",
+      "expected_class": "single_issue",
+      "expected_issue_per_cycle_min": 0.75,
+      "expected_issue_per_cycle_max": 1.25,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1
+    },
+    {
+      "case_name": "cast_rt_f16",
+      "case_id": 41,
+      "op": "Cast",
+      "src_dtype": "fp32",
+      "dst_dtype": "fp16",
+      "dependency": "dependent_chain",
+      "expected_class": "dual_issue",
+      "expected_issue_per_cycle_min": 1.6,
+      "expected_issue_per_cycle_max": 2.2,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 2,
+      "note": "f32<->f16 round-trip (narrow+widen); both fast-path conversions expected 1-cycle (conversion_2slot_t1)"
+    },
+    {
+      "case_name": "exp_add8_indep_fp32",
+      "case_id": 38,
+      "op": "ExpAddNIndep",
+      "dtype": "fp32",
+      "dependency": "independent_mixed_flow",
+      "expected_class": "to_measure",
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 9,
+      "overlap_calibration": {
+        "transcendental_count_per_group": 1,
+        "alu_count_per_group": 8,
+        "vector_cycles_per_group_sum_model": 6.0,
+        "vector_cycles_per_group_max_resource_model": 4.5,
+        "vector_cycles_per_group_issue_port_limit": 4.5,
+        "note": "independent variant of exp_add8_fp32"
+      }
+    }
+  ],
+  "planned_calibration_cases": [
+    {
+      "case_name": "cast_f32_to_f16",
+      "case_id": 3,
+      "op": "Cast",
+      "src_dtype": "fp32",
+      "dst_dtype": "fp16",
+      "dependency": "independent",
+      "expected_class": "dual_issue",
+      "expected_issue_per_cycle_min": 1.6,
+      "expected_issue_per_cycle_max": 2.2,
+      "elements_per_inst": 64,
+      "logical_ops_per_unroll": 1,
+      "status": "needs_cann_9_1_cast_trait_template"
+    },
+    {
+      "case_name": "cast_f32_to_fp8_e4m3fn",
+      "op": "Cast",
+      "src_dtype": "fp32",
+      "dst_dtype": "fp8_e4m3fn_t",
+      "expected_class": "two_cycle_dual_issue",
+      "status": "needs_low_precision_cast_template"
+    }
+  ],
+  "unknown_doc_ops_to_measure_after_calibration": [
+    "Unsqueeze",
+    "Gather",
+    "GatherB",
+    "Scatter",
+    "Squeeze",
+    "Histograms",
+    "Arange"
+  ]
+}

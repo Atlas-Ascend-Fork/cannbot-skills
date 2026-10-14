@@ -1,0 +1,30 @@
+{
+  "operator": "reduce_sum",
+  "summary": "ReduceSum 沿最后轴：每行 cols 元素归约成 1 个标量。读 N、写 rows（输出极小）→ 强 mte2-bound。单 VF，行驻留。低精度首尾 Cast。",
+  "attrs": ["axis"],
+  "reduce_axis_attr": "axis",
+  "compute_dtype": "fp32_for_lowp",
+  "gm_rw_contention": true,
+  "templates": [
+    {
+      "name": "row_resident_1pass",
+      "select": [],
+      "flow": [
+        {"copy_in": "x"},
+        {"vf": "reduce",
+         "live": [
+           {"name": "x", "extent": "row"},
+           {"name": "y", "extent": "scalar"}
+         ],
+         "ops": [
+           {"op": "Cast", "when": "lowp", "src_dtype": "@in", "dst_dtype": "fp32"},
+           {"op": "ReduceSum", "on": "full"},
+           {"op": "Cast", "when": "lowp", "src_dtype": "fp32", "dst_dtype": "@in", "on": "reduced"}
+         ]},
+        {"copy_out": "y"}
+      ]
+    }
+  ],
+  "launch_floor_model": "hardware",
+  "gm_bandwidth_model": "l2_aware"
+}

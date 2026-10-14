@@ -1,0 +1,11 @@
+{
+  "operator": "gelu",
+  "hardware_variant": "ascend950pr_9589",
+  "comment": "GELU(tanh 近似)。单输入；Exp/Reciprocal + 大量 ALU 混合，验超越+ALU overlap（标定核心）。",
+  "cases": [
+    {"case_id": "gelu_s_64K", "inputs": [{"name":"x","shape":[65536],"dtype":"fp32"}]},
+    {"case_id": "gelu_m_4M",  "inputs": [{"name":"x","shape":[4194304],"dtype":"fp32"}]},
+    {"case_id": "gelu_l_64M", "inputs": [{"name":"x","shape":[67108864],"dtype":"fp32"}]},
+    {"case_id": "gelu_m_4M_bf16", "inputs": [{"name":"x","shape":[4194304],"dtype":"bf16"}]}
+  ]
+}

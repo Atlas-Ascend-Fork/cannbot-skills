@@ -1,0 +1,254 @@
+{
+  "operator": "add_rms_norm",
+  "summary": "融合 AddRmsNorm：added = x + residual；y = added / rms(added) * weight。三输入(x, residual, weight)，行归约。残差 add 后做 RmsNorm。单 VF 全载；非全载行切分重读。低精度每 VF 内 Cast。",
+  "attrs": [
+    "axis",
+    "epsilon"
+  ],
+  "reduce_axis_attr": "axis",
+  "compute_dtype": "fp32_for_lowp",
+  "gm_rw_contention": true,
+  "templates": [
+    {
+      "name": "row_resident_1pass",
+      "select": [],
+      "flow": [
+        {
+          "copy_in": "x"
+        },
+        {
+          "copy_in": "residual"
+        },
+        {
+          "copy_in": "weight"
+        },
+        {
+          "vf": "add_rms",
+          "live": [
+            {
+              "name": "x",
+              "extent": "row"
+            },
+            {
+              "name": "residual",
+              "extent": "row"
+            },
+            {
+              "name": "weight",
+              "extent": "row",
+              "db": false
+            },
+            {
+              "name": "y",
+              "extent": "row"
+            }
+          ],
+          "ops": [
+            {
+              "op": "Cast",
+              "when": "lowp",
+              "src_dtype": "@in",
+              "dst_dtype": "fp32"
+            },
+            {
+              "op": "Cast",
+              "when": "lowp",
+              "src_dtype": "@in",
+              "dst_dtype": "fp32"
+            },
+            {
+              "op": "Add",
+              "on": "full"
+            },
+            {
+              "op": "Mul",
+              "on": "full"
+            },
+            {
+              "op": "ReduceSum",
+              "on": "full"
+            },
+            {
+              "op": "Muls",
+              "on": "reduced"
+            },
+            {
+              "op": "Adds",
+              "on": "reduced"
+            },
+            {
+              "op": "Sqrt",
+              "on": "reduced"
+            },
+            {
+              "op": "Div",
+              "on": "reduced"
+            },
+            {
+              "op": "Mul",
+              "on": "full"
+            },
+            {
+              "op": "Mul",
+              "on": "full"
+            },
+            {
+              "op": "Cast",
+              "when": "lowp",
+              "src_dtype": "fp32",
+              "dst_dtype": "@in"
+            }
+          ]
+        },
+        {
+          "copy_out": "y",
+          "like": "x"
+        }
+      ]
+    },
+    {
+      "name": "row_split_2pass",
+      "l2_concurrent_streams": 3,
+      "select": [],
+      "tiling": {
+        "core_split_units": "rows",
+        "total_tile_units": "rows * ceil((3*cols*db + cols*4) / (ub/4))",
+        "ub_bytes_per_unit": "ub/4",
+        "double_buffer": 2
+      },
+      "flow": [
+        {
+          "copy_in": "x"
+        },
+        {
+          "copy_in": "residual"
+        },
+        {
+          "vf": "sumsq",
+          "live": [
+            {
+              "name": "x",
+              "extent": "row"
+            },
+            {
+              "name": "residual",
+              "extent": "row"
+            }
+          ],
+          "ops": [
+            {
+              "op": "Cast",
+              "when": "lowp",
+              "src_dtype": "@in",
+              "dst_dtype": "fp32"
+            },
+            {
+              "op": "Cast",
+              "when": "lowp",
+              "src_dtype": "@in",
+              "dst_dtype": "fp32"
+            },
+            {
+              "op": "Add",
+              "on": "full"
+            },
+            {
+              "op": "Mul",
+              "on": "full"
+            },
+            {
+              "op": "ReduceSum",
+              "on": "full"
+            },
+            {
+              "op": "Muls",
+              "on": "reduced"
+            },
+            {
+              "op": "Adds",
+              "on": "reduced"
+            },
+            {
+              "op": "Sqrt",
+              "on": "reduced"
+            },
+            {
+              "op": "Div",
+              "on": "reduced"
+            }
+          ]
+        },
+        {
+          "copy_in": "x"
+        },
+        {
+          "copy_in": "residual"
+        },
+        {
+          "copy_in": "weight"
+        },
+        {
+          "vf": "scale",
+          "live": [
+            {
+              "name": "x",
+              "extent": "row"
+            },
+            {
+              "name": "residual",
+              "extent": "row"
+            },
+            {
+              "name": "weight",
+              "extent": "row",
+              "db": false
+            },
+            {
+              "name": "y",
+              "extent": "row"
+            }
+          ],
+          "ops": [
+            {
+              "op": "Cast",
+              "when": "lowp",
+              "src_dtype": "@in",
+              "dst_dtype": "fp32"
+            },
+            {
+              "op": "Cast",
+              "when": "lowp",
+              "src_dtype": "@in",
+              "dst_dtype": "fp32"
+            },
+            {
+              "op": "Add",
+              "on": "full"
+            },
+            {
+              "op": "Mul",
+              "on": "full"
+            },
+            {
+              "op": "Mul",
+              "on": "full"
+            },
+            {
+              "op": "Cast",
+              "when": "lowp",
+              "src_dtype": "fp32",
+              "dst_dtype": "@in"
+            }
+          ]
+        },
+        {
+          "copy_out": "y",
+          "like": "x"
+        }
+      ],
+      "l2_capacity_todo": "3流多reread(x+residual);reuse_working_set 需 per-tensor 单张量口径,第一版用 gm_reread 总和会偏保守;且无自写 split kernel → 暂保持 flow 级 l2_aware,待模型支持每张量独立命中判定 + kernel 验证再切"
+    }
+  ],
+  "launch_floor_model": "hardware",
+  "gm_bandwidth_model": "l2_aware"
+}

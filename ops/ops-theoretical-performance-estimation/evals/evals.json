@@ -1,0 +1,61 @@
+{
+  "skill_name": "ops-theoretical-performance-estimation",
+  "eval_mode": "text",
+  "evals": [
+    {
+      "id": 1,
+      "title": "设计期估算与硬件范围",
+      "config": {
+        "eval_mode": "text"
+      },
+      "prompt": "还没写 kernel，也没有 NPU。想比较 Ascend950 的 RegBase 纯 Vector RMSNorm 设计并制定性能目标，这个技能能做什么？如果换成 Ascend910B 或 MatMul 呢？只说明，不执行。",
+      "expected_output": "说明可以从计算流和用例离线估算理论时延、bound 和目标时延，使用已有标定数据。明确当前只支持 Ascend950/DAV_3510 的 RegBase 纯 Vector；910B、Cube/MatMul 和混合算子超出范围，不能套用 950 Vector 常量。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 2,
+      "title": "访存量与现有 CLI 入口",
+      "config": {
+        "eval_mode": "text"
+      },
+      "prompt": "我有两个 shape=[4194304]、dtype=fp32 的输入，做 elementwise Add，输出同形 fp32。请计算 GM 读写字节数，给出用仓内样例进行理论估算并显示标准 case 的命令，不执行。",
+      "expected_output": "GM 读取 33554432 字节，写入 16777216 字节。命令为 python3 scripts/perf.py --op add --cases references/examples/add_cases.json --show-case，在 skill 根目录执行；不使用 msprof 或上板来完成设计期估算。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 3,
+      "title": "有限 tile 与依赖链",
+      "config": {
+        "eval_mode": "text"
+      },
+      "prompt": "一个纯 Vector 流里混有 Exp 和一拍 ALU，但 tile 很少且指令依赖很强。能直接把 MTE2、Vector、MTE3 三段时间取 max，当成可达目标吗？只解释建模选择。",
+      "expected_output": "说明 max_pipe 是稳态流水重叠的 roofline bound，tile 少时要考虑 fill_drain 和核间尾块均衡。Vector 按执行单元/子管线和发射口约束聚合，超越函数可与 ALU 重叠；低 ILP 可使用 target_efficiency 或 dependency=dependent，不能二者叠加，也不能把吞吐下限直接承诺为可达时延。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 4,
+      "title": "新增计算流与模版路由",
+      "config": {
+        "eval_mode": "text"
+      },
+      "prompt": "我要新增一个归约算子，整行驻留时读 x 一次，UB 放不下时按列切分两遍读取 x。应该扩展哪几个文件？是否要写独立 Python builder 或修改引擎常量？只给方案。",
+      "expected_output": "新增 references/examples/<op>_flow.json 和 <op>_cases.json，定义驻留及行切分模版，明确各自 copy_in/vf/copy_out 流、select 与 live/tiling。重读量来自非驻留模版的流，UB 可行性参与路由。使用通用 CLI 与离线符合性测试，无需算子专属 Python，不修改共享标定常量。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 5,
+      "title": "实测低于理论下界的处理",
+      "config": {
+        "eval_mode": "text"
+      },
+      "prompt": "理论时延是 10 us，950 实测为 8 us。是否应判定为优化成功并把 JSON 标定常量调到通过？如果需要重新采集实测或做性能仿真，应调用什么技能？只说明，不执行。",
+      "expected_output": "实测 8 us 低于理论 10 us 超过 3% 容差，应标记 BELOW_FLOOR，核对计算流、工作量和硬件能力/标定口径。不能为让算子通过而修改标定常量；调整常量需 bench 数据背书。实测采集使用 ops-profiling，仿真使用 ops-simulator；性能策略使用 ascendc-perf-optimize。",
+      "files": [],
+      "expectations": []
+    }
+  ]
+}

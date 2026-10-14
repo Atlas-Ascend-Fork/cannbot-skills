@@ -1,0 +1,12 @@
+{
+  "operator": "reduce_sum",
+  "hardware_variant": "ascend950pr_9589",
+  "comment": "ReduceSum(x, axis=-1)。输出 y[rows] 极小，主导是读 x → mte2-bound。cols≤8192 行驻留 UB。",
+  "default_attrs": {"axis": -1},
+  "cases": [
+    {"case_id": "reduce_sum_s_512x2048",  "inputs": [{"name": "x", "shape": [512, 2048],  "dtype": "fp32"}], "outputs": [{"name": "y", "shape": [512],  "dtype": "fp32"}]},
+    {"case_id": "reduce_sum_m_8192x4096", "inputs": [{"name": "x", "shape": [8192, 4096], "dtype": "fp32"}], "outputs": [{"name": "y", "shape": [8192], "dtype": "fp32"}]},
+    {"case_id": "reduce_sum_l_16384x8192","inputs": [{"name": "x", "shape": [16384, 8192],"dtype": "fp32"}], "outputs": [{"name": "y", "shape": [16384],"dtype": "fp32"}]},
+    {"case_id": "reduce_sum_m_8192x4096_bf16","inputs": [{"name": "x", "shape": [8192, 4096], "dtype": "bf16"}], "outputs": [{"name": "y", "shape": [8192], "dtype": "bf16"}]}
+  ]
+}

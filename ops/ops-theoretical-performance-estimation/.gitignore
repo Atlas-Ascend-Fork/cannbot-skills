@@ -1,0 +1,4 @@
+logs/
+
+# 标定板上原始数据入库在 instruments/**/data/（无一键重跑法，需版本化）。
+# instruments/**/output/ 是 run.sh 逐 case 重跑的临时 scratch，由 repo 顶层 **/output/ 规则整目录忽略，不入库。

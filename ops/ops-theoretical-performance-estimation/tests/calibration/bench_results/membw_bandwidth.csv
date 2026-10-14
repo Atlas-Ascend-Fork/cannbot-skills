@@ -1,0 +1,29 @@
+# bench: GM/L2 带宽（read/write/copy 三模式 × 尺寸）。仪器: kernels/membw（<<<>>> 直调）
+# source: copy = 2026-06-12; read/write 全档 = 2026-06-29 重扫(含 L2 容量拐点). bench-device-03 (Ascend950PR_9589/dav-3510) aclrtEvent us/iter
+# 标定映射: HBM read/write→peak.gm_bandwidth & hbm_sustained; copy@512→l2_aware 曲线 HBM 平台;
+#           L2 read/write→l2_assisted_peak / peak.l2_bandwidth(后者厂商规格 6.4,实测单管线 read~4.5/write~4.95/合并~5.9)
+# ★L2 容量拐点(2026-06-29, 读写对称): 单流 ≤128MB 满速(read ~4.5 / write ~4.95 TB/s, 数据驻 L2 不刷 HBM);
+#   160MB 骤降(read 2.05 / write 1.77)、≥256MB(read)/≥192MB(write) = HBM 持续 ~1.6 → 单流 L2 驻留拐点 ∈(128,160]MB,
+#   印证 9589 L2=128MiB。copy(R+W 两份)per-tensor 拐点 ~56-64MB(=容量/2)。
+#   L2 容量模型地基: 访问量 ≤ L2容量 → L2 带宽; 溢出 → 退 HBM。160/192 标 knee(过渡点,不参与 HBM 持续校验)。
+mode,mb,iters,us,bw_TBps,regime
+copy,32,100,11.343,5.917,L2
+copy,512,30,734.166,1.463,HBM
+read,32,100,10.558,3.178,L2
+read,64,100,16.891,3.973,L2
+read,96,100,24.686,4.078,L2
+read,112,100,27.418,4.283,L2
+read,128,100,29.765,4.509,L2
+read,160,100,81.832,2.050,knee
+read,192,100,112.824,1.784,knee
+read,256,30,166.518,1.612,HBM
+read,512,30,331.205,1.621,HBM
+write,32,100,7.654,4.384,L2
+write,64,100,14.005,4.792,L2
+write,96,100,20.325,4.953,L2
+write,112,100,23.719,4.951,L2
+write,128,100,26.961,4.978,L2
+write,160,100,94.729,1.771,knee
+write,192,100,127.924,1.574,HBM
+write,256,30,170.304,1.576,HBM
+write,512,30,343.249,1.564,HBM

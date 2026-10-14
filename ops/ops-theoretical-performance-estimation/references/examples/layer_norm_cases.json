@@ -1,0 +1,44 @@
+{
+  "operator": "layer_norm",
+  "hardware_variant": "ascend950pr_9589",
+  "comment": "LayerNorm 性能测试 case：演示可选 affine 输入。x + 可选 gamma/beta[H]，attr 给 epsilon/axis。",
+  "default_attrs": {"axis": -1, "epsilon": 1e-5},
+  "cases": [
+    {"case_id": "layer_norm_m_4096x4096_affine",
+     "inputs": [{"name": "x", "shape": [4096, 4096], "dtype": "fp32"},
+                {"name": "gamma", "shape": [4096], "dtype": "fp32"},
+                {"name": "beta",  "shape": [4096], "dtype": "fp32"}]},
+
+    {"case_id": "layer_norm_m_4096x4096_no_beta",
+     "comment": "可选输入：只有 gamma 无 beta（elementwise_affine 但无 bias）",
+     "inputs": [{"name": "x", "shape": [4096, 4096], "dtype": "fp32"},
+                {"name": "gamma", "shape": [4096], "dtype": "fp32"}]},
+
+    {"case_id": "layer_norm_m_4096x4096_plain",
+     "comment": "可选输入：无 gamma/beta，纯归一化（跳过 affine 指令）",
+     "inputs": [{"name": "x", "shape": [4096, 4096], "dtype": "fp32"}]},
+
+    {"case_id": "layer_norm_m_4096x4096_bf16_affine",
+     "inputs": [{"name": "x", "shape": [4096, 4096], "dtype": "bf16"},
+                {"name": "gamma", "shape": [4096], "dtype": "bf16"},
+                {"name": "beta",  "shape": [4096], "dtype": "bf16"}]},
+
+    {"case_id": "layer_norm_l_16384x8192_affine",
+     "inputs": [{"name": "x", "shape": [16384, 8192], "dtype": "fp32"},
+                {"name": "gamma", "shape": [8192], "dtype": "fp32"},
+                {"name": "beta",  "shape": [8192], "dtype": "fp32"}]},
+
+    {"case_id": "layer_norm_xl_4096x16384_affine_nonresident",
+     "comment": "非全载：H=16384 fp32 一行工作集(~393KB,含double buffer)>UB(248KB) → 行切分 + x 回 GM 读 2 次",
+     "inputs": [{"name": "x", "shape": [4096, 16384], "dtype": "fp32"},
+                {"name": "gamma", "shape": [16384], "dtype": "fp32"},
+                {"name": "beta",  "shape": [16384], "dtype": "fp32"}]},
+
+    {"case_id": "layer_norm_m_4096x4096_force_split",
+     "comment": "强制走 row_split_2pass：同 shape 对比两模版性能（split 因 x 重读，理论时间高于 resident）",
+     "template": "row_split_2pass",
+     "inputs": [{"name": "x", "shape": [4096, 4096], "dtype": "fp32"},
+                {"name": "gamma", "shape": [4096], "dtype": "fp32"},
+                {"name": "beta",  "shape": [4096], "dtype": "fp32"}]}
+  ]
+}

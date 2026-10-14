@@ -1,0 +1,24 @@
+{
+  "operator": "rms_norm",
+  "hardware_variant": "ascend950pr_9589",
+  "comment": "RmsNorm(x, weight, epsilon) 性能测试 case。两个输入（x + weight[H]），attr 给 epsilon/axis。",
+  "default_attrs": {"axis": -1, "epsilon": 1e-6},
+  "cases": [
+    {"case_id": "rms_norm_s_512x4096",
+     "inputs": [{"name": "x", "shape": [512, 4096], "dtype": "fp32"},
+                {"name": "weight", "shape": [4096], "dtype": "fp32"}]},
+    {"case_id": "rms_norm_m_4096x4096",
+     "inputs": [{"name": "x", "shape": [4096, 4096], "dtype": "fp32"},
+                {"name": "weight", "shape": [4096], "dtype": "fp32"}]},
+    {"case_id": "rms_norm_m_4096x4096_bf16",
+     "inputs": [{"name": "x", "shape": [4096, 4096], "dtype": "bf16"},
+                {"name": "weight", "shape": [4096], "dtype": "bf16"}]},
+    {"case_id": "rms_norm_l_16384x8192",
+     "inputs": [{"name": "x", "shape": [16384, 8192], "dtype": "fp32"},
+                {"name": "weight", "shape": [8192], "dtype": "fp32"}]},
+    {"case_id": "rms_norm_xl_2048x16384_nonresident",
+     "comment": "非全载：H=16384 fp32，x×2+weight×1+y×2(5 行)>UB → 行切分、x 读两次（覆盖 row_split_2pass）",
+     "inputs": [{"name": "x", "shape": [2048, 16384], "dtype": "fp32"},
+                {"name": "weight", "shape": [16384], "dtype": "fp32"}]}
+  ]
+}

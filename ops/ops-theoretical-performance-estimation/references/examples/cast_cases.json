@@ -1,0 +1,15 @@
+{
+  "operator": "cast",
+  "hardware_variant": "ascend950pr_9589",
+  "comment": "Cast。src→dst 不同 dtype；验快路径(fp32↔fp16/bf16=1cyc) vs 慢路径(其余=2cyc)与读写字节不对称。",
+  "cases": [
+    {"case_id": "cast_fp32_to_fp16_4M", "comment": "快路径",
+     "inputs": [{"name":"x","shape":[4194304],"dtype":"fp32"}], "outputs": [{"name":"y","shape":[4194304],"dtype":"fp16"}]},
+    {"case_id": "cast_fp16_to_fp32_4M", "comment": "快路径",
+     "inputs": [{"name":"x","shape":[4194304],"dtype":"fp16"}], "outputs": [{"name":"y","shape":[4194304],"dtype":"fp32"}]},
+    {"case_id": "cast_fp32_to_bf16_4M", "comment": "快路径",
+     "inputs": [{"name":"x","shape":[4194304],"dtype":"fp32"}], "outputs": [{"name":"y","shape":[4194304],"dtype":"bf16"}]},
+    {"case_id": "cast_fp32_to_int32_4M", "comment": "慢路径(2cyc)",
+     "inputs": [{"name":"x","shape":[4194304],"dtype":"fp32"}], "outputs": [{"name":"y","shape":[4194304],"dtype":"int32"}]}
+  ]
+}

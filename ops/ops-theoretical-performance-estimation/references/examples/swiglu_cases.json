@@ -1,0 +1,11 @@
+{
+  "operator": "swiglu",
+  "hardware_variant": "ascend950pr_9589",
+  "comment": "SwiGLU(gate, up)：双输入逐元素，silu(gate)*up。Exp+Div 超越 + Mul/Muls/Adds ALU，验证超越↔ALU overlap + 多输入访存。",
+  "cases": [
+    {"case_id": "swiglu_s_64K", "inputs": [{"name":"gate","shape":[65536],"dtype":"fp32"},{"name":"up","shape":[65536],"dtype":"fp32"}]},
+    {"case_id": "swiglu_m_4M",  "inputs": [{"name":"gate","shape":[4194304],"dtype":"fp32"},{"name":"up","shape":[4194304],"dtype":"fp32"}]},
+    {"case_id": "swiglu_l_64M", "inputs": [{"name":"gate","shape":[67108864],"dtype":"fp32"},{"name":"up","shape":[67108864],"dtype":"fp32"}]},
+    {"case_id": "swiglu_m_4M_bf16", "inputs": [{"name":"gate","shape":[4194304],"dtype":"bf16"},{"name":"up","shape":[4194304],"dtype":"bf16"}]}
+  ]
+}

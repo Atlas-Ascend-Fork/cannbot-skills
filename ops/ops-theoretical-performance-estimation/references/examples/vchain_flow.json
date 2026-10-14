@@ -1,0 +1,62 @@
+{
+  "operator": "vchain",
+  "summary": "合成 vector-bound 算子(验证 vector 模型)：y=Σ_{k}sqrt(x+k)，K 个 sqrt 各自独立(4 路交织+多累加器)→吞吐受限。bf16 输入读后 Cast→fp32 算、写前 Cast→bf16。Sqrt=t4(微基准实测报告 0.4996 确认)。理论(sqrt t4 吞吐地板,ALU 全重叠)≈实测,eff 0.94~0.97 全 OK。tiling 里 core_split_units=n(分核单位,均分整除→eta=1),与 total_tile_units(核内 UB tile)解耦,故无假尾块罚。",
+  "attrs": [
+    "K"
+  ],
+  "compute_dtype": "fp32_for_lowp",
+  "launch_floor_model": "hardware",
+  "templates": [
+    {
+      "name": "elementwise_chain",
+      "select": [],
+      "tiling": {
+        "core_split_units": "n",
+        "total_tile_units": "n",
+        "ub_bytes_per_unit": "2*db",
+        "double_buffer": 2
+      },
+      "flow": [
+        {
+          "copy_in": "x"
+        },
+        {
+          "vf": "chain",
+          "ops": [
+            {
+              "op": "Cast",
+              "when": "lowp",
+              "src_dtype": "@in",
+              "dst_dtype": "fp32"
+            },
+            {
+              "op": "Adds",
+              "on": "full",
+              "count": "K"
+            },
+            {
+              "op": "Sqrt",
+              "on": "full",
+              "count": "K"
+            },
+            {
+              "op": "Add",
+              "on": "full",
+              "count": "K"
+            },
+            {
+              "op": "Cast",
+              "when": "lowp",
+              "src_dtype": "fp32",
+              "dst_dtype": "@in"
+            }
+          ]
+        },
+        {
+          "copy_out": "y",
+          "like": "x"
+        }
+      ]
+    }
+  ]
+}

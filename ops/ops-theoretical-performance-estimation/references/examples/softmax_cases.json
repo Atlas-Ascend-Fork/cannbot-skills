@@ -1,0 +1,21 @@
+{
+  "operator": "softmax",
+  "hardware_variant": "ascend950pr_9589",
+  "comment": "softmax(x, axis) 性能测试 case。单输入；attr 给规约轴。计算流由 softmax_perf.py 推导。",
+  "default_attrs": {"axis": -1},
+  "cases": [
+    {"case_id": "softmax_s_256x1024",   "inputs": [{"name": "x", "shape": [256, 1024],   "dtype": "fp32"}]},
+    {"case_id": "softmax_m_4096x1024",  "inputs": [{"name": "x", "shape": [4096, 1024],  "dtype": "fp32"}]},
+    {"case_id": "softmax_l_65536x1024", "inputs": [{"name": "x", "shape": [65536, 1024], "dtype": "fp32"}]},
+    {"case_id": "softmax_m_fp16",       "inputs": [{"name": "x", "shape": [4096, 1024],  "dtype": "fp16"}]},
+
+    {"case_id": "softmax_m_tuned",
+     "inputs": [{"name": "x", "shape": [4096, 1024], "dtype": "fp32"}],
+     "tuning": {"target_efficiency": 0.55},
+     "tuning_reason": "实测对照后下调 CP4 阈值效率（示例：仅动有语义旋钮，不动引擎标定）"},
+
+    {"case_id": "softmax_xl_4096x32768_nonresident",
+     "comment": "非全载：H=32768 fp32，x+y 双缓冲(4 行)>UB → 行切分、x 读两次（覆盖 row_split_2pass）",
+     "inputs": [{"name": "x", "shape": [4096, 32768], "dtype": "fp32"}]}
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "operator": "vchain",
+  "hardware_variant": "ascend950pr_9589",
+  "comment": "合成 vector-bound 用例(bf16 输入)：K 次 sqrt 链。读 bf16→Cast fp32 算 K 次→Cast bf16 写。bf16 访存减半→更 vector-bound。",
+  "default_attrs": {"K": 64},
+  "cases": [
+    {"case_id": "vchain_m_4096x2048_k64",
+     "inputs": [{"name": "x", "shape": [4096, 2048], "dtype": "bf16"}]},
+    {"case_id": "vchain_m_4096x2048_k128",
+     "attrs": {"K": 128},
+     "inputs": [{"name": "x", "shape": [4096, 2048], "dtype": "bf16"}]},
+    {"case_id": "vchain_l_8192x4096_k64",
+     "inputs": [{"name": "x", "shape": [8192, 4096], "dtype": "bf16"}]}
+  ]
+}

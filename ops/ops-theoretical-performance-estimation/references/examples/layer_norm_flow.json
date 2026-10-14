@@ -1,0 +1,271 @@
+{
+  "operator": "layer_norm",
+  "summary": "LayerNorm：mean VF + normalize VF。affine 可选。全载 x 驻留；非全载行切分、两 VF 重读 x。低精度每 VF 内 Cast。gamma/beta 加载一次不双缓冲。",
+  "attrs": [
+    "axis",
+    "epsilon"
+  ],
+  "reduce_axis_attr": "axis",
+  "compute_dtype": "fp32_for_lowp",
+  "gm_rw_contention": true,
+  "templates": [
+    {
+      "name": "row_resident_1pass",
+      "select": [],
+      "flow": [
+        {
+          "copy_in": "x"
+        },
+        {
+          "vf": "mean",
+          "live": [
+            {
+              "name": "x",
+              "extent": "row"
+            }
+          ],
+          "ops": [
+            {
+              "op": "Cast",
+              "when": "lowp",
+              "src_dtype": "@in",
+              "dst_dtype": "fp32"
+            },
+            {
+              "op": "ReduceSum",
+              "on": "full"
+            },
+            {
+              "op": "Muls",
+              "on": "reduced"
+            }
+          ]
+        },
+        {
+          "copy_in": "gamma",
+          "when": "has:gamma"
+        },
+        {
+          "copy_in": "beta",
+          "when": "has:beta"
+        },
+        {
+          "vf": "normalize",
+          "live": [
+            {
+              "name": "x",
+              "extent": "row"
+            },
+            {
+              "name": "gamma",
+              "extent": "row",
+              "when": "has:gamma",
+              "db": false
+            },
+            {
+              "name": "beta",
+              "extent": "row",
+              "when": "has:beta",
+              "db": false
+            },
+            {
+              "name": "y",
+              "extent": "row"
+            }
+          ],
+          "ops": [
+            {
+              "op": "Cast",
+              "when": "lowp",
+              "src_dtype": "@in",
+              "dst_dtype": "fp32"
+            },
+            {
+              "op": "Sub",
+              "on": "full"
+            },
+            {
+              "op": "Mul",
+              "on": "full"
+            },
+            {
+              "op": "ReduceSum",
+              "on": "full"
+            },
+            {
+              "op": "Muls",
+              "on": "reduced"
+            },
+            {
+              "op": "Adds",
+              "on": "reduced"
+            },
+            {
+              "op": "Rsqrt",
+              "on": "reduced"
+            },
+            {
+              "op": "Mul",
+              "on": "full"
+            },
+            {
+              "op": "Mul",
+              "on": "full",
+              "when": "has:gamma"
+            },
+            {
+              "op": "Add",
+              "on": "full",
+              "when": "has:beta"
+            },
+            {
+              "op": "Cast",
+              "when": "lowp",
+              "src_dtype": "fp32",
+              "dst_dtype": "@in"
+            }
+          ]
+        },
+        {
+          "copy_out": "y",
+          "like": "x"
+        }
+      ]
+    },
+    {
+      "name": "row_split_2pass",
+      "gm_bandwidth_model": "l2_capacity",
+      "l2_concurrent_streams": 2,
+      "select": [],
+      "tiling": {
+        "core_split_units": "rows",
+        "total_tile_units": "rows * ceil((2*cols*db + cols*4) / (ub/4))",
+        "ub_bytes_per_unit": "ub/4",
+        "double_buffer": 2
+      },
+      "flow": [
+        {
+          "copy_in": "x"
+        },
+        {
+          "vf": "mean",
+          "live": [
+            {
+              "name": "x",
+              "extent": "row"
+            }
+          ],
+          "ops": [
+            {
+              "op": "Cast",
+              "when": "lowp",
+              "src_dtype": "@in",
+              "dst_dtype": "fp32"
+            },
+            {
+              "op": "ReduceSum",
+              "on": "full"
+            },
+            {
+              "op": "Muls",
+              "on": "reduced"
+            }
+          ]
+        },
+        {
+          "copy_in": "x"
+        },
+        {
+          "copy_in": "gamma",
+          "when": "has:gamma"
+        },
+        {
+          "copy_in": "beta",
+          "when": "has:beta"
+        },
+        {
+          "vf": "normalize",
+          "live": [
+            {
+              "name": "x",
+              "extent": "row"
+            },
+            {
+              "name": "gamma",
+              "extent": "row",
+              "when": "has:gamma",
+              "db": false
+            },
+            {
+              "name": "beta",
+              "extent": "row",
+              "when": "has:beta",
+              "db": false
+            },
+            {
+              "name": "y",
+              "extent": "row"
+            }
+          ],
+          "ops": [
+            {
+              "op": "Cast",
+              "when": "lowp",
+              "src_dtype": "@in",
+              "dst_dtype": "fp32"
+            },
+            {
+              "op": "Sub",
+              "on": "full"
+            },
+            {
+              "op": "Mul",
+              "on": "full"
+            },
+            {
+              "op": "ReduceSum",
+              "on": "full"
+            },
+            {
+              "op": "Muls",
+              "on": "reduced"
+            },
+            {
+              "op": "Adds",
+              "on": "reduced"
+            },
+            {
+              "op": "Rsqrt",
+              "on": "reduced"
+            },
+            {
+              "op": "Mul",
+              "on": "full"
+            },
+            {
+              "op": "Mul",
+              "on": "full",
+              "when": "has:gamma"
+            },
+            {
+              "op": "Add",
+              "on": "full",
+              "when": "has:beta"
+            },
+            {
+              "op": "Cast",
+              "when": "lowp",
+              "src_dtype": "fp32",
+              "dst_dtype": "@in"
+            }
+          ]
+        },
+        {
+          "copy_out": "y",
+          "like": "x"
+        }
+      ]
+    }
+  ],
+  "launch_floor_model": "hardware"
+}

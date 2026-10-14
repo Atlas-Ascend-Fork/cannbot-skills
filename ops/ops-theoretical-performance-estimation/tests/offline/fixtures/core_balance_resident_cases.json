@@ -1,0 +1,107 @@
+{
+  "operator": "rms_norm",
+  "hardware_variant": "ascend950pr_9589",
+  "comment": "core_balance 回归 fixture：cols=512 走 row_resident_1pass(自动派生 tiling)。覆盖行数非整除 64 的核间尾块均衡。",
+  "cases": [
+    {
+      "case_id": "rows64_div",
+      "inputs": [
+        {
+          "name": "x",
+          "shape": [
+            64,
+            512
+          ],
+          "dtype": "fp32"
+        },
+        {
+          "name": "weight",
+          "shape": [
+            512
+          ],
+          "dtype": "fp32"
+        }
+      ]
+    },
+    {
+      "case_id": "rows128_div",
+      "inputs": [
+        {
+          "name": "x",
+          "shape": [
+            128,
+            512
+          ],
+          "dtype": "fp32"
+        },
+        {
+          "name": "weight",
+          "shape": [
+            512
+          ],
+          "dtype": "fp32"
+        }
+      ]
+    },
+    {
+      "case_id": "rows100_nondiv",
+      "inputs": [
+        {
+          "name": "x",
+          "shape": [
+            100,
+            512
+          ],
+          "dtype": "fp32"
+        },
+        {
+          "name": "weight",
+          "shape": [
+            512
+          ],
+          "dtype": "fp32"
+        }
+      ]
+    },
+    {
+      "case_id": "rows1000_nondiv",
+      "inputs": [
+        {
+          "name": "x",
+          "shape": [
+            1000,
+            512
+          ],
+          "dtype": "fp32"
+        },
+        {
+          "name": "weight",
+          "shape": [
+            512
+          ],
+          "dtype": "fp32"
+        }
+      ]
+    },
+    {
+      "case_id": "rows3000_nondiv",
+      "inputs": [
+        {
+          "name": "x",
+          "shape": [
+            3000,
+            512
+          ],
+          "dtype": "fp32"
+        },
+        {
+          "name": "weight",
+          "shape": [
+            512
+          ],
+          "dtype": "fp32"
+        }
+      ]
+    }
+  ]
+}

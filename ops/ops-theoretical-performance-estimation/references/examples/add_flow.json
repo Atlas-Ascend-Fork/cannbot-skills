@@ -1,0 +1,39 @@
+{
+  "operator": "add",
+  "summary": "Elementwise Add：N 路输入 (N-1) 次逐元素加。单 VF。",
+  "attrs": [],
+  "compute_dtype": "same",
+  "gm_rw_contention": true,
+  "templates": [
+    {
+      "name": "elementwise",
+      "select": [],
+      "tiling": {
+        "core_split_units": "n",
+        "total_tile_units": "n",
+        "ub_bytes_per_unit": "(nin+1)*db",
+        "double_buffer": 2
+      },
+      "flow": [
+        {
+          "copy_in": "*"
+        },
+        {
+          "vf": "add",
+          "ops": [
+            {
+              "op": "Add",
+              "on": "full",
+              "count": "max(1, nin-1)"
+            }
+          ]
+        },
+        {
+          "copy_out": "y",
+          "like": "a"
+        }
+      ]
+    }
+  ],
+  "launch_floor_model": "hardware"
+}

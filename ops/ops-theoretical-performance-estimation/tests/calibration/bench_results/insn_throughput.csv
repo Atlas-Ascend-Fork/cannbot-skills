@@ -1,0 +1,13 @@
+# bench: 单指令吞吐(单核 cycle 计数)。仪器/方法: regbase-microbench (GetSystemCycle, block_dim=1, unroll)
+# source: tests/calibration/instruments/regbase-microbench/output/report_*.json (Ascend950/dav-3510, sys 1GHz / vec 1.65GHz)
+# 口径: 用 measured_cycles(=稳态吞吐真值,与微基准实测报告 issue_per_vector_cycle 一致)。
+#   ⚠ 不要用 body_cycles(measured 减空循环基线 empty~73.5k):unroll 流水循环里循环开销与指令体完全重叠,
+#     再减 empty = 双重扣除,会系统性虚高 ~23%(曾据此把 Sqrt 误判 0.616→t3.25,实为 0.50=t4)。
+# 标定映射: 引擎单核(active_cores=1, count=iters*unroll, elements=elements_per_inst)矢量时延 应≈ microbench_us(=measured_cycles/1000)
+# 校验(微基准实测报告 issue/vec-cyc 与硬件类): Sqrt/Exp/Log=0.4996≈0.5(four_cycle_dual_issue=t4)、ReduceSum=0.957≈1(single_issue) 均 class_match
+# 注: Add 的双发分类以 asc-devkit 公开表为准；task5_raw.jsonl 的 add_fp32_independent 记录可作 fp32 实测佐证，不外推到其他类型。
+instruction,dtype,count,elements_per_inst,measured_cycles,microbench_us,issue_per_vec_cycle
+Sqrt,fp32,320000,64,388207,388.2,0.4996
+Exp,fp32,320000,64,388204,388.2,0.4996
+Log,fp32,320000,64,388418,388.4,0.4993
+ReduceSum,fp32,320000,64,202736,202.7,0.957

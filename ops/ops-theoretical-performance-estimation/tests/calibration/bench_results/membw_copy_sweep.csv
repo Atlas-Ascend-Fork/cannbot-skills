@@ -1,0 +1,12 @@
+# bench: GM 带宽（纯拷贝 read+write，零计算），用于标定 gm_bandwidth_model=l2_aware 曲线 + hbm_sustained
+# 仪器: tests/onboard/kernels/rms_norm/build/rms_norm_direct --variant copy（<<<>>> 直调，mem_copy 变体）
+# source: 2026-06-11 bench-device-03 (Ascend950/dav-3510) aclrtEvent us/iter
+# 标定映射: copy_bw(combined_bytes) 即 ascend950pr.json common.gm_bandwidth_l2_aware.curve；≥256MB 平台 = hbm_sustained
+per_tensor_MB,combined_MB,copy_us,copy_bw_TBps
+8,16,5.265,3.04
+32,64,8.803,7.27
+64,128,45.122,2.84
+128,256,176.239,1.45
+256,512,370.124,1.38
+384,768,556.513,1.38
+512,1024,738.562,1.39
