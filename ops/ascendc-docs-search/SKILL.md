@@ -130,18 +130,18 @@ grep -rl "关键词" "$ASC_DEVKIT_DIR/docs/zh/api/" --include="*.md"
 **快速搜索**：
 ```bash
 # 基础搜索（推荐使用中文关键词）
-python skills/ascendc-docs-search/scripts/ascend_search_client.py "Ascend C 临时内存申请" --max_results 5
+python scripts/ascend_search_client.py "Ascend C 临时内存申请" --max_results 5
 
 # 搜索 API 文档
-python skills/ascendc-docs-search/scripts/ascend_search_client.py "AscendC::Add 接口原型" --max_results 8
+python scripts/ascend_search_client.py "AscendC::Add 接口原型" --max_results 8
 
 # 带版本过滤（推荐使用 8.5.0）
-python skills/ascendc-docs-search/scripts/ascend_search_client.py "Ascend C API" --version "8.5.0"
+python scripts/ascend_search_client.py "Ascend C API" --version "8.5.0"
 ```
 
 **获取详细内容**：
 ```bash
-python skills/ascendc-docs-search/scripts/ascend_content_fetcher.py <URL>
+python scripts/ascend_content_fetcher.py <URL>
 ```
 
 **参数说明**：

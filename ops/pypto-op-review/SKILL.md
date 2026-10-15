@@ -39,7 +39,7 @@ Violating any of these is a defect to fix before the file is considered done —
 ## Extract PyPTO call sites (for debugging)
 
 ```bash
-python3 skills/pypto-op-review/scripts/extract_pypto_calls.py \
+python3 scripts/extract_pypto_calls.py \
   custom/<operator_name>/<kernel_file>.py
 ```
 

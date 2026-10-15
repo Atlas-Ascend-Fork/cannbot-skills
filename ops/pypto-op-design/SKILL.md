@@ -53,7 +53,7 @@ description: 当需要设计 PyPTO 算子实现方案时使用。通过迭代式
 只需人工统计两个信号：S（loop-carry 状态组数，FA 的 m/l/o 算 1 组，gated_delta_rule 的 state + decay 算 2 组）与跨 tile reduce 次数（softmax 整套算 1 次）。其余信号（L、matmul 数）、`total_complexity = max(L,S,O)`、1.3 阈值与行数封顶公式全部由脚本计算：
 
 ```
-python skills/pypto-op-design/scripts/derive_design_params.py \
+python scripts/derive_design_params.py \
     custom/<op>/<op>_golden.py --state-groups <S> --cross-tile-reduce <R> --json
 ```
 

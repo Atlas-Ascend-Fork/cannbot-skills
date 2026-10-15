@@ -54,7 +54,7 @@ These rules are mandatory.
 Run on the failing kernel file:
 
 ```bash
-python3 skills/pypto-op-review/scripts/extract_pypto_calls.py custom/<operator_name>/<kernel_or_impl>.py
+python3 <path-to-pypto-op-review>/scripts/extract_pypto_calls.py custom/<operator_name>/<kernel_or_impl>.py
 ```
 
 - Output is an ordered, numbered list: line number + call shape.

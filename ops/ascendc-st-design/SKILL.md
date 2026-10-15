@@ -87,7 +87,7 @@ operators/{operator_name}/tests/st/
 **推荐方式**：使用 `generate_test_factors.py` 脚本自动提取
 
 ```bash
-python skills/ascendc-st-design/scripts/generate_test_factors.py \
+python scripts/generate_test_factors.py \
     operators/{operator_name}/tests/st/design/03_参数定义.yaml \
     operators/{operator_name}/tests/st/design/04_测试因子.yaml
 ```
@@ -166,7 +166,7 @@ constraints:
 **推荐方式**：使用 `generate_implicit_constraints.py` 脚本自动生成
 
 ```bash
-python skills/ascendc-st-design/scripts/generate_implicit_constraints.py \
+python scripts/generate_implicit_constraints.py \
     operators/{operator_name}/tests/st/design/04_测试因子.yaml \
     operators/{operator_name}/tests/st/design/05_约束定义.yaml \
     --verbose
@@ -188,7 +188,7 @@ python skills/ascendc-st-design/scripts/generate_implicit_constraints.py \
 **推荐方式**：使用 `generate_solver_config.py` 脚本自动生成
 
 ```bash
-python skills/ascendc-st-design/scripts/generate_solver_config.py \
+python scripts/generate_solver_config.py \
     operators/{operator_name}/tests/st/design/05_约束定义.yaml \
     operators/{operator_name}/tests/st/design/06_求解配置.yaml
 ```
@@ -213,7 +213,7 @@ solver:
 **推荐方式**：使用 `generate_factor_values.py` 脚本自动生成满足约束的测试因子值
 
 ```bash
-python skills/ascendc-st-design/scripts/generate_factor_values.py \
+python scripts/generate_factor_values.py \
     operators/{operator_name}/tests/st/design/06_求解配置.yaml \
     operators/{operator_name}/tests/st/design/05_约束定义.yaml \
     operators/{operator_name}/tests/st/design/04_测试因子.yaml \
@@ -238,7 +238,7 @@ python skills/ascendc-st-design/scripts/generate_factor_values.py \
 
 ```bash
 # 步骤1: 生成 L0 用例（单因子覆盖，≤200条）
-python skills/ascendc-st-design/scripts/generate_test_cases.py \
+python scripts/generate_test_cases.py \
     operators/{operator_name}/tests/st/design/03_参数定义.yaml \
     operators/{operator_name}/tests/st/design/04_测试因子.yaml \
     operators/{operator_name}/tests/st/design/07_因子值.csv \
@@ -247,7 +247,7 @@ python skills/ascendc-st-design/scripts/generate_test_cases.py \
     --verbose
 
 # 步骤2: 生成 L1 用例（两两组合覆盖，500~700条）
-python skills/ascendc-st-design/scripts/generate_test_cases.py \
+python scripts/generate_test_cases.py \
     operators/{operator_name}/tests/st/design/03_参数定义.yaml \
     operators/{operator_name}/tests/st/design/04_测试因子.yaml \
     operators/{operator_name}/tests/st/design/07_因子值.csv \
@@ -258,7 +258,7 @@ python skills/ascendc-st-design/scripts/generate_test_cases.py \
     --verbose
 
 # 步骤3: 生成 L2 用例（异常用例，每个异常场景一条用例）
-python skills/ascendc-st-design/scripts/generate_test_cases.py \
+python scripts/generate_test_cases.py \
     operators/{operator_name}/tests/st/design/03_参数定义.yaml \
     operators/{operator_name}/tests/st/design/04_测试因子.yaml \
     operators/{operator_name}/tests/st/design/07_因子值.csv \

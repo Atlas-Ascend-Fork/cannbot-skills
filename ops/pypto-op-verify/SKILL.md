@@ -161,7 +161,7 @@ See `references/intermediate-snapshot-automation.md` for the full usage doc. Rep
 
 1. Author adds `# <<< SNAPSHOT:<point>` / `# >>> SNAPSHOT:<point>` marker pairs around the probe regions in `<op>_module<suffix>.py`.
 2. @pypto-op-debugger writes `custom/<op>/_debug/snapshot_manifest.yaml` listing the intermediates to probe.
-3. `python skills/pypto-op-verify/scripts/snapshot_generator.py custom/<op>/_debug/snapshot_manifest.yaml` produces the snapshot impl + golden-augmentation + bisect shell.
+3. `python scripts/snapshot_generator.py custom/<op>/_debug/snapshot_manifest.yaml` produces the snapshot impl + golden-augmentation + bisect shell.
 4. `bash custom/<op>/_debug/run_snapshot_bisect.sh` runs the bisection and prints per-iteration drift-onset per intermediate, plus JSON to `custom/<op>/_debug/snapshot_report.json`.
 
 The snapshot-bisection tool binds to the inspection-tensor protocol (§B.5). It is a standalone deep-debug tool (`snapshot_bisect.py`), independent of the default per-case runner.
