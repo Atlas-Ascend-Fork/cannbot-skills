@@ -27,7 +27,7 @@
 #   SortSelect, Histogram, SlidingWindow, ControlFlow,
 #   Spectral, RandomSampling,
 #   Sparse, CollectiveCommunication, FusedComposite,
-#   以及 Elementwise, ReductionComposite, ArgReduce, Contraction,
+#   以及 Elementwise, ReductionComposite, ArgReduce,
 #   LayoutTransform, Quantization, Recurrence, NumericalStable, DynamicShape,
 #   VariableOutput, MaskPredicate, Stateful
 
@@ -37,3 +37,5 @@ routes:
       - references/paradigms/broadcast/patterns.md
     Reduction:
       - references/paradigms/reduction/patterns.md
+    Contraction:
+      - references/paradigms/contraction/patterns.md

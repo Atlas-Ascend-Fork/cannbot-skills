@@ -6,7 +6,7 @@
 
 1. 先应用 Skill 入口的组合范式规则；未命中组合时，统一从 [范式索引表](paradigms/routes.yaml) 查找 `op.paradigms`，不通过扫描目录推断注册状态。
 2. 范式入口按调用方明确提供的 `op.language` 选择适配层。缺失或未知时返回输入缺项，不默认选择 Ascend C。
-3. 读取语言中立的通用层和一个对应语言的适配层。DSL 范式没有专用适配层时，使用 [DSL 通用方法](paradigms/general-methodology-dsl.md) 并核实所需 API 和设备事实。
+3. 读取语言中立的通用层和一个对应语言的适配层；该适配层引用的配套运行时或同步章节按需读取。DSL 范式没有专用适配层时，使用 [DSL 通用方法](paradigms/general-methodology-dsl.md) 并核实所需 API 和设备事实。
 4. 进入知识分类目录后先读该目录的 `index.md`；单个子问题最多展开 5 份叶子文档。
 
 ## 按问题选择
@@ -15,6 +15,7 @@
 |---|---|
 | Broadcast 算法、形状归一化与切分 | [Broadcast 入口](paradigms/broadcast/patterns.md) |
 | Reduction 归约轴、缓存树与资源规划 | [Reduction 入口](paradigms/reduction/patterns.md) |
+| Contraction 指标映射、选块、任务调度与分层缓冲 | [Contraction 入口](paradigms/contraction/patterns.md) |
 | Contraction、Reduction、Broadcast 组合 | [FA 组合范式](paradigms/FA/patterns.md) |
 | Ascend C regbase 开发方法 | [开发指导](knowledge/regbase_development_guide.md) |
 | API 约束与签名 | [API 索引](knowledge/api/index.md) |

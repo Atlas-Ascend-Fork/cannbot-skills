@@ -123,16 +123,19 @@ class YamlSpecTests(unittest.TestCase):
         paths = json.loads(result.stdout)["examples"]["Broadcast"]
         self.assertEqual(len(paths), len(set(paths)))
 
-    def test_reduction_is_registered_with_existing_entry(self):
+    def test_paradigms_are_registered_with_existing_entries(self):
         import yaml
 
         root = SCRIPT.parents[2]
         routes = yaml.safe_load((SCRIPT.parent / "routes.yaml").read_text())["routes"][
             "paradigms"
         ]
-        self.assertEqual(
-            routes["Reduction"], ["references/paradigms/reduction/patterns.md"]
-        )
+        for paradigm in ("Reduction", "Contraction"):
+            with self.subTest(paradigm=paradigm):
+                self.assertEqual(
+                    routes[paradigm],
+                    [f"references/paradigms/{paradigm.lower()}/patterns.md"],
+                )
         for paths in routes.values():
             for path in paths:
                 self.assertTrue((root / path).is_file(), path)
