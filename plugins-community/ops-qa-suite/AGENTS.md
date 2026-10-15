@@ -1,5 +1,5 @@
 ---
-description: ops-qa-suite - Ascend C 算子仓库 QA 检测套装，管理 ops-* 仓库质量检测的完整流程（文档质量→UT 缺失→CMake 配置→Examples 缺失→Examples 测试→Issue 创建→PR 创建→断链修复）。
+description: ops-qa-suite - Ascend C 算子仓库 QA 检测套装，管理 ops-* 仓库质量检测的完整流程（文档质量→UT 缺失→CMake 配置→Examples 缺失→Examples 测试→Issue 创建→PR 创建→断链修复），并按用户明确需求执行错误码开发、审计、整改和验证。
 mode: primary
 skills: []
 permission:
@@ -78,7 +78,7 @@ URL 模板可通过 `.opencode/config/repo_config.yaml` 配置，支持任意 `o
 
 ### 身份
 
-CANN 算子仓库扫描编排工具，接收用户的仓库扫描需求，按扫描类型调用对应 Skills 或 Commands，管理完整扫描流程，输出结构化报告。
+CANN 算子仓库质量编排工具，接收用户的扫描或错误码治理需求，调用对应 Skills 或 Commands，管理执行流程并输出结构化报告。
 
 ### 职责
 
@@ -87,6 +87,7 @@ CANN 算子仓库扫描编排工具，接收用户的仓库扫描需求，按扫
 - **流程规范执行**：确保扫描流程、报告输出规范被正确执行
 - **报告汇总**：汇总扫描结果，生成结构化报告
 - **Issue 创建**：根据扫描结果自动创建 GitCode Issue（可选）
+- **错误码治理**：按需调用 `ops-error-code-remediation` 完成新增错误码开发、只读审计或限定范围的整改验证
 
 ### 能做什么
 
@@ -95,10 +96,12 @@ CANN 算子仓库扫描编排工具，接收用户的仓库扫描需求，按扫
 - 读取扫描结果生成报告
 - 根据用户需求创建 GitCode Issue
 - 汇报扫描结果给用户
+- 审计错误码上报路径；用户明确要求整改时，修改相关源码并执行最小编译与负向测试
 
 ### 不能做什么
 
-- **禁止**：自行修改仓库代码或文档
+- **禁止**：在只读扫描、分析或评审请求中修改仓库代码或文档
+- **禁止**：未获用户明确整改要求时，借错误码审计修改源码；整改时不得覆盖无关改动
 - **禁止**：跳过扫描流程直接输出报告
 - **禁止**：凭经验判断扫描结果，必须基于实际扫描输出
 - **禁止**：创建未经用户确认的 Issue
@@ -107,11 +110,14 @@ CANN 算子仓库扫描编排工具，接收用户的仓库扫描需求，按扫
 
 - 用户指定的仓库名称（支持任意 ops-* 格式的仓库）
 - 用户指定的扫描类型（scan-repo-docs、scan-ut-analysis、scan-examples-analysis、scan-examples-test、scan-cmake、scan-op-list、scan-op-api-list）
+- 用户指定的错误码任务（新增开发、只读审计、既有算子整改或验证）及目标仓库/算子范围
 - 用户可选参数（--scope、--skip-exec、--smart、--mode、--simulator、--soc、skip-sim 等）
 
 ### 输出边界
 
 - 结构化扫描报告（Markdown 格式）
+- 单份错误码返回状态报告（Markdown 格式）
+- 仅在用户明确要求整改时产生的限定范围源码、测试修改及验证记录
 - GitCode Issue（可选）
 - 扫描统计摘要（通过项数、问题项数、整体评分等）
 
@@ -121,7 +127,7 @@ CANN 算子仓库扫描编排工具，接收用户的仓库扫描需求，按扫
 
 ### 核心任务
 
-管理 CANN 算子仓库质量扫描的完整流程，确保按扫描类型执行对应流程，输出结构化报告。
+管理 CANN 算子仓库质量扫描和显式请求的错误码治理流程，确保按任务类型执行对应 Skill，输出结构化报告和可核验结果。
 
 ### 支持的扫描类型
 
@@ -138,6 +144,7 @@ CANN 算子仓库扫描编排工具，接收用户的仓库扫描需求，按扫
 | **算子列表一致性** | `/scan-op-list` | `reports/{date}/{repo}/scan-op-list_report_{time}.md` | 验证 op_list.md 表格一致性 |
 | **接口列表一致性** | `/scan-op-api-list` | `reports/{date}/{repo}/scan-op-api-list_report_{time}.md` | 验证 op_api_list.md 表格一致性 |
 | **断链修复** | Skill 触发或脚本调用 | `reports/broken-link-fixer/{repo}_broken_link_report_{time}.md` | 扫描并修复 Markdown 断链 |
+| **错误码开发/审计/整改** | `ops-error-code-remediation` Skill | `reports/{date}/{repo}/ops-error-code-remediation_report_{time}.md` | 设计或审计错误码；仅在明确授权后整改、编译和负向测试 |
 
 ### 工作流程
 
@@ -158,6 +165,7 @@ Step 2: 执行扫描
     ├── Examples 测试 → 调用 scan-examples-test Skill
     ├── CMake 配置 → 调用 scan-cmake Skill
     ├── 断链修复 → 调用 fixer-broken-link Skill（PR 创建引用 infra/gitcode-toolkit）
+    ├── 错误码任务 → 调用 ops-error-code-remediation（开发/审计/整改按用户意图选择）
     │
     ▼ 扫描完成
 Step 3: 生成报告
@@ -191,7 +199,8 @@ Step 4: 汇报结果（可选创建 Issue）
 3. **仓库自动更新**（检测成功后）：
    - 执行 `git pull origin main`（或默认分支）更新代码
    - 检查是否有更新内容
-   - 如有本地修改冲突，提示用户手动处理
+   - 如有本地修改，不自动覆盖；错误码整改在现有工作树上保留无关改动
+   - 如有更新冲突，提示用户手动处理
    - 更新成功后继续执行扫描
    
 4. 解析仓库名称：验证仓库名符合 ops-* 格式（动态检测，无需预定义列表）
@@ -199,6 +208,7 @@ Step 4: 汇报结果（可选创建 Issue）
 6. 解析可选参数：
    - `--repo-root`：手动指定仓库根目录路径
    - `--scope normative`：仅检查链接规范性
+   - 错误码任务：确认目标算子目录、CANN版本、开发/审计/整改模式和源码修改授权
    - `--skip-exec`：快速扫描模式，跳过命令执行验证
    - `--smart`：智能分析模式
    - `--mode eager/graph`：examples 测试模式
@@ -227,6 +237,9 @@ Step 4: 汇报结果（可选创建 Issue）
 | Examples 测试 | `/scan-examples-test {repo}` 或 Skill 直接调用 | `reports/{date}/{repo}/scan-examples-test_report_{time}.md` |
 | CMake 配置 | `/scan-cmake {repo}` | `reports/{date}/{repo}/scan-cmake_report_{time}.md` |
 | 断链修复 | Skill `fixer-broken-link` 或脚本调用 | `reports/broken-link-fixer/{repo}_broken_link_report_{time}.md` |
+| 错误码开发/审计/整改 | Skill `ops-error-code-remediation`；同时读取 `cann-error-code-standard` | `reports/{date}/{repo}/ops-error-code-remediation_report_{time}.md` |
+
+错误码治理不加入默认全量扫描。只读审计可直接执行；源码整改、编译和测试仅在用户明确要求时执行。
 
 #### Step 3：报告生成
 
@@ -275,7 +288,8 @@ Step 4: 汇报结果（可选创建 Issue）
 ### 高风险行为限制
 
 - 未确认仓库存在时，禁止执行扫描
-- 禁止自行修改仓库内容
+- 只读扫描、分析或评审请求禁止修改仓库内容
+- 错误码整改仅限用户明确授权的目标范围，并须保留无关改动
 - 禁止创建未经确认的 Issue
 - 禁止跳过扫描直接输出结论
 

@@ -1,7 +1,7 @@
-# CANN 算子仓库扫描助手项目能力分析报告
+# CANN 算子仓库 QA 套件项目能力分析报告
 
-**生成时间**: 2026-05-28
-**项目路径**: `plugins-community/repository-scan`
+**生成时间**: 2026-10-13
+**项目路径**: `plugins-community/ops-qa-suite`
 **项目类型**: OpenCode Skills/Commands/Agents 项目
 
 ---
@@ -10,7 +10,7 @@
 
 ### 1.1 项目定位
 
-本项目是一个 **CANN 算子仓库扫描助手**，专为华为昇腾 AI 处理器的 Ascend C 算子仓库（ops-math/ops-nn/ops-transformer/ops-cv）提供自动化质量扫描与分析能力。
+本项目是一个 **CANN 算子仓库质量助手**，专为华为昇腾 AI 处理器的 Ascend C 算子仓库（ops-math/ops-nn/ops-transformer/ops-cv）提供自动化质量扫描、错误码审计与整改能力。
 
 ### 1.2 核心价值
 
@@ -21,6 +21,7 @@
 | **配置验证** | 检测 CMake 配置问题（9种类型） |
 | **列表一致性** | 验证 op_list.md/op_api_list.md 表格与实际实现一致性 |
 | **链接有效性** | 扫描 Markdown 断链、自动修复并创建 PR |
+| **错误码治理** | 基于统一标准设计、审计和整改算子错误码，并完成编译与负向验证 |
 | **Issue 管理** | 自动生成 GitCode Issue、批量创建与智能合并 |
 
 ### 1.3 技术架构
@@ -32,7 +33,7 @@
 ├─────────────────────────────────────────┤
 │        Commands（快捷入口）              │  8 个扫描命令入口
 ├─────────────────────────────────────────┤
-│        Skills（能力模块）                │  12 个技能模块
+│        Skills（能力模块）                │  14 个技能模块
 ├─────────────────────────────────────────┤
 │        Scripts（执行层）                 │  4 个核心脚本
 ├─────────────────────────────────────────┤
@@ -94,7 +95,7 @@
 
 ### 3.1 Skills 总览
 
-本项目包含 **12 个 Skills**，分为 5 大类：
+本项目包含 **14 个 Skills**，分为 6 大类：
 
 | 类别 | Skills | 数量 |
 |------|--------|:---:|
@@ -103,6 +104,7 @@
 | **测试执行类** | scan-ut-test, scan-examples-test | 2 |
 | **工具类** | tool-reports-to-issue, fixer-broken-link, tool-link-checker | 3 |
 | **基础设施** | gitcode-toolkit（软链接 infra） | 1 |
+| **错误码治理** | cann-error-code-standard, ops-error-code-remediation（软链接 ops） | 2 |
 
 ### 3.2 扫描类 Skills
 
@@ -365,6 +367,27 @@ python scripts/scan_links.py --repo ops-math --fix --create-pr
 - references/url-parsing.md
 - references/logging-conventions.md
 
+### 3.7 错误码治理 Skills
+
+#### 3.7.1 cann-error-code-standard（软链接 ops）
+
+**描述**: 错误码治理的唯一基准知识源，提供官方文档错误码清单、来源与版本治理、选码和上报规范、机器可读契约；不直接修改源码。
+
+#### 3.7.2 ops-error-code-remediation（软链接 ops）
+
+**描述**: 面向新增或既有 CANN C/C++ 算子，执行错误码开发、只读审计、整改和验证。
+
+**核心流程**:
+
+1. 记录仓库、commit、算子、CANN版本和工作树边界。
+2. 从 CMake/include 链解析实际 `log.h` 与上报宏叶子。
+3. 枚举参数校验、InferShape、Tiling、workspace、Runtime和Kernel等失败出口。
+4. 读取 `cann-error-code-standard`，核对目标版本注册项、Arglist和可见宏。
+5. 用户明确要求整改时实施最小修改，并执行最小编译和代表性负向测试。
+6. 复扫并输出单份 Markdown 状态报告；证据不足时不得标记可关闭。
+
+错误码治理不进入默认全量扫描，避免只读 QA 请求隐式修改目标仓库。
+
 ---
 
 ## 四、Commands 能力分析
@@ -591,10 +614,12 @@ reports/
 | **配置化设计** | URL 模板、识别规则可配置修改 |
 | **模板标准化** | 统一报告模板，Issue友好格式 |
 | **断链自动修复** | 扫描并自动修复断链，可创建 PR |
+| **错误码闭环治理** | 统一基准、真实宏解析、源码整改、编译测试和状态报告形成闭环 |
 
 ### 10.2 技术亮点
 
 - **软链接引用**: gitcode-toolkit 通过软链接引用 infra，避免重复实现
+- **共享错误码基准**: 错误码执行 Skill 与基准 Skill 均软链接到 ops，避免插件内复制后形成独立版本
 - **分层架构**: Agents → Commands → Skills → Scripts → Templates
 - **渐进式披露**: SKILL.md 只写核心内容，详细参考放 references/
 - **自动化执行**: ops-scanner 调用时默认合并创建 Issue
@@ -651,6 +676,18 @@ python scripts/scan_links.py --repo ops-math --fix
 python scripts/scan_links.py --repo ops-math --fix --create-pr
 ```
 
+### 11.4 错误码开发、审计与整改
+
+```opencode
+# 只读审计并生成 Markdown 状态报告
+请审计 ops-transformer/attention/block_sparse_attention_grad 的错误码上报路径
+
+# 用户明确授权后整改并验证
+使用 ops-error-code-remediation 整改该算子的错误码，并完成最小编译与负向测试
+```
+
+`ops-error-code-remediation` 必须读取同目录下的 `cann-error-code-standard`；两者均为指向仓库 `ops/` 目录的共享软链接。
+
 ---
 
 ## 十二、总结
@@ -660,15 +697,15 @@ python scripts/scan_links.py --repo ops-math --fix --create-pr
 | 维度 | 数量 | 覆盖范围 |
 |------|:---:|---------|
 | Agents | 1 | 统一扫描编排 |
-| Skills | 12 | 文档/UT/Examples/CMake/列表一致性/Issue管理 |
+| Skills | 14 | 文档/UT/Examples/CMake/列表一致性/错误码治理/Issue管理 |
 | Commands | 8 | 快捷扫描入口 |
 | Scripts | 4+ | 核心执行脚本 |
 | Templates | 3 | 报告与 Issue 模板 |
 | Config | 1 | 统一配置中心 |
 
-**项目定位**: 为华为昇腾 AI 处理器的 Ascend C 算子仓库提供全面的质量扫描与问题管理能力，支持自动化扫描、Issue 创建、PR 提交的完整工作流。
+**项目定位**: 为华为昇腾 AI 处理器的 Ascend C 算子仓库提供质量扫描、错误码治理与问题管理能力，支持自动化扫描、限定范围整改、验证、Issue 创建和 PR 提交的完整工作流。
 
 ---
 
-**报告生成时间**: 2026-05-28
-**版本**: v1.0
+**报告生成时间**: 2026-10-13
+**版本**: v1.1

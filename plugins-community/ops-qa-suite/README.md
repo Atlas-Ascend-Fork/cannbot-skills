@@ -1,6 +1,6 @@
 # ops-qa-suite
 
-Ascend C 算子仓库 QA 检测套装，为华为昇腾 AI 处理器的 Ascend C 算子仓库（ops-math/ops-nn/ops-transformer/ops-cv）提供自动化质量扫描与分析能力。
+Ascend C 算子仓库 QA 检测套装，为华为昇腾 AI 处理器的 Ascend C 算子仓库（ops-math/ops-nn/ops-transformer/ops-cv）提供自动化质量扫描、错误码审计与整改能力。
 
 **核心价值**：
 
@@ -11,6 +11,7 @@ Ascend C 算子仓库 QA 检测套装，为华为昇腾 AI 处理器的 Ascend C
 | **配置验证** | 检测 CMake 配置问题（9种类型） |
 | **列表一致性** | 验证 op_list.md/op_api_list.md 表格与实际实现一致性 |
 | **链接有效性** | 扫描 Markdown 断链、自动修复并创建 PR |
+| **错误码治理** | 为新增算子设计错误码，审计和整改既有算子的失败返回与上报路径 |
 | **Issue 管理** | 自动生成 GitCode Issue、批量创建与智能合并 |
 
 ---
@@ -47,7 +48,7 @@ reports/
 
 ## 核心能力概览
 
-本项目提供 **12 个 Skills + 8 个 Commands + 1 个 Agent**，覆盖全生命周期质量检测：
+本项目提供 **14 个 Skills + 8 个 Commands + 1 个 Agent**，覆盖全生命周期质量检测与错误码治理：
 
 | 类别 | 数量 | 功能 |
 |------|:---:|------|
@@ -55,6 +56,8 @@ reports/
 | **分析类 Skills** | 2 | UT 缺失分析、Examples 缺失分析 |
 | **测试执行类 Skills** | 2 | UT 测试执行、Examples 测试执行 |
 | **工具类 Skills** | 3 | Issue 创建、断链修复、断链检查 |
+| **错误码 Skills** | 2 | 错误码基准，以及开发、审计、整改和验证 |
+| **基础设施 Skills** | 1 | GitCode 协作公共能力 |
 | **快捷 Commands** | 8 | `/scan-repo-docs`、`/scan-ut-test` 等 |
 | **编排 Agent** | 1 | ops-scanner（一键全量扫描） |
 
@@ -75,7 +78,7 @@ reports/
 ├─────────────────────────────────────────┤
 │        Commands（快捷入口）              │  8 个扫描命令入口
 ├─────────────────────────────────────────┤
-│        Skills（能力模块）                │  12 个技能模块
+│        Skills（能力模块）                │  14 个技能模块
 ├─────────────────────────────────────────┤
 │        Scripts（执行层）                 │  4 个核心脚本
 ├─────────────────────────────────────────┤
@@ -117,6 +120,25 @@ ops-qa-suite/
 | **算子列表一致性** | `/scan-op-list ops-math` | 验证 op_list.md 表格一致性 |
 | **接口列表一致性** | `/scan-op-api-list ops-math` | 验证 op_api_list.md 表格一致性 |
 | **统一扫描（推荐）** | `请扫描 ops-math 仓库` | 一键执行全部扫描 |
+
+---
+
+## 错误码开发、审计与整改
+
+`ops-error-code-remediation` 以 `cann-error-code-standard` 为唯一错误码基准，支持新增算子错误码开发、既有算子只读审计，以及用户明确授权后的源码整改、最小编译和负向测试。
+
+```opencode
+请审计 ops-transformer/attention/block_sparse_attention_grad 的错误码上报路径
+
+使用 ops-error-code-remediation 整改该算子的非法错误码，并完成最小编译和负向测试
+
+为新开发的 Ascend C 算子补充合法错误码提示和校验
+```
+
+错误码治理不属于默认“一键全量扫描”阶段：
+- 只读审计可直接执行并生成单份 Markdown 状态报告。
+- 修改源码必须由用户明确要求，只修改错误码相关路径并保留无关改动。
+- 执行 Skill 会同时核对公开资料基准、目标版本注册项、实际 `log.h` 来源、编译结果和负向测试。
 
 ---
 
@@ -186,6 +208,7 @@ ops-qa-suite/
 
 ## 更新日志
 
+- **2026-10-13**: 集成 `ops-error-code-remediation` 与其基准 `cann-error-code-standard`，支持错误码开发、审计、整改和验证
 - **2026-05-28**: CANN 算子仓库扫描助手首次上线，提供文档质量、UT 缺失、Examples、CMake 配置等 9 种扫描能力
 
 ---
