@@ -34,7 +34,7 @@ constexpr int64_t DIM_FIVE = 5;
 constexpr int64_t DIM_SIX = 6;
 constexpr int64_t DIM_SEVEN = 7;
 constexpr int64_t DIM_EIGHT = 8;
-constexpr MultiCopyConfig config = {false, 0, 0, false};
+constexpr NdDmaConfig config = {false, 0, 0, false};
 constexpr int64_t TWO = 2;
 constexpr int64_t BUFFER_NUM = 2;
 

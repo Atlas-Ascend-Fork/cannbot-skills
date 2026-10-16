@@ -87,6 +87,18 @@ for ex in "${EXCLUDE_DIRS[@]}"; do
     grep_excludes+=("--exclude-dir=$ex")
 done
 
+# CI pipeline (ut_action.yml) downloads these infra files into the workspace
+# root before running tests; they are not repo content and may carry CRLF.
+EXCLUDE_FILES=(
+    "ut.sh"
+    "pr_filelist.txt"
+    "pr_filelist_mod.txt"
+    "update_file_detail.txt"
+)
+for ex in "${EXCLUDE_FILES[@]}"; do
+    grep_excludes+=("--exclude=$ex")
+done
+
 # Scan for CRLF in a single grep pass across common text file types
 cr_files=$(mktemp)
 cr_count=0

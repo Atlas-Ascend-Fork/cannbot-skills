@@ -20,7 +20,7 @@
 constexpr int64_t NDDMA_MAX_DIM_NUM = 5;   // NDDMA 一次最多描述 5 维
 ```
 
-kernel 侧的多维搬运参数结构也被固定成 `NDDMA_MAX_DIM_NUM` 维:`MultiCopyLoopInfo<NDDMA_MAX_DIM_NUM>`、`MultiCopyParams<T, NDDMA_MAX_DIM_NUM>`。也就是说,一条 NDDMA 指令的 loop 描述最多只有 5 个维度(loopSize / src stride / dst stride)。
+kernel 侧的多维搬运参数结构也被固定成 `NDDMA_MAX_DIM_NUM` 维:`NdDmaLoopInfo<NDDMA_MAX_DIM_NUM>`、`NdDmaParams<T, NDDMA_MAX_DIM_NUM>`。也就是说,一条 NDDMA 指令的 loop 描述最多只有 5 个维度(loopSize / src stride / dst stride)。
 
 当算子的 reduce 之后维度(`shapeInfo_.dim`)超过 5 时,无法用一条 NDDMA 指令覆盖全部维度。`EntryTilingTemplate` 中的分派逻辑正是据此选择:
 

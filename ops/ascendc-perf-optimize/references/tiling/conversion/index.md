@@ -1,5 +1,8 @@
 # Conversion 族 Tiling 算法路由
 
+> 代际限定：本文 RegBase / Reg / MicroAPI / VF 相关实现仅适用于 arch35（A5 / DAV_3510）；通用 Tiling 建模不受此限制。
+
+
 > Conversion 族（Transpose, Concat, Split, BatchToSpace, SpaceToBatch, DepthToSpace 等数据转换/重排算子）Tiling 算法入口。默认使用 fallback 兜底算法。
 
 ## 0. 算子范围与策略参考
@@ -19,7 +22,7 @@ Conversion 族覆盖两类数据搬移算子：
 
 | 优先级 | 算法 | 选择条件 | 目录 |
 |--------|------|---------|------|
-| 0（兜底） | 官方参考 | 无条件（回退保障） | [fallback/](fallback/) |
+| 0（兜底） | 官方参考 | 目标架构/能力匹配后的兜底 | [fallback/](fallback/) |
 
 ---
 

@@ -1,8 +1,10 @@
 # Transpose 性能调优参考:GATHER_TRANSPOSE 策略
 
+> 适用架构：arch35（A5 / DAV_3510）；本文 RegBase / Reg / MicroAPI / VF 内容为 arch35 独占。
+
 > 策略名:GATHER_TRANSPOSE(基于 gather 指令的转置)
 > tilingKey:**10006**
-> 硬件/编译要求:仅 `__NPU_ARCH__ == 3510`(dav-3510)可用,依赖 AscendC `MicroAPI` / `Reg` 寄存器编程模型,且必须打开编译宏 **`TRANSPOSE_ENABLE_GATHER`**。
+> 硬件/编译要求:仅 `__NPU_ARCH__ == 3510`(dav-3510)可用,依赖 AscendC `Reg` 寄存器编程模型,且必须打开编译宏 **`TRANSPOSE_ENABLE_GATHER`**。
 > 关键实现文件:
 > - kernel:`op_kernel/arch35/transpose_with_gather.h`(`Transpose::TransposeWithGather<T>`)
 > - 派发入口:`op_kernel/transpose_kernel.cpp`
@@ -46,10 +48,10 @@ host 侧选择逻辑见 `transpose_tiling.cpp::Run`,顺序为:VCONV → **gather
 
 ### 1.4 为什么需要硬件 / toolkit 支持
 
-gather kernel 使用 AscendC 的 **MicroAPI(即 `Reg` 寄存器编程)** 模型:`RegTensor`、`MaskReg`、`MicroAPI::Arange/Div/Muls/Select/DataCopy`、以及核心的 `DataCopyGatherImpl`(向量 gather)。别名 `namespace MicroAPI = Reg` 仅在 `kernel_macros.h` 中 `__NPU_ARCH__ == 3510` 时定义,并通过 reg_compute 接口头暴露。因此:
+gather kernel 使用 AscendC 的 **`Reg` 寄存器编程**模型：`RegTensor`、`MaskReg`、`Reg::Arange/Div/Muls/Select/DataCopy`，以及核心的 `DataCopyGatherImpl`（向量 gather）。因此：
 
 - 只有 dav-3510 架构才有对应的向量 gather 硬件指令与 API;
-- 旧 toolkit 缺 MicroAPI 别名会编译失败,所以整条路径用 `TRANSPOSE_ENABLE_GATHER`(默认 0)保护,构建可在无 MicroAPI 的 toolkit 上正常通过,只是不产出该策略。
+- CANN 8.5 使用旧主命名空间 `MicroAPI`，CANN 9.0+ 使用 `Reg`；跨版本不能只靠名称替换推定 API 兼容。整条路径仍用 `TRANSPOSE_ENABLE_GATHER`（默认 0）做能力门控。
 
 ---
 
@@ -141,12 +143,12 @@ vec_b += b_inc + cmp_a
 idxAddr += gIndexId_ * gIdxOffset_;          // 选相位
 for (lpIdx : burstLpCnt) {                   // 按向量长度分段
     mask = UpdateMask<T>(maskValue);
-    MicroAPI::DataCopy(idxOriReg, idxAddr + lpIdx*vlSize_);   // 载入基准 index
+    Reg::LoadAlign(idxOriReg, idxAddr + lpIdx*vlSize_);   // 载入基准 index
     for (axis2Idx) for (axis1Idx) for (axis0Idx) {           // 输出侧外层循环
         idxUpdate = axis2*..+ axis1*..+ axis0*outUbAxis0InROffset_;
-        MicroAPI::Adds(idxReg, idxOriReg, idxUpdate, maskIdx);  // 基准 index + 外层偏移
+        Reg::Adds(idxReg, idxOriReg, idxUpdate, maskIdx);  // 基准 index + 外层偏移
         DataCopyGatherImpl(xReg, xInAddr, idxReg, mask);        // 向量 gather
-        MicroAPI::DataCopy(xOutAddr + outIdx*outLenAlign + lpIdx*vlSize_, xReg, mask);
+        Reg::StoreAlign(xOutAddr + outIdx*outLenAlign + lpIdx*vlSize_, xReg, mask);
     }
 }
 ```

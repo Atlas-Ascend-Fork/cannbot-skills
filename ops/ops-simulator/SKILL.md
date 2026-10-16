@@ -166,6 +166,7 @@ npusim report -e ./npusim_Ascend950_* -n all -o ./report_output
 | `references/troubleshooting.md` | 问题排查指南 | 仿真失败或报告未生成时 |
 | `references/pipeline-bubble-analysis.md` | 指令流水空泡分类、因果归因、周期性模式检测 | 生成 trace 后，定位性能瓶颈根因时 |
 | `scripts/trace_bubble_analyzer.py` | 自动化空泡分析脚本（兼容 msprof/npusim 双格式） | 批量分析多核 trace 或获取预分析报告时 |
+| `scripts/pipeline_bound_analyze.py` | 逐流水单元 busy/气泡耗时统计与 bound 类型判定（MTE2/CUBE Bound 等） | 需要量化各 pipe 占比、自动判定瓶颈类型时 |
 | `references/pc-source-mapping.md` | PC 地址→AscendC 源码行映射的前置条件、命令和输出解读 | trace 中已有 PC，需要定位阻塞指令源码时 |
 | `references/performance-metrics-reference.md` | summary.json 字段、阈值、Analysis Priority | 分析 summary.json 时 |
 | `references/performance-issues-general.md` | 多核负载不均衡 + Kernel 利用率不足 | 分析 summary.json 时 |

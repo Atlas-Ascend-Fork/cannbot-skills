@@ -1,5 +1,7 @@
 # Vector 计算效率优化设计
 
+> 适用架构：arch35（A5 / DAV_3510）；本文 RegBase / Reg / MicroAPI / VF 内容为 arch35 独占。
+
 ## 1. 优化目标
 
 在纯 Vector 或 Vector 主导的算子中，性能瓶颈常来自三类 UB 内部效率损失：Scalar 侧为每个 Vector API 手动计算 repeat/mask，归约场景反复使用高延迟 reduce 指令，以及连续 Vector 计算链把中间结果写回 GM 后再读回 UB。本优化通过 Counter 模式减少控制指令、低延迟指令组合替代单一高延迟归约路径、UB 内数据直通消费，**减少 Scalar 开销、Vector 指令延迟和 GM 往返搬运**。
@@ -189,9 +191,15 @@ elif (profiling 显示 MTE2/MTE3 中间搬运占比高，且有多步 Vector 链
     → 启用 UB 融合链（VECCALC 直通）
 elif (profiling 显示归约延迟高):
     → 启用低延迟归约组合（BlockReduceSum + WholeReduceSum）
+elif (profiling 显示 VEC 耗时主导，链已 UB 驻留):
+    → 评估寄存器驻留 VF 改写（DAV_3510）：整链 AscendC::Reg 接力，
+      入口 load 一次、出口 store 一次，消除每个向量 API 的 UB 读写；
+      见 regbase 范例库 register-resident-vector-chain 条目
 else:
     → 标准 Vector 实现即可
 ```
+
+> DAV_3510 上链已 UB 驻留而 VEC 耗时主导时，寄存器驻留 VF 改写是标准下一步，不因 vec 占比高而跳过；kernel 侧 LocalTensor 向量 API 内部即 Reg intrinsic，改写可保持数值位相同。该路径不限 elementwise——其他算子族的向量链同样适用（各自族文档或 regbase 范例库）。
 
 ### 8.2 自检清单
 

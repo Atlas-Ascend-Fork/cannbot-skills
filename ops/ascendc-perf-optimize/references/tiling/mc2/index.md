@@ -1,5 +1,6 @@
 # MC² 通算融合 Tiling 建模
 
+
 > 通算融合算子的 Tiling 在 matmul 基础上增加**通算切分参数**（长短块 + buffer 轮转 + local matmul 模式），用于控制 AIC/AIV 分离架构下的通信与计算流水掩盖。
 
 ---

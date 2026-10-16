@@ -26,7 +26,7 @@
 #ifndef SOFTMAX_V2_ARA_ONLINE_H
 #define SOFTMAX_V2_ARA_ONLINE_H
 
-#include "kernel_tiling/kernel_tiling.h"
+#include "softmax_v2_tiling_data.h"
 
 #include "kernel_operator.h"
 #include "softmax_v2_base.h"
@@ -34,13 +34,13 @@
 namespace SoftmaxV2Ops
 {
 using namespace AscendC;
-using namespace AscendC::MicroAPI;
+using namespace AscendC::Reg;
 
-using AscendC::MicroAPI::LoadDist;
-using AscendC::MicroAPI::MaskMergeMode;
-using AscendC::MicroAPI::MaskReg;
-using AscendC::MicroAPI::RegTensor;
-using AscendC::MicroAPI::StoreDist;
+using AscendC::Reg::LoadDist;
+using AscendC::Reg::MaskMergeMode;
+using AscendC::Reg::MaskReg;
+using AscendC::Reg::RegTensor;
+using AscendC::Reg::StoreDist;
 
 template <typename T1, typename T2>
 class SoftmaxV2ARAOnline : public SoftmaxV2OpsBase
@@ -119,8 +119,8 @@ private:
     {
         LocalTensor<float> xMaxTensor = xMaxBuf_.Get<float>();
         LocalTensor<float> xSumTensor = xSumBuf_.Get<float>();
-        __local_mem__ float* xMaxLocal = (__local_mem__ float*)xMaxTensor.GetPhyAddr();
-        __local_mem__ float* xSumLocal = (__local_mem__ float*)xSumTensor.GetPhyAddr();
+        __ubuf__ float* xMaxLocal = (__ubuf__ float*)xMaxTensor.GetPhyAddr();
+        __ubuf__ float* xSumLocal = (__ubuf__ float*)xSumTensor.GetPhyAddr();
 
         // 初始化 running max = -inf, running sum = 0
         __VEC_SCOPE__
@@ -131,10 +131,10 @@ private:
             uint32_t sreg = curTileA0Len;
             for (uint16_t k = 0; k < loopA0Num; k++) {
                 pregMask = UpdateMask<float>(sreg);
-                Duplicate(maxReg, static_cast<float>(-INFINITY), pregMask);
+                Duplicate(maxReg, static_cast<float>(-__builtin_inff()), pregMask);
                 Duplicate(sumReg, static_cast<float>(0.0f), pregMask);
-                DataCopy(((__local_mem__ float*)xMaxLocal) + k * VL_FP32, maxReg, pregMask);
-                DataCopy(((__local_mem__ float*)xSumLocal) + k * VL_FP32, sumReg, pregMask);
+                AscendC::Reg::StoreAlign(((__ubuf__ float*)xMaxLocal) + k * VL_FP32, maxReg, pregMask);
+                AscendC::Reg::StoreAlign(((__ubuf__ float*)xSumLocal) + k * VL_FP32, sumReg, pregMask);
             }
         }
 
@@ -148,7 +148,7 @@ private:
 
             CopyInX(xOffset, curTileRLen, curTileA0Len);
             LocalTensor<T1> x = xQueue_.DeQue<T1>();
-            __local_mem__ T1* xLocal = (__local_mem__ T1*)x.GetPhyAddr();
+            __ubuf__ T1* xLocal = (__ubuf__ T1*)x.GetPhyAddr();
 
             __VEC_SCOPE__
             {
@@ -167,11 +167,11 @@ private:
                 for (uint16_t k = 0; k < loopA0Num; k++) {
                     pregMask = UpdateMask<float>(sreg);
                     // load running state for this A0 column block
-                    DataCopy<float, LoadDist::DIST_NORM>(mOldReg, (__local_mem__ float*)xMaxLocal + k * VL_FP32);
-                    DataCopy<float, LoadDist::DIST_NORM>(lOldReg, (__local_mem__ float*)xSumLocal + k * VL_FP32);
+                    AscendC::Reg::LoadAlign<float, LoadDist::DIST_NORM>(mOldReg, (__ubuf__ float*)xMaxLocal + k * VL_FP32);
+                    AscendC::Reg::LoadAlign<float, LoadDist::DIST_NORM>(lOldReg, (__ubuf__ float*)xSumLocal + k * VL_FP32);
 
                     // chunk local max
-                    Duplicate(mLocalReg, static_cast<float>(-INFINITY), pregMask);
+                    Duplicate(mLocalReg, static_cast<float>(-__builtin_inff()), pregMask);
                     for (uint16_t i = 0; i < curTileRLenVl; i++) {
                         uint32_t offset = i * tileA0Len + k * VL_FP32;
                         LoadTensorForDtypeT1(xLocal, xReg, pregMask, offset);
@@ -199,8 +199,8 @@ private:
                     Add(lOldReg, lOldReg, chunkSumReg, pregMask);
 
                     // store back running state
-                    DataCopy(((__local_mem__ float*)xMaxLocal) + k * VL_FP32, mNewReg, pregMask);
-                    DataCopy(((__local_mem__ float*)xSumLocal) + k * VL_FP32, lOldReg, pregMask);
+                    AscendC::Reg::StoreAlign(((__ubuf__ float*)xMaxLocal) + k * VL_FP32, mNewReg, pregMask);
+                    AscendC::Reg::StoreAlign(((__ubuf__ float*)xSumLocal) + k * VL_FP32, lOldReg, pregMask);
                 }
             }
 
@@ -229,16 +229,16 @@ private:
     __aicore__ inline void CalcOutput(int64_t curTileRLen, uint32_t curTileA0Len, uint16_t loopA0Num)
     {
         LocalTensor<T1> x = xQueue_.DeQue<T1>();
-        __local_mem__ T1* xLocal = (__local_mem__ T1*)x.GetPhyAddr();
+        __ubuf__ T1* xLocal = (__ubuf__ T1*)x.GetPhyAddr();
 
         LocalTensor<T2> y = yQueue_.template AllocTensor<T2>();
-        __local_mem__ T2* yLocal = (__local_mem__ T2*)y.GetPhyAddr();
+        __ubuf__ T2* yLocal = (__ubuf__ T2*)y.GetPhyAddr();
 
         LocalTensor<float> xMaxTensor = xMaxBuf_.Get<float>();
-        __local_mem__ float* xMaxLocal = (__local_mem__ float*)xMaxTensor.GetPhyAddr();
+        __ubuf__ float* xMaxLocal = (__ubuf__ float*)xMaxTensor.GetPhyAddr();
 
         LocalTensor<float> xSumTensor = xSumBuf_.Get<float>();
-        __local_mem__ float* xSumLocal = (__local_mem__ float*)xSumTensor.GetPhyAddr();
+        __ubuf__ float* xSumLocal = (__ubuf__ float*)xSumTensor.GetPhyAddr();
 
         uint32_t tileA0Len = tilingData_->tileA0Len;
         uint16_t curTileRLenVl = static_cast<uint16_t>(curTileRLen);
@@ -254,8 +254,8 @@ private:
 
             for (uint16_t k = 0; k < loopA0Num; k++) {
                 pregMask = UpdateMask<float>(sreg);
-                DataCopy<float, LoadDist::DIST_NORM>(sumReg, (__local_mem__ float*)xSumLocal + k * VL_FP32);
-                DataCopy<float, LoadDist::DIST_NORM>(maxReg, (__local_mem__ float*)xMaxLocal + k * VL_FP32);
+                AscendC::Reg::LoadAlign<float, LoadDist::DIST_NORM>(sumReg, (__ubuf__ float*)xSumLocal + k * VL_FP32);
+                AscendC::Reg::LoadAlign<float, LoadDist::DIST_NORM>(maxReg, (__ubuf__ float*)xMaxLocal + k * VL_FP32);
                 for (uint16_t i = 0; i < curTileRLenVl; i++) {
                     uint32_t xOffset = i * tileA0Len + k * VL_FP32;
                     LoadTensorForDtypeT1(xLocal, xReg, pregMask, xOffset);
@@ -266,11 +266,11 @@ private:
 
                     // copy out
                     if constexpr (IsSameType<T2, float>::value) {
-                        DataCopy(((__local_mem__ float*)yLocal) + xOffset, yReg, pregMask);
+                        AscendC::Reg::StoreAlign(((__ubuf__ float*)yLocal) + xOffset, yReg, pregMask);
                     } else {  // fp16、bf16
                         RegTensor<T2> xFp16;
                         Cast<T2, float, castTraitFp32ToFp16>(xFp16, yReg, pregMask);
-                        DataCopy<T2, StoreDist::DIST_PACK_B32>(((__local_mem__ T2*)yLocal) + xOffset, xFp16, pregMask);
+                        AscendC::Reg::StoreAlign<T2, StoreDist::DIST_PACK_B32>(((__ubuf__ T2*)yLocal) + xOffset, xFp16, pregMask);
                     }
                 }
             }
@@ -281,14 +281,14 @@ private:
         xQueue_.FreeTensor<T1>(x);
     }
 
-    __aicore__ inline void LoadTensorForDtypeT1(__local_mem__ T1* src, RegTensor<float>& dst, MaskReg& preg,
+    __aicore__ inline void LoadTensorForDtypeT1(__ubuf__ T1* src, RegTensor<float>& dst, MaskReg& preg,
                                                 uint32_t offset)
     {
         if constexpr (IsSameType<T1, float>::value) {
-            DataCopy<float, LoadDist::DIST_NORM>(dst, (__local_mem__ float*)src + offset);
+            AscendC::Reg::LoadAlign<float, LoadDist::DIST_NORM>(dst, (__ubuf__ float*)src + offset);
         } else {  // fp16、bf16
             RegTensor<T1> xFp16;
-            DataCopy<T1, LoadDist::DIST_UNPACK_B16>(xFp16, ((__local_mem__ T1*)src + offset));
+            AscendC::Reg::LoadAlign<T1, LoadDist::DIST_UNPACK_B16>(xFp16, ((__ubuf__ T1*)src + offset));
             Cast<float, T1, castTraitFp16ToFp32>(dst, xFp16, preg);
         }
     }

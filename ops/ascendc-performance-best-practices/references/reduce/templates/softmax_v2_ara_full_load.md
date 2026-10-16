@@ -1,5 +1,7 @@
 # SoftmaxV2 ARA FullLoad 模板
 
+> 适用架构：arch35（A5 / DAV_3510）；本文 RegBase / Reg / MicroAPI / VF 内容为 arch35 独占。
+
 ## 1. 模板用途
 
 针对 3D `[A1, R, A0]` 布局、R×A0_tile 可载入 UB 的 Softmax 场景。沿 A0 切 tile，跨 R 逐列 VF 计算，根据 R 大小分支选择不同的归约路径（R≤2、R≤4、R≤8 直接累加；R>8 使用 BinaryAddVF 二分折叠）。

@@ -1,0 +1,7 @@
+.opencode
+.claude
+.codeartsdoer
+asc-devkit/
+cann-samples/
+__pycache__/
+*.pyc

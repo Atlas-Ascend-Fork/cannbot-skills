@@ -51,6 +51,13 @@ struct CaseShape {
     int dtypeCode;
 };
 
+inline bool ValidInputs(const CaseShape& s, const PlatformParam& p)
+{
+    return s.a1 > 0 && s.r > 0 && s.a0 > 0 && s.dtypeCode >= 0 && s.dtypeCode <= 2 &&
+           p.ubSize > 0 && p.numBlocks > 0 && p.blockSize >= 4 && p.blockSize % 4 == 0 &&
+           p.vlFp32 > 0 && p.vlFp16 > 0;
+}
+
 inline int64_t DtypeSize(int dtypeCode) { return dtypeCode == 0 ? 4 : 2; }
 inline bool IsFloat(int dtypeCode) { return dtypeCode == 0; }
 
@@ -100,6 +107,7 @@ inline int64_t GetCacheID(int64_t idx)
 inline int64_t TilingArSmallR(const CaseShape& s, const PlatformParam& p, SoftmaxV2ArSmallRTilingData& td)
 {
     std::memset(&td, 0, sizeof(td));
+    if (!ValidInputs(s, p)) return 0;
     const int64_t DATA_BLOCK_COUNT = 16;
     const int64_t FLOAT32_BYTES = 4;
     const int64_t DOUBLE_BUFFER = 2;
@@ -114,6 +122,7 @@ inline int64_t TilingArSmallR(const CaseShape& s, const PlatformParam& p, Softma
     int64_t rFactor = rAligned * (xDtypeSize * DOUBLE_BUFFER + yDtypeSize * DOUBLE_BUFFER + FLOAT32_BYTES * DOUBLE_BUFFER);
     int64_t a0TileNumMax = p.ubSize / (a0TileBase * (rFactor + FLOAT32_BYTES));
 
+    if (a0TileNumMax < 1 || s.a0 != 1 || s.r > (IsFloat(s.dtypeCode) ? 16 : 32)) return 0;
     int64_t a0TileNumTmp = CeilDiv(a0New, a0TileBase);
     int64_t a0TileNum = a0TileNumMax < a0TileNumTmp ? a0TileNumMax : a0TileNumTmp;
     int64_t tileA0Len = a0TileNum * a0TileBase;
@@ -144,6 +153,7 @@ inline int64_t TilingArSmallR(const CaseShape& s, const PlatformParam& p, Softma
 inline int64_t TilingArFullLoad(const CaseShape& s, const PlatformParam& p, SoftmaxV2ARTilingData& td)
 {
     std::memset(&td, 0, sizeof(td));
+    if (!ValidInputs(s, p)) return 0;
     const int64_t FLOAT32_BYTES = 4;
     const int64_t DOUBLE_BUFFER = 2;
     const int64_t UB_RESERVED_BYTE = 1024;
@@ -155,6 +165,7 @@ inline int64_t TilingArFullLoad(const CaseShape& s, const PlatformParam& p, Soft
     int64_t ubFactor = (p.ubSize - UB_RESERVED_BYTE - BINARY_TMP_LOCAL_SHAPE) /
                        (rAligned * FLOAT32_BYTES + DOUBLE_BUFFER * rAligned * xDtypeSize +
                         DOUBLE_BUFFER * rAligned * yDtypeSize);
+    if (ubFactor < 1 || s.a0 != 1) return 0;
     int64_t rLoopCount = CeilDiv(rAligned, p.vlFp32);
     int64_t aBlockFactor = CeilDiv(s.a1, p.numBlocks);
     int64_t usedCoreNums = CeilDiv(s.a1, aBlockFactor);
@@ -179,6 +190,7 @@ inline int64_t TilingArFullLoad(const CaseShape& s, const PlatformParam& p, Soft
 inline int64_t TilingArRecompute(const CaseShape& s, const PlatformParam& p, SoftmaxV2ArRecomputeTilingData& td)
 {
     std::memset(&td, 0, sizeof(td));
+    if (!ValidInputs(s, p)) return 0;
     const int64_t AR_RECOMPUTE_MAX_BUFFER_BTYES = 32;
     const int64_t AR_RECOMPUTE_SUM_BUFFER_BTYES = 32;
     const int64_t AR_RECOMPUTE_BINARY_CACHE_BTYES = 2048;
@@ -197,6 +209,7 @@ inline int64_t TilingArRecompute(const CaseShape& s, const PlatformParam& p, Sof
     int64_t ubFactorTmp = ubFlexible / baseFactor;
     int64_t lcm = Lcm(p.blockSize, Lcm(p.blockSize / xDtypeSize, p.blockSize / yDtypeSize));
     int64_t ubFactor = std::min<int64_t>(s.r, (ubFactorTmp / lcm) * lcm);
+    if (ubFactor < 1 || s.a0 != 1) return 0;
     int64_t aLoopCountCeil = CeilDiv(s.r, ubFactor);
     int64_t aLoopCountFloor = FloorDiv(s.r, ubFactor);
     int64_t ubFactorTail = s.r - ubFactor * aLoopCountFloor;
@@ -225,6 +238,7 @@ inline int64_t TilingArRecompute(const CaseShape& s, const PlatformParam& p, Sof
 inline int64_t TilingAraFullLoad(const CaseShape& s, const PlatformParam& p, SoftmaxV2ARATilingData& td)
 {
     std::memset(&td, 0, sizeof(td));
+    if (!ValidInputs(s, p)) return 0;
     const int64_t FLOAT32_BYTES = 4;
     const int64_t DOUBLE_BUFFER = 2;
     const int64_t CONST_EIGHT = 8;
@@ -243,6 +257,7 @@ inline int64_t TilingAraFullLoad(const CaseShape& s, const PlatformParam& p, Sof
     a0Inner = a0Inner < a0FactorMax ? a0Inner : a0FactorMax;
 
     int64_t tileA0Len = a0Inner * a0TileBase;
+    if (tileA0Len < 1) return 0;
     int64_t a0Outer = CeilDiv(s.a0, tileA0Len);
     int64_t tileA0Tail = s.a0 - tileA0Len * (a0Outer - 1);
     int64_t a1Inner = 1;
@@ -328,6 +343,7 @@ inline int64_t TilingAraFullLoad(const CaseShape& s, const PlatformParam& p, Sof
 inline int64_t TilingAraRecompute(const CaseShape& s, const PlatformParam& p, SoftmaxV2ARARecomputeTilingData& td)
 {
     std::memset(&td, 0, sizeof(td));
+    if (!ValidInputs(s, p)) return 0;
     const int64_t FLOAT32_BYTES = 4;
     const int64_t DOUBLE_BUFFER = 2;
     const int64_t FP32_BLOCK_ALIGN_NUM = 8;
@@ -366,6 +382,7 @@ inline int64_t TilingAraRecompute(const CaseShape& s, const PlatformParam& p, So
     a0Inner = a0Inner < a0FactorMax ? a0Inner : a0FactorMax;
 
     int64_t tileA0Len = a0Inner * a0TileBase;
+    if (tileA0Len < 1) return 0;
     int64_t a0Outer = CeilDiv(s.a0, tileA0Len);
     int64_t tileA0Tail = s.a0 - tileA0Len * (a0Outer - 1);
 
@@ -402,6 +419,7 @@ inline int64_t TilingAraRecompute(const CaseShape& s, const PlatformParam& p, So
 inline int64_t TilingAraOnline(const CaseShape& s, const PlatformParam& p, SoftmaxV2ARAOnlineTilingData& td)
 {
     std::memset(&td, 0, sizeof(td));
+    if (!ValidInputs(s, p)) return 0;
     const int64_t FLOAT32_BYTES = 4;
     const int64_t DOUBLE_BUFFER = 2;
     const int64_t FP32_BLOCK_ALIGN_NUM = 8;
@@ -420,9 +438,7 @@ inline int64_t TilingAraOnline(const CaseShape& s, const PlatformParam& p, Softm
     int64_t bytesPerA0Col = DOUBLE_BUFFER * rChunkFactor * xDtypeSize +
                             DOUBLE_BUFFER * rChunkFactor * FLOAT32_BYTES + FLOAT32_BYTES + FLOAT32_BYTES;
     int64_t factorMax = p.ubSize / a0TileBase / bytesPerA0Col;
-    if (factorMax < 1) {
-        factorMax = 1;
-    }
+    if (factorMax < 1) return 0;
 
     int64_t a0FactorMax = CeilDiv(s.a0, a0TileBase);
     int64_t totalTilesMax = s.a1 * a0FactorMax;
@@ -434,6 +450,7 @@ inline int64_t TilingAraOnline(const CaseShape& s, const PlatformParam& p, Softm
     }
 
     int64_t tileA0Len = a0Inner * a0TileBase;
+    if (tileA0Len < 1) return 0;
     int64_t a0Outer = CeilDiv(s.a0, tileA0Len);
     int64_t tileA0Tail = s.a0 - tileA0Len * (a0Outer - 1);
 

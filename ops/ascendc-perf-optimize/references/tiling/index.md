@@ -1,5 +1,8 @@
 # 算子 Tiling 理论建模
 
+> Tiling 建模按算子语义、shape 和 dtype 展开；资源参数取自目标平台。只有代际相关的 API、模板与阈值需要按 [适用范围](../architecture-routing.md) 筛选，通用模型不按代际拆分。
+
+
 > 按算子 pattern 路由到对应的 Tiling 建模参考目录。每个 pattern 有独立的建模文件夹，包含该族算子的 Tiling 理论模型、参数推导和门禁决策逻辑。
 >
 > 输出统一格式的理想 tiling data（多核切分、Buffer 规划、分支覆盖）。
@@ -13,11 +16,15 @@
 | MatMul 矩阵乘类 | MatMul, BatchMatMul, MatMul_MXFP4, MatMul_A16W16 | [matmul/](matmul/) |
 | MC² 通算融合类 | matmul_all_reduce, allgather_matmul, matmul_reducescatter, alltoall_matmul | [mc2/](mc2/) |
 | Reduction 归约类 | ReduceSum, Softmax, LayerNorm, ArgMax | [reduction/](reduction/) |
+| Scan / Cum 前缀扫描类 | Cumsum, Cummin, Cummax, Cumprod, LogCumsumExp | [scan/](scan/) |
+| Gather 索引类 | GatherV2, Gather, torch.gather, Embedding | [gather/](gather/) |
+| Sort / Select 排序选择类 | TopK, Sort, ArgSort, KthValue | [sort/](sort/) |
 | Elementwise 逐元素类 | Sin, Cos, Abs, Exp | [elewise/](elewise/) |
 | Broadcast 广播类 | Add, Mul, Sub | [broadcast/](broadcast/) |
+| Scatter 按轴散射类 | Scatter, ScatterAdd, ScatterReduce（ScatterElementsV2） | [scatter/](scatter/) |
 | Conversion 数据转换类 | Transpose, Concat, Split | [conversion/](conversion/) |
 | Convolution 卷积类 | Conv2D, DepthwiseConv | [convolution/](convolution/) |
-| FA FlashAttention 类 | FlashAttention, GroupNorm | [fa/](fa/) |
+| FA FlashAttention 类 | FlashAttention, FusedInferAttentionScore, QSFA, SparseFlashAttention, SCFA | [fa/](fa/) |
 
 ## 路由流程
 
@@ -28,8 +35,12 @@ Step 0 — 算子分类：
   ├─ MatMul 族 → matmul/
   ├─ MC² 通算融合族 → mc2/
   ├─ Reduction 族 → reduction/
+  ├─ Scan/Cum 族 → scan/
+  ├─ Gather 族 → gather/
+  ├─ Sort / Select 族 → sort/
   ├─ Elementwise 族 → elewise/
   ├─ Broadcast 族 → broadcast/
+  ├─ Scatter 族 → scatter/
   ├─ Conversion 族 → conversion/
   ├─ Convolution 族 → convolution/
   ├─ FA 族 → fa/
@@ -49,24 +60,28 @@ Step 0 — 算子分类：
 **选择逻辑**：
 1. 遍历该算子族的所有贡献算法，按优先级从高到低匹配条件
 2. 首个条件匹配的贡献算法被选中
-3. 无匹配时回退到默认参考算法
+3. 无匹配时仅回退到满足目标架构/能力条件的默认参考算法；无目标实现时返回参考缺口
 
 ### 当前注册
 
 | 算子族 | 算法路由 | 兜底算法 | 扩展算法 | 选择条件 |
 |--------|---------|---------|---------|---------|
-| MatMul | [matmul/](matmul/) | [fallback/](matmul/fallback/)（SWAT / FullLoad / StreamK） | — | — |
+| MatMul | [matmul/](matmul/) | arch22 [A2/A3 指南](../../../ascendc-performance-best-practices/references/matmul/arch22/guide.md) / arch35 [fallback/](matmul/fallback/)（SWAT / FullLoad / StreamK） | — | 先按目标代际 |
 | MC² 通算融合 | [mc2/](mc2/) | [fallback/](mc2/fallback/)（matmul tiling + 通算切分参数） | — | — |
 | Convolution | [convolution/](convolution/) | [fallback/](convolution/fallback/)（FORMULAS: Mmode + HWmode） | — | — |
 | Reduction | [reduction/](reduction/) | [fallback/](reduction/fallback/)（五模板通用算法） | — | — |
+| Scan / Cum | [scan/](scan/) | [fallback/](scan/fallback/)（流式 + oneway·twoway·ub·core 三层组合） | — | — |
+| Gather | [gather/](gather/) | [fallback/](gather/fallback/)（六模板通用算法） | — | — |
+| Sort / Select | [sort/](sort/) | [topk.md](sort/topk.md)（A5 TopK 多模板）/ [fallback/](sort/fallback/)（通用 Sort） | — | — |
 | Elementwise | [elewise/](elewise/) | [fallback/](elewise/fallback/)（占位） | — | — |
-| Broadcast | [broadcast/](broadcast/) | [fallback/](broadcast/fallback/)（占位） | — | — |
+| Broadcast | [broadcast/](broadcast/) | [fallback/](broadcast/fallback/)（显式分代广播模型） | — | — |
+| Scatter | [scatter/](scatter/) | [fallback/](scatter/fallback/)（六路径通用算法：并行划分 + 冲突消解） | — | — |
 | Conversion | [conversion/](conversion/) | [fallback/](conversion/fallback/)（占位） | — | — |
-| FA | [fa/](fa/) | [fallback/](fa/fallback/)（占位） | — | — |
+| FA | [fa/](fa/) | arch22 [A2/A3 FIA 指南](../../../ascendc-performance-best-practices/references/flash_attention/arch22/guide.md) / arch35 [fallback/](fa/fallback/)（占位） | — | 先按目标代际与 FA 变体 |
 
 ### 贡献新算法
 
-在 `<算子族>/` 下创建新目录，包含 `index.md`（算法描述、适用条件、tiling 推导）。同时在 `<算子族>/index.md` 的算法路由表中注册，注明选择条件和优先级。条件可以是 dtype、shape 范围、核数等任意可判定字段的组合。
+在 `<算子族>/` 下创建新目录，包含 `index.md`（算法描述、适用条件、tiling 推导）。同时在 `<算子族>/index.md` 的算法路由表中注册，注明选择条件和优先级；条件包含 dtype、shape 范围、核数等可判定字段，依赖特定代际的能力时另行标注。
 
 ---
 

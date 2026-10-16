@@ -57,6 +57,26 @@ ARA-FullLoad 在 R > 8 时使用行级 BinaryAdd，需额外记录分组参数�
 
 ---
 
+## 3.5 多轴交错模板字段（交错-tail-R / 交错-tail-A）
+
+> 仅交错连续载入模板使用（见 [tiling-flow.md §11–13](tiling-flow.md#11-多轴交错连续载入模板细节)）。
+> 五模板不含这些字段；此时 `axisShape[]` / `axisStride[]` 存严格交替后的全轴布局（偶数≥6 tail-R / 奇数≥7 tail-A）。
+
+| 字段 | 含义 | 出现模板 |
+|------|------|---------|
+| `axisShape[i]` / `axisStride[i]` | 严格交替后各轴长度/步长（连续性校验用） | 交错-tail-R, 交错-tail-A |
+| `fastInnerStart` | 内块起始轴索引（tail-R=axisNum-4，tail-A=axisNum-4） | 交错-tail-R, 交错-tail-A |
+| `fastGroupCnt` | group 数 = ∏(外层 A 轴) | 交错-tail-R |
+| `fastCoresPerGroup` | 每 group 切 rows 轴的核数 | 交错-tail-R |
+| `fastRowsAxisIdx` | 被切分+连续载入的 rows 轴索引（=fastInnerStart-1） | 交错-tail-R |
+| `fastRowsPerLoad` | 一次载入的 rows 行数（增大 burst，≤8） | 交错-tail-R |
+| `fastInnerChunkA0` | 内块 A0 分块粒度（命中要求 == szA0） | 交错-tail-R |
+| `raraSlabCnt` | slab 数 = ∏(内块外 A 轴 0,2) | 交错-tail-A |
+| `raraChunkR0` | 内块最外 R0 分块粒度（≤ min(R0,8)） | 交错-tail-A |
+| `workspace_size` | tail-R = groupCnt×coresPerGroup×outLanes×4；**tail-A = 0** | 交错-tail-R |
+
+---
+
 ## 4. 增强标志字段
 
 | 字段 | 含义 | 触发条件 |

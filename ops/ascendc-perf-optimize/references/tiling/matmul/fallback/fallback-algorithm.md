@@ -1,5 +1,7 @@
 # MatMul 族 — 兜底算法（官方参考）
 
+> 适用目标：arch35（DAV_3510 / A5）。arch22（A2/A3）必须返回上级路由读取目标专用指南，不能使用本页的 MX、SWAT / FullLoad / StreamK 阈值兜底。
+>
 > MatMul 族所有变体（a16w16 / mxfp4 / mxfp8 / batch_matmul / group_matmul）共享的官方参考 Tiling 算法。
 >
 > 按 **dtype / Scale / 特有维度** 找对应变体，再按 **Shape 条件** 选择策略（SWAT / FullLoad / StreamK）。

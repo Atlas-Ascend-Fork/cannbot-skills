@@ -1,5 +1,7 @@
 # Transpose 性能调优参考(策略文档 + 可复用 kernel 模板)
 
+> 适用架构：arch35（A5 / DAV_3510）；本文 RegBase / Reg / MicroAPI / VF 内容为 arch35 独占。
+
 本目录为 Transpose 算子(AscendC / arch35 / dav-3510)提供**按 tiling 策略组织的调优参考**:开发者或 agent 根据实际入参选定策略后,可直接引用对应 kernel 模板,或仅做微调即可完成调优。每份策略文档均包含两部分:**一、适用场景**(为何需要、解决什么问题、为何提速)与 **二、kernel 执行流程与关键实现**(关键函数流程 + 所用关键技术)。
 
 ## 目录结构
@@ -57,13 +59,13 @@ conversion/
 
 - **NDDMA 多维 DMA**:CUT_ONCE / CUT_TWICE / BIG_DIM / N_LAST —— 用带 stride 的多维描述符在搬运中完成 perm 取址。
 - **VCONV / TransDataTo5HD 向量转置**:VCONV_5HD / VCONV_021 —— 片上 16×16 块转置。
-- **MicroAPI / regbase gather**:GATHER —— `DataCopyGatherImpl` 按预生成 index 在 UB 内重排(仅 dav-3510)。
+- **Reg / RegBase gather**:GATHER —— `DataCopyGatherImpl` 按预生成 index 在 UB 内重排(仅 dav-3510)。
 - **SIMT 逐元素**:SMALL_SHAPE —— `asc_vf_call` + 魔数除法反算索引,省搬运流水固定开销。**注意**:原始模板逐元素读写带宽利用率仅 6.25%,当 perm 末轴不转置时应实现向量化读写(每线程处理 C 个连续元素),详见 [transpose_small_shape.md §6](transpose_small_shape.md#6-memory-coalescing-与向量化读写)。
 - **double buffer**:TENSOR_MOVE / N_LAST / VCONV 系列 / GATHER 用到;CUT_ONCE / CUT_TWICE / BIG_DIM 为单缓冲(见各文档说明)。
 - **CopyOut 维度合并**:N_LAST —— 当 perm 导致循环顺序与 output 连续性不匹配时,可通过检查 `inv_perm` 连续性合并 output 中相邻的维度组,将 strided 多循环写出降为连续单次写出。详见 [transpose_n_last.md §3](transpose_n_last.md#三copyout-维度合并优化)。
 
 ## 编译注意
 
-- GATHER 策略受编译宏 `TRANSPOSE_ENABLE_GATHER`(默认 0)保护,需 MicroAPI/Reg 寄存器模型,仅 `__NPU_ARCH__==3510` 可用。关闭时 host 不产出该策略,相应 shape 由 NDDMA 家族覆盖。
+- GATHER 策略受编译宏 `TRANSPOSE_ENABLE_GATHER`(默认 0)保护,需 Reg 寄存器模型,仅 `__NPU_ARCH__==3510` 可用。关闭时 host 不产出该策略,相应 shape 由 NDDMA 家族覆盖。
 - kernel 模板依赖 CANN toolkit 头(`kernel_operator.h`、`op_kernel/platform_util.h`、`op_kernel/math_util.h`、`simt_api/asc_simt.h`、`reg_compute/*`),详见 [`transpose_tiling_data.md`](transpose_tiling_data.md#外部依赖cann-toolkit-头文件)。
 - VCONV 5HD 策略仅支持 16bit;021 VCONV 策略支持 8/16/32bit。

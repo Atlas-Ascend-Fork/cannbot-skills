@@ -1,5 +1,6 @@
 # Broadcast 族 Tiling 算法路由
 
+
 > Broadcast 族（Add, Mul, Sub 等广播类算子）Tiling 算法入口。默认使用 fallback 兜底算法。
 
 ---
@@ -8,7 +9,7 @@
 
 | 优先级 | 算法 | 选择条件 | 目录 |
 |--------|------|---------|------|
-| 0（兜底） | 官方参考 | 无条件（回退保障） | [fallback/](fallback/) |
+| 0（兜底） | 官方参考 | 目标架构/能力匹配后的兜底 | [fallback/](fallback/) |
 
 ---
 

@@ -1,0 +1,16 @@
+id: ops-perf-optimize
+dir: plugins-official/ops-perf-optimize
+displayName: 算子性能调优
+aliases: [perf-optimize, perf-optimization, performance]
+skills: 0
+description: AscendC 算子性能调优五阶段工作流（基线评估→前处理→诊断分析→实施验证→后处理），冻结输入、逐 case 证据门禁、多轮优化与原工程回集成；插件内自带 9 个阶段/共享 Skill
+# version derived from plugin.json (single source of truth)
+configFile: AGENTS.md
+configRootConfigLink: false
+# 本插件由自带 init.sh 完成装配（按 INCLUDED_SKILLS 以「插件内 skills/ 优先、
+# 共享 ../../ops 兜底」两级解析软链技能、注册主 Agent perf-optimize、挂载
+# workflows/ 与 scripts/ 工具目录、可选 clone asc-devkit / cann-samples），
+# 不走 installViaManifest 声明式路径，故不声明 installSkills / externalRepos。
+# 无 per-stage agent 文件（阶段派发客户端通用 subagent），主 Agent 由 init.sh
+# 以 AGENTS.md 软链注册为 perf-optimize.md。
+installAgents: []

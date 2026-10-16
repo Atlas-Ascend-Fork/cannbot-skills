@@ -1,5 +1,7 @@
 # Transpose 调优参考:TENSOR_MOVE 策略(tilingKey = 10000)
 
+> 适用架构：arch35（A5 / DAV_3510）；本文 RegBase / Reg / MicroAPI / VF 内容为 arch35 独占。
+
 本文面向做 AscendC Transpose 算子性能调优的开发者,介绍 NDDMA 家族中最简单的一档策略 `TENSOR_MOVE`。
 
 - 策略名:`TENSOR_MOVE`
@@ -192,7 +194,7 @@ flowchart TD
 未用到(区别于其他 Transpose 策略,便于对照理解):
 
 - 没有 NDDMA 多维搬运 / `nddmaIdx`、`inUbMainSrcShape` 等描述符(那是 CUT_ONCE/CUT_TWICE/BIG_DIM 才用)。
-- 没有 UB 内部转置、没有 regbase / MicroAPI(寄存器)编程(那是 GATHER_TRANSPOSE 路径)。
+- 没有 UB 内部转置、没有 RegBase / Reg（寄存器）编程（那是 GATHER_TRANSPOSE 路径）。
 - 没有 VCONV / 5HD 相关搬运(那是 VCONV 系列)。
 - 没有独立的 TBuf 临时空间,仅一个绑定队列。
 

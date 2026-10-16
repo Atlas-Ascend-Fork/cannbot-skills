@@ -39,8 +39,8 @@ class ConversionTilingInput:
     input_shape: List[int]
     perm: List[int]
     dtype: str = "fp16"
-    ub_size: int = 248 * 1024
-    core_num: int = 64
+    ub_size: int = None   # query the target platform
+    core_num: int = None  # available AIV cores on the target platform
     reserved_bytes: int = 0
 
 
@@ -221,6 +221,8 @@ def compute_conversion_tiling(params: ConversionTilingInput) -> ConversionTiling
     Returns:
         ConversionTilingData with all tiling parameters
     """
+    if params.ub_size is None or params.ub_size <= 0 or params.core_num is None or params.core_num <= 0:
+        raise ValueError("ub_size and core_num must be positive values queried from the target platform")
     cfg = _ConversionConfig(ub_size=params.ub_size, reserved_bytes=params.reserved_bytes, core_num=params.core_num)
 
     channel_count, flat_length = collapse_to_channel_flat(params.input_shape, params.perm)
@@ -266,5 +268,7 @@ if __name__ == "__main__":
         input_shape=[3, H, W],
         perm=[1, 2, 0],
         dtype="fp16",
+        ub_size=248 * 1024,  # example platform values
+        core_num=64,
     ))
     logger.info(json.dumps(tiling.to_dict(), indent=2))

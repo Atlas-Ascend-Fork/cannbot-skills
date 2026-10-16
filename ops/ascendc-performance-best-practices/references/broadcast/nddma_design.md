@@ -35,7 +35,7 @@ for (int64_t loop = 0; loop < ubLoopNum; loop++) {
 ```cpp
 if (outputStrides[ubSplitAxis] != inputStrides[ubSplitAxis]) {       // tile 内 split 轴跨度不一致 → ①
     auto params = MakeNddmaParams<T>(...);                           // 广播轴 loopSrcStride=0
-    static constexpr AscendC::MultiCopyConfig cfg = {false, 0, 0, false};  // 必须 static：模板参为 const&
+    static constexpr AscendC::NdDmaConfig cfg = {false, 0, 0, false};  // 必须 static：模板参为 const&
     AscendC::DataCopy<T, NDDMA_DIM, cfg>(ub, gm, params);            // 多维 DMA
 } else {                                                             // tile 内完全连续 → 落 ②
     AscendC::DataCopyPad(ub, gm, ext, pad);
@@ -48,6 +48,6 @@ if (outputStrides[ubSplitAxis] != inputStrides[ubSplitAxis]) {       // tile 内
 
 - `NDDMA_DIM = 5`：单次多维 DMA 最多 5 维。`rank = shapeLen - ubSplitAxis > 5` 时 `MakeNddmaParams` 的 `axisInsideUb` 会变负越界。官方 atvoss 走 with-loop NDDMA（按融合轴拆，`BroadcastNddmaWithLoop`）；**本样例未实现 with-loop，因此 Host 选型在 rank>5 时回退 ③ BRC_UB**（见 `broadcast_add_tiling.cpp` 的 rank 兜底）。
 - 广播轴 `loopSrcStride = 0` 是复制关键；非广播轴填真实 stride。
-- `MultiCopyParams` 的 `constValue` 仅 pad 场景用，正常广播取 0。
+- `NdDmaParams` 的 `constValue` 仅 pad 场景用，正常广播取 0。
 - 与 ② 共用同一段 kernel：是否进 ① 由运行期 `outputStrides[ubSplitAxis] != inputStrides[ubSplitAxis]`（tile 内 split 轴跨度不一致）决定，不等同于"切分轴是广播轴"。
-- `cfg` 必须是 `static constexpr`：`DataCopy` 第三模板参为 `const MultiCopyConfig&`，需静态存储期，局部 `constexpr` 编不过。
+- `cfg` 必须是 `static constexpr`：`DataCopy` 第三模板参为 `const NdDmaConfig&`，需静态存储期，局部 `constexpr` 编不过。

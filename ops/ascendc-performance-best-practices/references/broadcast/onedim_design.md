@@ -106,6 +106,7 @@ if (isScalar) {
 - **标量首块的 `len`**：首块用 `Duplicate(dst, val, len)` 铺当前块长度即可；后续块直接复用 `dst`，无需重铺（各块长度只有最后一块可能更短，复用块多出的尾部不参与计算/写回，无害）。
 - **尾块非对齐**：一维总长 `dimLen` 常非 `alignEle` 倍数，最后一块 `tailLen` 非对齐——`DataCopyPad` 自动兜底，计算指令 `count` 传真实 `len` 即可（同 [advanced_tiling.md](advanced_tiling.md) §3）。
 - **小 shape 减核**：`ubOuter < coreNum` 时 `ComputeOneDimTiling` 把 `blockNum` 降到 `ubOuter`，避免空核；`OneDimCalcCore` 的 `blockFormer/blockTail` 据此自洽。
+- **⚠️ 末核长度别用减法推（防负→越界踩踏 GM）**：`blockTail = ubOuter − (bn−1)·blockFormer` 在 `blockFormer` 向上取整后可能 **取负**（(bn−1)·blockFormer > ubOuter），末核仍按满 tile 写 → **越界写 `dimLen` 之外、踩踏相邻 GM**。症状极隐蔽：**单跑可能 PASS、msprof 多 launch 累积成大量 mismatch**（覆盖仿真 `oob>0`、`missing=0`、`maxAbsDiff` 巨大）。**修法**：每核改用全局区间 `[blockStart, blockEnd)` 对 `dimLen` clamp，每 tile `len = min(tileLen, blockEnd − off)`，`blockStart ≥ dimLen` 直接 return —— **永不靠减法反推末核长度**。
 - **UB 预算**：标量块按 1 份（非双缓冲）、满输入/输出按双缓冲计入 `aliveBuf`；示例取 `IN_NUM+1` 为保守上界。
 - **double**：`GetValue`/`Duplicate` 标量对 double 需按位转 int64 处理（同 atvoss 对 `double` 的 reinterpret），其余 dtype 直接用。
 

@@ -63,5 +63,7 @@ AscendC::Broadcast<T>(dst, src, dShape, sShape, &bt);   // ← UB 矢量广播�
 - **退化守卫**：`UbBroadcast` 内先检查是否存在 `dShape>sShape` 的维；若无（如尾块 `rows==1` 或选型漏判），直接 `DataCopy(dst,src,对齐cnt)` 做 dtype 无关的 UB→UB 拷贝（不用 `Adds`，避免 int64 等不支持），而非调 `Broadcast`，防空广播出 nan。这是兜底，正确选型应优先在 host 侧避免（见上"前提"）。
 - UB 预算要**多留一块紧凑源 buffer**（样例的 `bufSrc_`）：③ 是 src + dst 两块，① 只需一块。tiling 的 `aliveBuf` 要含这块。
 - **每个走 ③ 的输入要各自一块 `bufSrc`**：若多个输入都可能 ③（如 binary 的 x1/x2 都广播），共用一块 `TBuf` 会 RAW 冒险（第二个输入的 `DataCopyPadCompact` 覆盖第一个的紧凑源）。binary 算子应配 `bufSrc1_/bufSrc2_`，`aliveBuf` 相应增大（cann-bench Maximum 落地经验）。
+- **⚠️ 紧凑源跨 tile 要双缓冲（防 MTE2↔V WAR、非确定性 FAIL）**：多 tile 循环复用**单块裸 `TBuf`** 做 `DataCopyPadCompact` 紧凑源时，本 tile 的 MTE2(写) 与上一 tile 的 V(`Broadcast`/`Cast` 读) 存在 WAR，框架**不自动插同步** → **非确定性 FAIL**（run1 fail=N、run2 PASS，逐次波动）。修法：紧凑源改走双缓冲队列 `TQue<VECIN, 2>`（Alloc→DataCopyPad→EnQue→DeQue→用→Free），框架自动管 MTE2↔V 同步。
+- **⚠️ 极小 tile 会退化为 SCALAR bound（可能慢于基线）**：`Broadcast`（尤其编译期静态 rank）在每 tile 只含一个小广播平面、`totalTiles` 巨大时，每 tile 固定开销（DataCopyPad/Broadcast/EnQue）占比飙升 → `scalar_ratio` 高、甚至慢于原 SIMT 基线。修法 **multi-batch 打包**：一个 tile 装多个 batch（`batchPerTile = elemNum/plane`）、整块一次 `Broadcast` 摊薄固定开销，`totalTiles` 降一个量级（准入 `plane % 对齐 == 0`，非对齐回落普通分支）。
 - `GetBroadcastTilingInfo` 的 rank 必须与 `Broadcast` 调用一致。
 - src/dst shape 的首轴是 UB 切分轴方向的行数，后续轴是尾轴及以下；广播轴在 src 上填 1。

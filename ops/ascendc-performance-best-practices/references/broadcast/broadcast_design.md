@@ -14,8 +14,7 @@
 | [nddma_design.md](nddma_design.md) | 实现① NDDMA 搬入即广播 |
 | [datacopypad_design.md](datacopypad_design.md) | 实现② DataCopyPad 紧凑搬入 + 复用 |
 | [ub_broadcast_design.md](ub_broadcast_design.md) | 实现③ UB 内 Broadcast 指令 |
-| [advanced_tiling.md](advanced_tiling.md) | 进阶：通用切分（任意 ubSplitAxis / 大 shape / 尾块非对齐 / cann-bench case） |
-| [code/broadcast_common.h](code/broadcast_common.h) | 常量 / TilingData / `ComputeTiling` / 切分 helper / 四类广播原语（含 OneDim） |
+| [advanced_tiling.md](advanced_tiling.md) | 进阶：通用切分（任意 ubSplitAxis / 大 shape / 尾块非对齐 / cann-bench case） || [code/broadcast_common.h](code/broadcast_common.h) | 常量 / TilingData / `ComputeTiling` / 切分 helper / 四类广播原语（含 OneDim） |
 | [code/broadcast_add_tiling.cpp](code/broadcast_add_tiling.cpp) | 端到端样例（①②③ 多维选型）：Host（选型 + 切分） |
 | [code/broadcast_add_kernel.cpp](code/broadcast_add_kernel.cpp) | 端到端样例（①②③ 多维选型）：Kernel + 算子入口 |
 | [code/onedim_add_tiling.cpp](code/onedim_add_tiling.cpp) | 端到端样例（④ OneDim 标量广播）：Host（`TryOneDim` + 极简切分） |
@@ -26,7 +25,7 @@
 | # | 实现 | 广播在哪发生 | 核心 AscendC API | 占用单元 | 典型适用 |
 |---|------|------------|-----------------|---------|---------|
 | ④ | [**OneDim 合轴塌一维**](onedim_design.md) ★前置 | 标量首块 Duplicate / 满输入直搬 | `Duplicate(ub,scalar,len)` + `DataCopyPad` | Vector(标量铺) / MTE2 | **合轴后塌一维**：每输入要么满 shape 要么纯标量（标量广播、同 shape elementwise） |
-| ① | [**NDDMA 搬入即广播**](nddma_design.md) | GM→UB 搬运中 | `DataCopy<T,DIM,cfg>(ub,gm,MultiCopyParams)`，广播轴 `loopSrcStride=0` | MTE2（DMA），不占 Vector | 大 dtype（FP32/INT32）等、或 B8/B16 尾轴非对齐；**切分轴本身是广播轴** |
+| ① | [**NDDMA 搬入即广播**](nddma_design.md) | GM→UB 搬运中 | `DataCopy<T,DIM,cfg>(ub,gm,NdDmaParams)`，广播轴 `loopSrcStride=0` | MTE2（DMA），不占 Vector | 大 dtype（FP32/INT32）等、或 B8/B16 尾轴非对齐；**切分轴本身是广播轴** |
 | ② | [**DataCopyPad（外层广播，offset 寻址）**](datacopypad_design.md) | 不在搬运中，靠 GM offset（外层广播轴 stride=0） | `DataCopyPad(ub,gm,ext,pad)` 每轮搬一段连续数据 | MTE2，不占 Vector | 广播轴**全在切分轴之上（外层）**、切分轴连续 |
 | ③ | [**UB 内 Broadcast 指令**](ub_broadcast_design.md) | UB 内 | `Broadcast<T,R>(dst,src,dstShape,srcShape,&tiling)` | Vector | **前提广播轴在 tile 内(brcInTile)**；且：尾轴对齐且 dtype∈{INT8,UINT8,FP16,BF16,INT16,UINT16}，或非尾轴广播且尾轴≥dcache/2（~4096B），或广播中间计算结果 |
 
@@ -155,6 +154,7 @@ dimProductBeforeUbInner = (∏ outputDims[0 .. ubSplitAxis-1]) × ubOuter   // U
 - 维度上限：建议 `BROADCAST_MAX_DIMS = 8`；单次 NDDMA `NDDMA_DIM = 5`。
 - `BLOCK_LENGTH = 32`（字节），对齐元素数 = `32 / sizeof(dtype)`。
 - 只覆盖**连续布局**广播；转置/非连续布局需搬运前做 layout 处理，不在本文范围。
+- **距离/归约类算子（cdist/pdist 等）在归约维 shape=1 时退化为纯广播**（`Σ` 单元素 → `|d|`，任意 p 范数在标量上恒等），按本文选型处理；其 golden 若参考实现（如 `torch.cdist`）CPU 分支不支持 half，须把 fp16/bf16 升 fp32 计算再 cast 回、不改阈值。
 - ④ OneDim 是**整算子级**的前置分流（合轴塌一维则全算子走它）；①②③ 是塌不成一维时**逐输入混用**（不同输入走不同 brcMode），均由 tiling 决定。
 - 对标 atvoss 连续布局四个调度模式：① ↔ NDDMA without/with-loop（schMode 1/2）、③ ↔ UB_BROADCAST（101~109）、④ ↔ ONE_DIM_ADVANCE/ONE_DIM（202/201）；非连续布局族（transpose 等）不在本文范围。
 - 代码为**范式级**：`AlignDown/CeilDiv/GET_TILING_DATA/DTYPE_X` 等按工程宏/惯例占位，落地需接 op proto / REGISTER / tiling 注册 / 对齐校验等工程件。

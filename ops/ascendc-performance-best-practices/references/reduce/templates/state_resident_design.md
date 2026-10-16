@@ -189,7 +189,7 @@ S2 Loop 2:                                                          [Vector: sof
 
 ## 6. 注意事项 / 约束
 
-1. **UB 空间约束**：常驻占用 `3 × SOFTMAX_TMP_BUFFER_SIZE × preLoadNum`。以 `preLoadNum = 2`、`SOFTMAX_TMP_BUFFER_SIZE = 2048` 为例，总占用 12KB。需确保 UB 总预算（通常为 256KB）扣除该部分后仍有足够空间给其他 buffer（如输入 tile、输出 tile、中间计算 buffer）。
+1. **UB 空间约束**：常驻占用 `3 × SOFTMAX_TMP_BUFFER_SIZE × preLoadNum`。以 `preLoadNum = 2`、`SOFTMAX_TMP_BUFFER_SIZE = 2048` 为例，总占用 12KB。需从目标平台查询实际可用 UB 预算，扣除该部分后再规划其他 buffer（如输入 tile、输出 tile、中间计算 buffer）。
 
 2. **preLoadNum 上限**：受 UB 总量限制。若 `preLoadNum` 过大导致 UB 溢出，编译/仿真阶段会报错。建议按以下公式校验：
    ```

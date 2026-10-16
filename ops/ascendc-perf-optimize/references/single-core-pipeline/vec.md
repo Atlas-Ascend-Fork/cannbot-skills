@@ -1,6 +1,13 @@
-# VEC Bound 优化策略
+# VEC Bound 诊断页
+
+> 通用诊断适用于 arch22 / arch35，具体指标与卡片按目标能力选用；RegBase / Reg / MicroAPI / VF / RVEC 相关内容仅适用于 arch35（A5），示例阈值不作为跨代默认值。
+
 
 VEC bound 是 elementwise、activation、reduction 类算子最常见的瓶颈。Vector 计算单元成为耗时主导，MTE2/MTE3 搬运单元相对空闲。
+
+> 本页诊断对象是已经确认属于 AIV 的向量计算单元。融合算子中的 Cube MMAD/内嵌 MatMul 即使外层 profiling 同时出现 Vector 活动，也必须保留 MatMul 族路由；不能把 VEC 占比或低 MAC 利用率直接解释为应将 MM 替换成 AIV。
+
+> 本页只做**诊断**（判定 + 特征）；具体优化手段（怎么改）见技术卡片库 `techniques/`。采集与指标口径统一见 `metrics.md`。
 
 ---
 
@@ -16,7 +23,9 @@ VEC bound 是 elementwise、activation、reduction 类算子最常见的瓶颈�
 |----------|------|---------|
 | 50–65% | 轻度 | DoubleBuffer + UB 融合有较大收益 |
 | 65–80% | 中度 | 减少 Cast 或融合指令 |
-| >80% | 深度 | VEC 本身已接近理论极限，优化空间有限 |
+| >80% | 深度 | DAV_3510 先评估寄存器驻留 VF（见下注）；A2/A3 按目标高层 API 与指令证据分析，通用方向包括减计算量与中间搬运 |
+
+> **深度 VEC bound：先评估寄存器驻留 VF 改写（正常分析路径）**。vec 占比高不等于微架构收益耗尽：向量链即使已在 UB 驻留，每个向量 API 仍各带一次 UB 读 + 一次 UB 写。将链改写为寄存器驻留 VF 形式——`AscendC::Reg` 全链接力，入口 load 一次、链内寄存器传递、出口 store 一次，消除链内 UB staging 与中转——可消除这些往返。该实现路线限 DAV_3510 且只适用于已确认的 AIV 向量计算链；Cube MMAD/内嵌 MatMul 必须回到 MatMul 族评估 Cube 流水，不能由本页结论触发 AIV 替换。不能从 VEC 占比推导 A2/A3 支持 Reg。数值顺序与舍入仍须按目标精度门禁验证，不能预先保证位相同。
 
 ---
 
@@ -37,13 +46,13 @@ VECTOR     |..############################|65%  <- 主导
 MTE3       |..........................####.|10%
 ```
 
-VECTOR 行持续活跃，MTE2 有明显空闲等待，说明搬运速度快于计算速度。
+VECTOR 行持续活跃，MTE2 有明显空闲等待，说明搬运速度快于计算速度。泳道读法见 `metrics.md` §3。
 
 ---
 
 ## VEC 内部指令分析
 
-从 Chrome Trace JSON 提取 pid=5 (VECTOR) 事件，按 `name` 分类统计：
+从 trace 提取 VECTOR 泳道事件，按 `name` 分类统计：
 
 | 指令类型 | 典型指令 | 含义 |
 |---------|---------|------|
@@ -54,100 +63,15 @@ VECTOR 行持续活跃，MTE2 有明显空闲等待，说明搬运速度快于�
 
 **判断规则**：
 - Cast 占比 >20% → 类型转换密集场景，优化 Cast 有高收益
-- 超越函数占比 >30% → 深度 VEC bound，优化空间有限
+- 超越函数占比 >30% → 深度 VEC bound，优化空间有限（转算法层减计算量）
 
-> ascend950 regbase 范式使用 **RVEC** 单元：RVECEX（执行）、RVECLD（加载）、RVECST（存储）、RVECSU（设置）。
-
----
-
-## 策略 1：UB 融合
-
-多个连续的 Vector 操作直接在 UB 中完成，不将中间结果写回 GM，消除不必要的 MTE2/MTE3 往返。
-
-```
-未融合: GM → UB → Compute1 → GM → UB → Compute2 → GM    // 6 次 GM 访问
-已融合: GM → UB → Compute1 → Compute2 → UB → GM          // 2 次 GM 访问
-```
-
-**检查方法**：在 trace 中观察两个 VECTOR 活跃段之间是否插入了 MTE3（写回）+ MTE2（读入）。如果有，说明中间结果经过了 GM，未融合。
-
-| 操作 | 说明 |
-|------|------|
-| 识别可融合的相邻 Vector 操作 | 消除中间搬移和暂存 |
-| 链式 Vector 操作合并 | Mul+Add → MulAdd, 多个激活函数链式处理 |
-| 减少中间结果写回 UB | 融合后在寄存器内完成传递 |
-
----
-
-## 策略 2：减少类型转换
-
-Cast（类型转换）是 VEC bound 中最常见的隐性开销。典型模式：`fp16 → Cast fp32 → 计算 → Cast fp16`。当计算本身只有 1–2 条指令时，Cast 可能占总 VEC 时间的 30–50%。
-
-| 操作 | 说明 |
-|------|------|
-| 批量 Cast | 将多次 Cast 合并为一次大粒度操作 |
-| 避免不必要的 Cast | 检查计算精度是否必须转换 |
-| 选择合适的计算精度 | 全链路 fp16 或全链路 fp32，避免往返转换 |
-
----
-
-## 策略 3：融合指令
-
-使用融合指令减少 VEC 指令数：
-
-| 指令 | 等价操作 | 说明 |
-|------|---------|------|
-| VMULA | VMUL + VADD | 乘加融合 |
-| VMULS | VMUL + VSUB | 乘减融合 |
-| VMADD | 累加模式 | 单指令累加 |
-
----
-
-## 策略 4：低延迟归约
-
-对于 reduction 操作，优先使用硬件树形归约指令（ReduceSum / ReduceMax / ReduceMin），避免手动 for 循环逐元素归约。
-
----
-
-## 策略 5：RegBase 访存
-
-| 操作 | 说明 |
-|------|------|
-| 数据布局调整为 RegBase 友好 | 连续读取、对齐访问 |
-| 使用 RegBase 加载指令 | 减少地址计算开销 |
-| 减少 vload/vstore 次数 | RegBase 大粒度搬移优势 |
-
----
-
-## 策略 6：减少计算量（VEC BOUND 核心策略）
-
-深度 VEC BOUND（>80%）时，微架构调整（DoubleBuffer、融合指令、Bank Align）收益有限。瓶颈在计算量本身，须从**算法层面**减少向量指令数。
-
-### 适用场景
-
-所有使用硬件超越函数（Exp、Log、Tanh、Sigmoid、GELU、Softmax）的 elementwise / activation 算子。这些函数内部使用 Taylor 级数展开，每个元素需数十条 FMA 指令，是计算量的主要来源。
-
-### 优化手段
-
-| 手段 | 说明 | 适用条件 |
-|------|------|---------|
-| **LUT + 插值** | 用查表+插值替代 Taylor 展开，减少计算量 | 从 asc-devkit 查对应 API（如 `Exp<T, expandLevel, isReuseSrc>` 设 `expandLevel=0` 即为查表模式）；`Log`、`Tanh` 等超越函数同理 |
-
-### 案例分析：Exp 算子
-
-`AscendC::Exp<T, expandLevel, isReuseSrc>` 的 `expandLevel = 0` 即内部走查表（LUT）+ 插值，无需手写查表逻辑。优先用此模式，减少 Taylor 项数（12→8）有精度风险，不推荐。
-
-### 检查方法
-
-在 profiling 数据中检查 `aiv_vec_ratio`：
-- >90% 且算子是 elementwise/activation 类 → 优先考虑减少计算量
-- 从 Chrome Trace 识别 `vec_exp`/`vec_log`/`vec_tanh` 等超越函数指令占比
+> ascend950 regbase 范式使用 **RVEC** 单元：RVECEX（执行）、RVECLD（加载）、RVECST（存储）、RVECSU（设置）。与 msprof 泳道的对应见 `metrics.md` §4。
 
 ---
 
 ## DoubleBuffer 检查
 
-在 Chrome Trace 中观察 MTE2 和 VECTOR 行的时间重叠：
+在 trace 中观察 MTE2 和 VECTOR 行的时间重叠：
 
 | 模式 | 特征 | 含义 |
 |------|------|------|
@@ -156,9 +80,32 @@ Cast（类型转换）是 VEC bound 中最常见的隐性开销。典型模式�
 
 ---
 
+## 优化手段（详见技术卡片库 `techniques/`）
+
+诊断出细分特征后，到 `techniques/` 取对应卡片实施：
+
+| 诊断特征 | 首选卡片 |
+| --- | --- |
+| 相邻可融合 Vector 操作、中间落 GM | [vec-01-ub-fusion](techniques/vec-01-ub-fusion.md)、[vec-03-fused-instr](techniques/vec-03-fused-instr.md) |
+| Cast 占比 >20% | [vec-02-reduce-cast](techniques/vec-02-reduce-cast.md)、[vec-05-eliminate-ub-staging](techniques/vec-05-eliminate-ub-staging.md) |
+| 向量链耗时主导（含已 UB 驻留的链；每个向量 API 各带一次 UB 读写，常见于已做过 vec-01 的链） | [vec-05-eliminate-ub-staging](techniques/vec-05-eliminate-ub-staging.md)（改法 A 推广到全链：入口 `Reg::LoadAlign` 一次、链内 RegTensor 接力、出口 `Reg::StoreAlign` 一次；触发不要求可见 staging 往返） |
+| 标量 round-trip（GetValue/SetValue、V_S/S_V 同步） | [vec-04-scalar-roundtrip-vectorize](techniques/vec-04-scalar-roundtrip-vectorize.md) |
+| 反复 load 不变量 / 行长 ≪ VL lane 利用率低 | [vec-06-broadcast-once-vl-merge](techniques/vec-06-broadcast-once-vl-merge.md) |
+| 归约累加器串行链、VECTOR 周期性空泡 | [vec-07-low-latency-reduce](techniques/vec-07-low-latency-reduce.md)、[vec-08-multi-accumulator-unroll](techniques/vec-08-multi-accumulator-unroll.md) |
+| 超越函数深度 bound（`aiv_vec_ratio` >90%） | [vec-11-reduce-compute-lut](techniques/vec-11-reduce-compute-lut.md) |
+| VF 反复启停 / setup 重复 | [vec-09-loop-sink-into-vf](techniques/vec-09-loop-sink-into-vf.md) |
+| 小定长循环 | [vec-10-small-loop-unroll](techniques/vec-10-small-loop-unroll.md) |
+| trace 现 preg spill/reload（尤 int64） | [vec-12-preg-split](techniques/vec-12-preg-split.md) |
+| VF 尾块另设 tailTwoVL/tailOneVL 循环、计算体重复 | [vec-13-vf-tail-unified-mask](techniques/vec-13-vf-tail-unified-mask.md) |
+| 一行拆段分别 load、段长非 32B 对齐、VF load/store 非对齐 | [vec-14-aligned-split-copy](techniques/vec-14-aligned-split-copy.md) |
+
+卡片总览见 `techniques/INDEX.md`。
+
+---
+
 ## Tiling 修正建议
 
 - 调整 UB 布局以支持更高效的 RegBase 访问模式
 - 调整 tile 粒度匹配 Vector 融合窗口
-- 增大 tile 尺寸减少循环次数，降低流水启停开销（UB 容量：192KB / 910B2，248KB / 950）
+- 增大 tile 尺寸减少循环次数，降低流水启停开销；tile 上限须按目标 SoC 的实际可用 UB 容量及其他 buffer 占用计算，不使用型号对应的固定 UB 数值。
 - 使能 DoubleBuffer 时，实际可用 UB 需除以 2

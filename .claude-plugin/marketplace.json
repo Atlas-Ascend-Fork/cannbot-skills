@@ -701,7 +701,7 @@
     },
     {
       "name": "ops-perf-optimize-skills",
-      "description": "AscendC 算子性能调优 Skills（5 个）。性能仿真、Profiling 采集、Tiling 建模与流水分析、性能优化最佳实践、API 文档检索。",
+      "description": "AscendC 算子性能调优 Skills（6 个）。性能仿真、Profiling 采集、Tiling 建模与流水分析、性能优化最佳实践、MC² 最佳实践、API 文档检索。",
       "source": "./ops",
       "strict": false,
       "version": "1.0.0",
@@ -719,14 +719,15 @@
         "./ops-profiling",
         "./ascendc-perf-optimize",
         "./ascendc-performance-best-practices",
+        "./ascendc-mc2-best-practice",
         "./ascendc-docs-search"
       ]
     },
     {
       "name": "ops-perf-optimize",
-      "source": "./plugins-community/ops-perf-optimize",
-      "description": "AscendC 算子性能调优 Team。用户提供可运行的 demo 代码，自动采集性能数据、分析并输出《性能调优方案》（可含多个方案），再按方案分别实施优化并生成《性能调优报告》。",
-      "version": "2.0.0",
+      "source": "./plugins-official/ops-perf-optimize",
+      "description": "AscendC 算子性能调优 Team。五阶段工作流（基线评估→前处理→诊断分析→实施验证→后处理）：冻结输入与逐 case 证据门禁、多轮候选优化、精度诊断与原工程回集成。",
+      "version": "4.1.0",
       "author": {
         "name": "CANNBot"
       },

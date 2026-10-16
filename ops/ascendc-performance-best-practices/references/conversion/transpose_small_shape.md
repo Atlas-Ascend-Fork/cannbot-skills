@@ -1,5 +1,7 @@
 # Transpose 性能调优参考:SMALL_SHAPE 策略
 
+> 适用架构：arch35（A5 / DAV_3510）；本文 RegBase / Reg / MicroAPI / VF 内容为 arch35 独占。
+
 - 策略名:SMALL_SHAPE
 - tilingKey:10001（`KEY_SMALL_SHAPE`）
 - kernel 实现:`arch35/transpose_small_shape.h`(类 `TransposeSmallShape`)

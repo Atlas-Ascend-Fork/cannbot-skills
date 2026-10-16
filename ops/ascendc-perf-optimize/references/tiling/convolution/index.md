@@ -1,5 +1,6 @@
 # Convolution 族 Tiling 算法路由
 
+
 > Conv2D / DepthwiseConv Tiling 算法入口。按条件路由到具体算法，默认使用 fallback 兜底算法。
 
 ---
@@ -20,7 +21,7 @@
 
 | 优先级 | 算法 | 选择条件 | 目录 |
 |--------|------|---------|------|
-| 0（兜底） | FORMULAS（Mmode + HWmode） | 无条件（回退保障） | [fallback/](fallback/) |
+| 0（兜底） | FORMULAS（Mmode + HWmode） | 目标架构/能力匹配后的兜底 | [fallback/](fallback/) |
 
 ---
 

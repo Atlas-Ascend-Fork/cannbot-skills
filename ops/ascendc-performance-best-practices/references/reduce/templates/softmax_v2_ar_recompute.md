@@ -1,5 +1,7 @@
 # SoftmaxV2 AR Recompute 模板
 
+> 适用架构：arch35（A5 / DAV_3510）；本文 RegBase / Reg / MicroAPI / VF 内容为 arch35 独占。
+
 ## 1. 模板用途
 
 针对 2D `[A1, R]` 布局、R 超出 UB 容量的 Softmax 场景。将 R 切分为多个 chunk，通过三阶段重读 GM（求 max → 求 sum → 输出）完成 Softmax，使用 UB 间二分累加树（UpdateCache）高效合并跨 chunk 的局部 sum。

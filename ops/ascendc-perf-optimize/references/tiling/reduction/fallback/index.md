@@ -13,6 +13,9 @@
 | Softmax | max → exp → sum → div | 多遍流水，Recompute 需重读原数据 |
 | LayerNorm / RMSNorm | mean → var → normalize | 两个关联统计量，分载时用 Welford |
 | ArgMax / ArgMin | 归约 + 索引跟踪 | 启用 with_index 增强 |
+| EuclideanNorm | square → sum → sqrt | 单次可交换归约；**多轴交错布局**走交错连续载入模板 |
+
+> **多轴交错归约**（合轴后仍多个交替 A/R，不可合成单 R）超出五模板范畴，见 [tiling-flow.md §3.1 前置判定](tiling-flow.md#31-多轴交错前置判定step-05) 与 [example/euclidean_norm](example/euclidean_norm/experience.md)。
 
 ---
 
@@ -47,11 +50,14 @@
 ## 4. 推导流程概览
 
 ```
-Step 0  合轴 → (A1, R, A0)
-Step 1  A0==1 ? AR 族 : ARA 族
-Step 2  按 R 与 UB 容量选模板（SmallR / FullLoad / Recompute）
-Step 3  计算 UB 切分粒度与多核分配
-Step 4  （可选）启用 Group Reduce / Welford / 二分累加 / With-Index
+Step 0    合轴 → (A1, R, A0)；若合轴后仍多个交替 A/R（交错）不可合成单 R，转 Step 0.5
+Step 0.5  多轴交错前置判定（窄门控）：fp32 + 8轴tailR / 7轴tailA + 内块连续 + burst/内块行阈值
+              命中 → 交错连续载入模板（tail-R fast / tail-A fast-RARA），返回
+              不命中 → 回退五模板
+Step 1    A0==1 ? AR 族 : ARA 族
+Step 2    按 R 与 UB 容量选模板（SmallR / FullLoad / Recompute）
+Step 3    计算 UB 切分粒度与多核分配
+Step 4    （可选）启用 Group Reduce / Welford / 二分累加 / With-Index
 ```
 
 详细决策树与公式见 [tiling-flow.md](tiling-flow.md)。
@@ -74,6 +80,7 @@ Step 4  （可选）启用 Group Reduce / Welford / 二分累加 / With-Index
 | 算子 | 案例文档 | 说明 |
 |------|---------|------|
 | Softmax | [example/softmax/experience.md](example/softmax/experience.md) | 数学流程 → 模板映射 → 预算修正 |
+| EuclideanNorm | [example/euclidean_norm/experience.md](example/euclidean_norm/experience.md) | 多轴交错（不可合单 R）→ 交错连续载入模板 → 20 case 实测选型 + gate 误判教训 |
 
 ---
 

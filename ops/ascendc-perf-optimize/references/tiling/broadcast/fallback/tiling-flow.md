@@ -7,7 +7,9 @@
 ## 1. 算法分支决策树
 
 ```
-给定: N个输入shape + 1个输出shape + dtype + ubSize + coreNum
+给定: 已确认精确SoC/代际 + N个输入shape + 1个输出shape + dtype + 目标可用ubSize + coreNum
+
+前置：未知代际不选实现；A2/A3 禁止强制 NDDMA；DAV_2201 静态接口 rank/对齐不满足时补目标实现，不转入 A5 分支。
 
 Step 0 — 合轴 (DimensionCollapse):
   补维(左补1) → 标记广播轴flag → 合并相邻同flag轴 → 计算strides

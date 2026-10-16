@@ -180,6 +180,13 @@ python3 ${SKILL_PATH}/scripts/perf_summary.py "$ROUND_DIR" ops/{op_name}
 
 > `perf_summary.py` 对 CSV 指标生成 min/avg/max 统计摘要（不做判定）。MC2 场景需特别关注的后处理规则（§4.4）：每卡取最后 5 次 main kernel 的 Task Duration 求平均，4 卡取最大值作为整体性能——该规则需基于其输出的 CSV/摘要手动计算。
 
+也可用本技能的 [extract_perf.py](scripts/extract_perf.py) 直接计算 §4.4 的 last-N / max-rank 指标。它要求每卡独立的 `PROF_*` 目录、各目录一个 `op_summary_*.csv`，并按完整 `Op Name` 过滤主 kernel；不替代公共统计摘要与归档工具。
+
+```bash
+python3 /path/to/ascendc-mc2-best-practice/references/shared/scripts/extract_perf.py \
+    "$ROUND_DIR" "AllToAllQuantMatmulKernelE4M3E4M3" 5
+```
+
 ---
 
 ## 5. MC2 性能指标判定

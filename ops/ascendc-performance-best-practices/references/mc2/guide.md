@@ -1,5 +1,7 @@
 # MC² 通算融合类算子性能优化策略索引
 
+> 适用架构：arch35（A5 / DAV_3510）；具体型号、SDK 与验证范围以正文为准。
+
 按策略类型查找对应的适用场景与详细设计文档。
 
 适用于 MC² 通算融合族所有变体：`matmul_all_reduce`、`allgather_matmul`、`matmul_reducescatter`、`alltoall_matmul` 等。
@@ -10,7 +12,7 @@
 |------|--------|---------|---------|---------|
 | **local_matmul** | 首选 | 所有 MC² 通算融合算子 | 将本 rank 数据的 matmul 从通信块循环中分离，前置/后置独立执行以与通信重叠 | [local_matmul_design.md](local_matmul_design.md) |
 | **pipeline_balancing** | 中 | 所有 MC² 通算融合算子（在 Local Matmul 基础上叠加） | 按 Bound 类型确定长短块排布，**TilingData 驱动的系统搜索**（四条剪枝 + Top-N 候选实测）选最优切分 | [pipeline_balancing_design.md](pipeline_balancing_design.md) |
-| **matmul 计算效率优化** | 最低 | 仅计算 Bound（正交可叠加） | 参考 matmul 族优化策略（pingpong/streamk/fullload 等），提升单块 matmul 效率 | [matmul/guide.md](../matmul/guide.md) |
+| **matmul 计算效率优化** | 最低 | 仅计算 Bound（正交可叠加） | 参考 matmul 族优化策略（pingpong/streamk/fullload 等），提升单块 matmul 效率 | [matmul/guide.md](../matmul/arch35/guide.md) |
 
 > Local Matmul 不依赖 Bound 判定，推荐优先实现。流水配平在 Local Matmul 基础上进一步优化长短块排布——**须先打印 TilingData (baseM/baseN/usedCoreNum) 并执行隔离测试获取 R 值**，再通过系统搜索算法（非经验值）确定最优 longMSize。计算 Bound 场景下可进一步叠加 matmul 计算效率优化。三者可结合使用。
 

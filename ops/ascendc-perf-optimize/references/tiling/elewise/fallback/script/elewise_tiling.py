@@ -39,8 +39,8 @@ class ElewiseTilingInput:
     shape: List[int]
     dtype: str = "fp16"
     op_type: str = "add"
-    ub_size: int = 248 * 1024
-    core_num: int = 64
+    ub_size: int = None   # query the target platform
+    core_num: int = None  # available AIV cores on the target platform
     buffer_num: int = 3
     extra_size: int = 0
     input_same_magnitude: bool = False
@@ -218,6 +218,8 @@ def compute_elewise_tiling(params: ElewiseTilingInput) -> ElewiseTilingData:
     Returns:
         ElewiseTilingData with all tiling parameters
     """
+    if params.ub_size is None or params.ub_size <= 0 or params.core_num is None or params.core_num <= 0:
+        raise ValueError("ub_size and core_num must be positive values queried from the target platform")
     dtype_map = {"fp16": 2, "float16": 2, "bf16": 2, "bfloat16": 2,
                  "fp32": 4, "float32": 4, "float": 4, "int8": 1}
     elem_bytes = dtype_map.get(params.dtype, 2)
@@ -275,5 +277,7 @@ if __name__ == "__main__":
         shape=[1000, 256],
         dtype="fp16",
         op_type="add",
+        ub_size=248 * 1024,  # example platform values
+        core_num=64,
     ))
     logger.info(json.dumps(tiling.to_dict(), indent=2))

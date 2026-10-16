@@ -124,7 +124,7 @@ CopyIn(loopIdx, params):
 
 - `DecimalToMixed` 把线性 `loopIdx` 按各维块数 `dstLoopSize_` 拆成混合进制的多维块坐标(输出视角)。
 - 通过 `perm` 把输出块坐标映射回输入,累加得到输入起始地址 `srcAddressOffset`——**这一步就是转置:搬入即按输入布局取,搬出按输出布局写。**
-- `DataCopy<T, 5, config>` 是 NDDMA 的多维搬运,`params`(`MultiCopyParams`)由 `SetupLoopInfo` 生成,携带每维 `loopSize / loopSrcStride / loopDstStride`。`SetupLoopInfo` 里对输出切分轴前一维的 dst stride 做 32B 对齐,并用 `expandedPerm` 把 dst stride 重排到输出序;最后 `reverseArray` 把 5 维数组翻转以匹配 NDDMA 的维序约定。
+- `DataCopy<T, 5, config>` 是 NDDMA 的多维搬运,`params`(`NdDmaParams`)由 `SetupLoopInfo` 生成,携带每维 `loopSize / loopSrcStride / loopDstStride`。`SetupLoopInfo` 里对输出切分轴前一维的 dst stride 做 32B 对齐,并用 `expandedPerm` 把 dst stride 重排到输出序;最后 `reverseArray` 把 5 维数组翻转以匹配 NDDMA 的维序约定。
 
 ### 5. 搬出 CopyOut(MTE3, DataCopyPad + LoopMode)
 

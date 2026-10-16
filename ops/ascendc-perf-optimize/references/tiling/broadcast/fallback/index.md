@@ -1,18 +1,5 @@
-# Broadcast 广播类 — 兜底算法
+# Broadcast 广播类参考算法
 
-> 当前为占位文档，内容待补充。
+面向 Add、Mul、Sub 等广播计算。先按 [代际路由](../../../architecture-routing.md) 确认目标，随后读取 [tiling-flow.md](tiling-flow.md) 和 [tiling-fields.md](tiling-fields.md)。
 
-## 适用算子
-
-Add, Mul, Sub 等含广播语义的二元逐元素算子
-
-## 待补充内容
-
-- 多核切分策略（沿最大维度输出 shape 均匀切分）
-- 单核切分策略（考虑广播维度的输入复用）
-- Buffer 规划（大张量 + 广播张量分别规划）
-- 分支覆盖
-
----
-
-> 当前返回：「Broadcast Tiling 建模暂未收录。」
+[参考脚本](script/broadcast_tiling.py) 显式接收 `is_dav3510`、目标可用 `ub_size` 和 `core_num`，不探测平台、不默认 A5。A2/A3 只选 OneDim/静态 UB 候选，rank/对齐及目标 API 合法性仍需核验；A5 可按条件选择动态 UB/NDDMA。脚本结果是建模候选，不代替目标构建与运行验证。

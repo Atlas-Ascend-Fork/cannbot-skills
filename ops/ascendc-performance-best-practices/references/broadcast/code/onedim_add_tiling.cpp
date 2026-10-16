@@ -19,25 +19,32 @@
 
 namespace BrcDemo {
 
-constexpr int IN_NUM = 2;   // x(满 shape), y(标量)
+constexpr int IN_NUM = 2; // x(满 shape), y(标量)
 using TD = BroadcastTilingData<IN_NUM>;
 
 // 简化的切分入口（省略 context 取值/校验）。输出 [M,N]；x 满 shape；y 为标量（单元素）。
 // 产物是 OneDimTilingData（极简：dimLen/tileNum/blockNum/scalarFlag），写入 GE tiling 上下文。
-ge::graphStatus AddScalarTiling(OneDimTilingData& ot, int64_t M, int64_t N,
-                                int dtSize, int64_t coreNum, int64_t ubSize) {
+ge::graphStatus AddScalarTiling(OneDimTilingData& ot, int64_t M, int64_t N, int dtSize, int64_t coreNum, int64_t ubSize)
+{
     TD td;
     // ---- 1. shape / stride（输出连续；标量输入各轴 dim=1 / stride=0）----
     td.shapeLen = 2;
-    td.outputDims[0] = M; td.outputDims[1] = N;
-    td.outputStrides[0] = N; td.outputStrides[1] = 1;
-    td.inputDims[0][0] = M; td.inputDims[0][1] = N;        // x 满 shape
-    td.inputStrides[0][0] = N; td.inputStrides[0][1] = 1;
-    td.inputDims[1][0] = 1; td.inputDims[1][1] = 1;        // y 标量（紧凑存 1 个元素）
-    td.inputStrides[1][0] = 0; td.inputStrides[1][1] = 0;
+    td.outputDims[0] = M;
+    td.outputDims[1] = N;
+    td.outputStrides[0] = N;
+    td.outputStrides[1] = 1;
+    td.inputDims[0][0] = M;
+    td.inputDims[0][1] = N; // x 满 shape
+    td.inputStrides[0][0] = N;
+    td.inputStrides[0][1] = 1;
+    td.inputDims[1][0] = 1;
+    td.inputDims[1][1] = 1; // y 标量（紧凑存 1 个元素）
+    td.inputStrides[1][0] = 0;
+    td.inputStrides[1][1] = 0;
 
     // ---- 2. 前置：能否塌成一维（每输入要么满 shape 要么纯标量）----
-    int64_t dimLen; int32_t scalarFlag;
+    int64_t dimLen;
+    int32_t scalarFlag;
     if (!TryOneDim(td, dimLen, scalarFlag)) {
         // 塌不成一维（部分轴广播，如 [M,1]/[1,N]）→ 改走 ①②③（见 broadcast_add_tiling.cpp）。
         // 本样例 x 满 + y 标量必命中；返回失败仅示意"未命中则换路"。

@@ -1,5 +1,7 @@
 # SoftmaxV2 ARA Recompute 模板
 
+> 适用架构：arch35（A5 / DAV_3510）；本文 RegBase / Reg / MicroAPI / VF 内容为 arch35 独占。
+
 ## 1. 模板用途
 
 针对 3D `[A1, R, A0]` 布局、R 超出 UB 容量的 Softmax 场景。将 R 切分为多个 bin，通过三阶段重读 GM（求 max → 求 sum → 输出）完成 Softmax。使用 `NlastReduceSum` 跨 bin 二分折叠和 `UpdateCache` 累加树高效合并局部 sum。

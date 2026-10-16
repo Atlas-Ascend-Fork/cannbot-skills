@@ -1,8 +1,10 @@
 # SoftmaxV2 AR FullLoad 模板
 
+> 适用架构：arch35（A5 / DAV_3510）；本文 RegBase / Reg / MicroAPI / VF 内容为 arch35 独占。
+
 ## 1. 模板用途
 
-针对 2D `[A1, R]` 布局、R 可整段载入 UB 的 Softmax 场景。多行批量载入 UB，单 pass VF 计算 max→sub→exp→sum→div，使用 MicroAPI VF 路径实现大 R 二分归约。
+针对 2D `[A1, R]` 布局、R 可整段载入 UB 的 Softmax 场景。多行批量载入 UB，单 pass VF 计算 max→sub→exp→sum→div，使用 Reg VF 路径实现大 R 二分归约。
 
 ## 2. 输入输出布局和 Softmax 轴
 
@@ -80,8 +82,8 @@ Process:
 ### FirstNormCompute 流程（VF 路径）
 
 1. 逐行加载 R 方向数据（按 VL_FP32 分段）
-2. `MicroAPI::Max` 求行内 max（先处理尾块，再处理整块）
-3. `MicroAPI::ReduceMax` 归约到标量
+2. `Reg::Max` 求行内 max（先处理尾块，再处理整块）
+3. `Reg::Reduce<Reg::ReduceType::MAX>` 归约到标量
 4. 逐段 `Sub(maxReg)` → `Exp` → 写入 xTmpLocal
 
 ### SecondNormCompute 流程（大 R VF 二分归约）
@@ -101,7 +103,7 @@ Process:
   - MainFold：成对 VL 段 `Add` 后一次 `ReduceSum`，归约次数减半
   - TailFold：非对齐尾块用 `UpdateMask` 精确掩码
   - UnFold：剩余展开段直接 `ReduceSum`
-- **MicroAPI VF**：使用 `RegTensor<float>` + `MaskReg` 直接操作 256B VReg，`ReduceSum` 硬件归约指令。
+- **Reg VF**：使用 `RegTensor<float>` + `MaskReg` 直接操作 256B VReg，`ReduceSum` 硬件归约指令。
 
 ## 9. 主块、尾块、对齐和数值精度处理
 

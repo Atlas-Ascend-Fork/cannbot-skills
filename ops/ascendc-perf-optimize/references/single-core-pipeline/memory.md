@@ -1,4 +1,9 @@
-# 访存 Bound 优化策略
+# 访存 Bound 诊断页
+
+> 通用诊断适用于 arch22 / arch35，具体指标与卡片按目标能力选用；RegBase / Reg / MicroAPI / VF / RVEC 相关内容仅适用于 arch35（A5），示例阈值不作为跨代默认值。
+
+
+> 本页只做**诊断**；优化手段见下方技术卡片。采集与指标口径见 `metrics.md`。
 
 ## 判定条件
 
@@ -15,30 +20,19 @@
 
 ---
 
-## 策略 1：带宽未打满 → L2 复用
+## 优化手段（详见技术卡片库 `techniques/`）
 
-| 操作 | 说明 |
-|------|------|
-| 检查当前带宽利用率 | 对比 `实际带宽 / 理论峰值带宽` |
-| L2 cache 驻留优化 | 调整 tile 大小使数据能驻留 L2，减少重复读 DDR |
-| 多核 L2 共享 | 相邻核处理相邻数据，共享 L2 缓存行 |
-
-## 策略 2：指令效率 / 选基本块
-
-| 操作 | 说明 |
-|------|------|
-| 分析 MTE2 指令发射效率 | 检查是否有冗余搬移指令 |
-| 选取基本块 | 优先使用连续地址 + 大粒度搬移指令 |
-| 减少 stride 搬移 | stride 搬移效率低于连续搬移，重构数据布局 |
-
-## 策略 3：减少小块搬运 / 合并载入
-
-| 操作 | 说明 |
-|------|------|
-| 识别小块搬运 | profiling 中识别小于 threshold 的搬移操作 |
-| 合并连续小块 | 将多个相邻小搬移合并为单次大搬移 |
-| DataCopyPad 参数优化 | 调整对齐参数避免碎片化搬移 |
-| 消除不必要搬移 | 检查 UB 内数据是否可以原地消费，减少搬入搬出 |
+| 诊断特征 | 首选卡片 |
+| --- | --- |
+| 连续主区未走对齐搬运 / 非对齐规格拖慢主路径 | [mem-01-aligned-contiguous-copy](techniques/mem-01-aligned-contiguous-copy.md) |
+| UB 内可原地消费、消除搬入搬出往返 | [vec-01-ub-fusion](techniques/vec-01-ub-fusion.md)、[vec-05-eliminate-ub-staging](techniques/vec-05-eliminate-ub-staging.md) |
+| 反复 load 不变量 | [vec-06-broadcast-once-vl-merge](techniques/vec-06-broadcast-once-vl-merge.md) |
+| copy 与计算串行、下一 tile 无数据依赖 | [mem-02-ping-pong-prefetch](techniques/mem-02-ping-pong-prefetch.md) |
+| 小行/成对张量反复单独搬运 | [mem-03-batched-row-copy](techniques/mem-03-batched-row-copy.md) |
+| 可证明仅消费一次的大块数据污染 L2 | [mem-05-l2-bypass-one-shot](techniques/mem-05-l2-bypass-one-shot.md) |
+| 参数使通用变换退化为直接 copy | [mem-07-identity-pure-copy](techniques/mem-07-identity-pure-copy.md) |
+| 临时值写 GM 后立刻读回 / 为清零创建 GM 中转 | [mem-04-ub-buffer-reuse](techniques/mem-04-ub-buffer-reuse.md) |
+| 输出完整连续却分段 gather/copy out | [mem-06-direct-contiguous-output](techniques/mem-06-direct-contiguous-output.md) |
 
 ## Tiling 修正建议
 

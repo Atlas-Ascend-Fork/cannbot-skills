@@ -16,6 +16,21 @@ Reduction Tiling Algorithm — Reference Implementation.
 
 Five templates: AR-SmallR / AR-FullLoad / AR-Recompute / ARA-FullLoad / ARA-Recompute.
 Covers: ReduceSum, ReduceMax, Softmax, LayerNorm, ArgMax.
+
+NOTE — 多轴交错连续载入模板（未在本参考实现中展开）:
+  当 collapse_axes() 后 tags 仍为多个交替 A/R（如偶数轴 ARAR...AR / 奇数轴 ARAR...A，
+  不可合成单个 R）时，五模板前提 (A1,R,A0) 不成立，应先过一个前置门控分支：
+    - dtype∈{fp32,fp16,bf16} + 偶数轴≥6 tailR + 内块连续 + 32B 对齐
+        + R1×dtypeSize<=16B(burst 病态) + rowsSize>=8 + 内块无需分块(chunkA0==A0) + groupCnt<=core_num
+        → 交错-tail-R（fast，两段式 + workspace；coresPerGroup==1 免 workspace）
+    - dtype∈{fp32,fp16,bf16} + 奇数轴≥7 tailA + 内块连续 + 32B 对齐
+        + slabCnt*2>=core_num + innerRowElems>=512
+        → 交错-tail-A（fast-RARA，无 workspace）
+    - 否则回退五模板。
+  入口位置：在 compute_reduction_tiling() 里、route_mode() 之前插入
+  try_interleaved_tiling(collapsed_dims, collapsed_tags, ...)；命中即 return。
+  判据/UB 预算见 ../tiling-flow.md §3.1 / §11–13 与 example/euclidean_norm/experience.md。
+  参考 C++ 实现：euclidean_norm_tiling_host.h::TryComputeFastTiling / TryComputeFastRARATiling。
 """
 
 import math
@@ -39,8 +54,8 @@ class ReductionTilingInput:
     axes: List[int]
     dtype: str = "fp32"
     op_type: str = "sum"
-    ub_size: int = 248 * 1024
-    core_num: int = 64
+    ub_size: Optional[int] = None
+    core_num: Optional[int] = None
     extra_flags: Optional[dict] = None
 
 
@@ -376,6 +391,10 @@ def compute_reduction_tiling(params: ReductionTilingInput) -> ReductionTilingDat
 
     Templates: AR-SmallR / AR-FullLoad / AR-Recompute / ARA-FullLoad / ARA-Recompute
     """
+    if params.ub_size is None or params.core_num is None:
+        raise ValueError("ub_size and core_num must come from the target platform")
+    if params.ub_size <= 0 or params.core_num <= 0:
+        raise ValueError("ub_size and core_num must be positive")
     dtype_map = {"fp16": 2, "float16": 2, "bf16": 2, "bfloat16": 2,
                  "fp32": 4, "float32": 4, "float": 4}
     dtype_bytes = dtype_map.get(params.dtype, 4)
@@ -421,13 +440,13 @@ if __name__ == "__main__":
     import json
 
     tiling = compute_reduction_tiling(ReductionTilingInput(
-        shape=[1000, 256], axes=[0], dtype="fp32",
+        shape=[1000, 256], axes=[0], dtype="fp32", ub_size=248 * 1024, core_num=64,
     ))
     logger.info("=== ReduceSum([1000,256], axis=0) ===")
     logger.info(json.dumps(tiling.to_dict(), indent=2))
 
     tiling2 = compute_reduction_tiling(ReductionTilingInput(
-        shape=[2, 100, 4], axes=[1], dtype="fp32",
+        shape=[2, 100, 4], axes=[1], dtype="fp32", ub_size=248 * 1024, core_num=64,
     ))
     logger.info("\n=== ReduceMax([2,100,4], axis=1) ===")
     logger.info(json.dumps(tiling2.to_dict(), indent=2))

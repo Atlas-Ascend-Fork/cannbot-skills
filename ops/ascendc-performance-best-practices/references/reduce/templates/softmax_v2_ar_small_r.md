@@ -1,5 +1,7 @@
 # SoftmaxV2 AR SmallR 模板
 
+> 适用架构：arch35（A5 / DAV_3510）；本文 RegBase / Reg / MicroAPI / VF 内容为 arch35 独占。
+
 ## 1. 模板用途
 
 针对 2D `[A1, R]` 布局、归约轴 R 极小（FP32 ≤ 16 / FP16/BF16 ≤ 32）的 Softmax 场景。通过将数据转置为 `(R, A1)` 布局，使短归约轴转到外层、长伴生轴转为向量化方向，将 VReg 利用率从 R/64 提升到接近 100%。
@@ -85,7 +87,7 @@ Process:
 
 ## 8. 转置优化
 
-- **MultiCopy 转置**：使用 `MultiCopyParams<Tx, 2>` + `MultiCopyLoopInfo<2>` 在 CopyIn 阶段直接完成 `(A1,R)→(R,A1)` 转置，避免额外转置 pass。
+- **MultiCopy 转置**：使用 `NdDmaParams<Tx, 2>` + `NdDmaLoopInfo<2>` 在 CopyIn 阶段直接完成 `(A1,R)→(R,A1)` 转置，避免额外转置 pass。
 - **TransDataTo5HD**：输出前使用 `TransDataTo5HD` 将 `(R,A1)` 转回 `(A1,R)`，FP32 和 FP16/BF16 分别使用不同的 block 参数。
 - **VF 向量化**：转置后长轴 A1 沿 VReg 方向，每个 VReg 可处理 64 个 FP32 元素，利用率接近 100%。
 

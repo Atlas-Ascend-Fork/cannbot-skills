@@ -295,8 +295,8 @@ def compute_sort_tiling(
     element_count: int,
     top_k: int,
     dtype: str = "fp16",
-    ub_size: int = 248 * 1024,
-    core_num: int = 64,
+    ub_size: int | None = None,
+    core_num: int | None = None,
 ) -> SortTilingData:
     """
     Compute sort (Top-K) tiling.
@@ -311,6 +311,10 @@ def compute_sort_tiling(
     Returns:
         SortTilingData with all tiling parameters
     """
+    if ub_size is None or core_num is None:
+        raise ValueError("ub_size and core_num must come from the target platform")
+    if ub_size <= 0 or core_num <= 0:
+        raise ValueError("ub_size and core_num must be positive")
     dtype_map = {"fp16": 2, "float16": 2, "bf16": 2, "bfloat16": 2,
                  "fp32": 4, "float32": 4, "float": 4}
     dtype_bytes = dtype_map.get(dtype, 2)
@@ -346,14 +350,14 @@ def compute_sort_tiling(
 if __name__ == "__main__":
     import json
 
-    tiling = compute_sort_tiling(element_count=500000, top_k=100, dtype="fp16")
+    tiling = compute_sort_tiling(element_count=500000, top_k=100, dtype="fp16", ub_size=248 * 1024, core_num=64)
     logger.info("=== Sort(element_count=500000, top_k=100, fp16) ===")
     logger.info(json.dumps(tiling.to_dict(), indent=2))
 
-    tiling2 = compute_sort_tiling(element_count=50000, top_k=50, dtype="fp16")
+    tiling2 = compute_sort_tiling(element_count=50000, top_k=50, dtype="fp16", ub_size=248 * 1024, core_num=64)
     logger.info("\n=== Sort(element_count=50000, top_k=50, fp16) ===")
     logger.info(json.dumps(tiling2.to_dict(), indent=2))
 
-    tiling3 = compute_sort_tiling(element_count=2000, top_k=10, dtype="fp32")
+    tiling3 = compute_sort_tiling(element_count=2000, top_k=10, dtype="fp32", ub_size=248 * 1024, core_num=64)
     logger.info("\n=== Sort(element_count=2000, top_k=10, fp32) ===")
     logger.info(json.dumps(tiling3.to_dict(), indent=2))

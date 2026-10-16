@@ -135,7 +135,7 @@ Step 3 — 流水配平策略（在 Local Matmul 基础上叠加）：
 
 Step 4 — matmul 计算效率优化（仅计算 Bound，优先级最低，正交可叠加）：
   参考 matmul 族的优化策略（pingpong/streamk/fullload 等），提升单块 matmul 效率
-  → ../../../ascendc-performance-best-practices/reference/matmul/guide.md
+  → ../../../ascendc-performance-best-practices/references/matmul/arch35/guide.md
 
 Step 5 — 性能指标核算（必选输出）：
   基于 Step 2 隔离测试的 T_comm / T_compute 和各方案实测耗时，计算加速比与掩盖率
@@ -146,7 +146,7 @@ Step 5 — 性能指标核算（必选输出）：
 
 ## 阶段映射与输出要求
 
-> 上述 Step 0-5 是逻辑分析流程，在实际调优工作流中须映射到「数据采集」和「分析」两个阶段执行。以下编排要点由调用方（如 ascendc-perf-analysis-expert）遵循，本节明确供 skill 自洽使用。
+> 上述 Step 0-5 是逻辑分析流程，在实际调优工作流中须映射到「数据采集」和「分析」两个阶段执行。以下编排要点由调用方（分析阶段的通用 subagent，加载 ops-perf-analysis）遵循，本节明确供 skill 自洽使用。
 
 ### 阶段映射
 
@@ -190,4 +190,4 @@ Step 5 — 性能指标核算（必选输出）：
 | Bound 判定 | 三类 Bound 的诊断方法与判定标准 | [bound_diagnosis.md](bound_diagnosis.md) |
 | 流水配平 | 长短块排布 + AIC/AIV 架构 + 统一搜索算法（四条剪枝 + Top-N） | [pipeline_balancing.md](pipeline_balancing.md) |
 | 膨胀分析 | 切分膨胀对端到端性能的影响与最小化策略 | [expansion_analysis.md](expansion_analysis.md) |
-| matmul 计算效率优化（计算 Bound，最低优先级） | 参考 matmul 族优化策略提升单块 matmul 效率 | [matmul/guide.md](../../../ascendc-performance-best-practices/references/matmul/guide.md) |
+| matmul 计算效率优化（计算 Bound，最低优先级） | 参考 matmul 族优化策略提升单块 matmul 效率 | [matmul/guide.md](../../../ascendc-performance-best-practices/references/matmul/arch35/guide.md) |

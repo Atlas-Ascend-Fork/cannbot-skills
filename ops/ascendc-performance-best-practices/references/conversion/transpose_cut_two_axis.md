@@ -51,7 +51,7 @@ if (splitInfo_.outCutIndex > FindOutIndex(splitInfo_.inCutIndex)) {
 
 - **两端都可控**:输入方向的块保证 `DataCopy` 读入的连续度;输出方向的块保证 `DataCopyPad` 写回时 `blockLen/blockCount/dstStride` 合理,减少小于 cache line 的碎片写。
 - **多核利用率**:`CalcBlockSplitInfoForCutTwice()` 会用 `outAxiseExceptSplitInAxis * inUbAxis` 估算并行度,若低于 `coreNum_`,则回头在 `inUbFactor` 上从大到小搜索,直到并行度达到 `VEC_CORE_USED_THRES_HOLD` 阈值且不越界(`UbOutOfBoundCheck`)。即在「块足够大」和「核用满」之间取平衡。
-- **NDDMA 一次成型**:借助 5 维 `MultiCopyParams` + LoopMode,一次 API 调用即可完成多维带 stride 的搬运,免去逐轴显式循环拷贝的开销。
+- **NDDMA 一次成型**:借助 5 维 `NdDmaParams` + LoopMode,一次 API 调用即可完成多维带 stride 的搬运,免去逐轴显式循环拷贝的开销。
 
 ---
 
@@ -156,7 +156,7 @@ flowchart LR
 ### 2.6 用到的关键技术(按代码实况)
 
 - **TQueBind(VECIN+VECOUT)单缓冲**:`vecQue_` 类型是 `TQueBind<VECIN, VECOUT, 1>`,`InitBuffer(vecQue_, 1, ubSize)` 深度为 1。即**同一块 UB 空间既作输入又作输出,无 double buffer**(`BUFFER_NUM=2` 仅在基类常量中,本策略未用于 ping-pong)。同步靠 `EnQue`/`DeQue` 维持 MTE2→MTE3 的依赖。
-- **NDDMA 5 维搬运**:`DataCopy<T, 5, config>` + `MultiCopyParams/MultiCopyLoopInfo`,一次完成多维带 stride 的读入;`config = {false,0,0,false}`。
+- **NDDMA 5 维搬运**:`DataCopy<T, 5, config>` + `NdDmaParams/NdDmaLoopInfo`,一次完成多维带 stride 的读入;`config = {false,0,0,false}`。
 - **LoopMode 搬出**:`SetLoopModePara / ResetLoopModePara` + `DataCopyPad`,以 `DataCopyMVType::UB_TO_OUT` 完成换轴写回,支持非对齐尾块 pad。
 - **多核切分**:`blkFactor_/blkTailFactor_/realCoreNum_` 一维扁平分核,`PorcessOffsetRange` 做本核区间与四类块区间求交。
 - **混合进制寻址**:`DecimalToMixedBase` 把扁平 `loopidx` 还原成多维坐标,是「不显式嵌套多层 for」而处理任意维搬运的关键手段。

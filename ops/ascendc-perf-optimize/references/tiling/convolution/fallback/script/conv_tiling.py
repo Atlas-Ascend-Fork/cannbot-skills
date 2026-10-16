@@ -242,10 +242,10 @@ class PlatformInfo:
     l0_a_size: int = 65536
     l0_b_size: int = 65536
     l0_c_size: int = 262144
-    ub_size: int = 262144
+    ub_size: int = 0  # supply the target platform's UB capacity
     bt_size: int = 4096
     fb_size: int = 4096
-    aiv_per_aic: int = 2
+    aiv_per_aic: int = 0  # supply the target platform's actual ratio if needed
     ab_l1_mte2_bw_cof: int = 4
 
 
@@ -581,7 +581,7 @@ class ComputeTilingInput:
     cfg: Conv2DConfig
     dtype_str: str = "fp16"
     output_order: int = 1
-    aicore_num: int = 32
+    aicore_num: int = 0  # supply available AIC cores on the target platform
     platform: PlatformInfo = field(default_factory=PlatformInfo)
 
 
@@ -1305,7 +1305,7 @@ def _num_blocks_ranges(aicore_num: int, batch: int, cur_co: int,
 
 def num_blocks_m_split(inp: NumBlocksMInput) -> NumBlocksResult:
     """Exact backtracking numBlocks for M-split."""
-    aicore_num = inp.aicore_num or 32
+    aicore_num = inp.aicore_num
     batch_range, n_range, group_range = _num_blocks_ranges(
         aicore_num, inp.batch, inp.cur_co, inp.cur_groups, inp.n0)
 
@@ -1334,7 +1334,7 @@ def num_blocks_m_split(inp: NumBlocksMInput) -> NumBlocksResult:
 
 def num_blocks_hw_split(inp: NumBlocksHwInput) -> NumBlocksResult:
     """NumBlocks for HW-split."""
-    aicore_num = inp.aicore_num or 32
+    aicore_num = inp.aicore_num
     batch_range, n_range, group_range = _num_blocks_ranges(
         aicore_num, inp.batch, inp.cur_co, inp.cur_groups, inp.n0)
 
@@ -1724,6 +1724,8 @@ def _setup_tiling(inp: ComputeTilingInput, out_dims: Tuple[int, int],
 def compute_tiling(inp: ComputeTilingInput) -> Tuple[TilingData, NumBlocksResult,
                                                       TilingKeyParams, bool, str]:
     """Main tiling computation entry point."""
+    if inp.aicore_num <= 0 or inp.platform.ub_size <= 0:
+        return None, None, None, False, "Query positive AIC core count and UB capacity from the target platform"
     cfg = inp.cfg
     ho, wo = cfg.calc_ho(), cfg.calc_wo()
     if ho <= 0 or wo <= 0:
@@ -1878,18 +1880,19 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # The resource flags below are illustrative; query the target platform before use.
   # Normal convolution (ResNet50 first layer)
-  python conv_tiling.py -n 1 -c 64 -hi 56 -wi 56 -co 64 -kh 3 -kw 3
+  python conv_tiling.py -n 1 -c 64 -hi 56 -wi 56 -co 64 -kh 3 -kw 3 --cores 32 --ub-size 262144
 
   # Depthwise convolution
-  python conv_tiling.py -n 1 -c 64 -hi 56 -wi 56 -co 64 -kh 3 -kw 3 -g 64
+  python conv_tiling.py -n 1 -c 64 -hi 56 -wi 56 -co 64 -kh 3 -kw 3 -g 64 --cores 32 --ub-size 262144
 
   # Different data types
-  python conv_tiling.py -n 1 -c 64 -h 56 -w 56 -co 128 -kh 3 -kw 3 -t fp16
-  python conv_tiling.py -n 1 -c 64 -h 56 -w 56 -co 128 -kh 3 -kw 3 -t fp32
+  python conv_tiling.py -n 1 -c 64 -hi 56 -wi 56 -co 128 -kh 3 -kw 3 -t fp16 --cores 32 --ub-size 262144
+  python conv_tiling.py -n 1 -c 64 -hi 56 -wi 56 -co 128 -kh 3 -kw 3 -t fp32 --cores 32 --ub-size 262144
 
   # HW-mode
-  python conv_tiling.py -n 1 -c 64 -hi 56 -wi 56 -co 64 -kh 3 -kw 3 -m 0
+  python conv_tiling.py -n 1 -c 64 -hi 56 -wi 56 -co 64 -kh 3 -kw 3 -m 0 --cores 32 --ub-size 262144
         """,
     )
     parser.add_argument("-n", type=int, default=1, help="Batch size (default: 1)")
@@ -1912,8 +1915,10 @@ Examples:
                         help="Data type: fp16/fp32/bf16/int8 (default: fp16)")
     parser.add_argument("-m", type=int, default=1,
                         help="Output order: 0=HW-mode, 1=M-mode (default: 1)")
-    parser.add_argument("--cores", type=int, default=32,
-                        help="Number of AI cores (default: 32)")
+    parser.add_argument("--cores", type=int, required=True,
+                        help="Available AIC cores queried from the target platform")
+    parser.add_argument("--ub-size", type=int, required=True,
+                        help="UB capacity in bytes queried from the target platform")
     return parser
 
 
@@ -1948,7 +1953,8 @@ def main():
         sys.exit(1)
 
     inp = ComputeTilingInput(cfg=cfg, dtype_str=args.t,
-                             output_order=args.m, aicore_num=args.cores)
+                             output_order=args.m, aicore_num=args.cores,
+                             platform=PlatformInfo(ub_size=args.ub_size))
     t, nb, kp, m_split, err = compute_tiling(inp)
 
     if err:

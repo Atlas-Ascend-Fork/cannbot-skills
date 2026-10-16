@@ -21,7 +21,7 @@ Supports: DimensionCollapse → OneDim / UB-Broadcast / NDDMA-Broadcast routing.
 import math
 import logging
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -47,14 +47,18 @@ class _TilingConfig:
 
 @dataclass
 class BroadcastTilingInput:
-    """Input parameters for compute_broadcast_tiling."""
+    """Target-confirmed inputs; True = DAV_3510, False = DAV_2201/220x.
+
+    UB bytes and core count must come from the target, not example defaults.
+    None means unknown and is rejected before generating a tiling.
+    """
     input_shapes: List[List[int]]
     output_shape: List[int]
     dtype: str = "fp16"
-    ub_size: int = 248 * 1024
-    core_num: int = 64
+    ub_size: Optional[int] = None
+    core_num: Optional[int] = None
     extra_size: int = 0
-    is_dav3510: bool = True
+    is_dav3510: Optional[bool] = None
     force_nddma: bool = False
 
 
@@ -111,6 +115,7 @@ class BroadcastTilingData:
             "core_num": self.core_num,
             "branch": self.branch,
             "sch_mode": self.sch_mode,
+            "is_dav3510": self.is_dav3510,
             "max_elem_num": self.max_elem_num,
         }
 
@@ -367,6 +372,10 @@ def select_broadcast_branch(
 
     Returns: (branch_name, sch_mode)
     """
+    if type(is_dav3510) is not bool:
+        raise ValueError("is_dav3510 must explicitly identify the target generation")
+    if force_nddma and not is_dav3510:
+        raise ValueError("NDDMA requires a DAV_3510 target")
     if len(output_dims) == 1:
         return "onedim", 0
 
@@ -527,6 +536,15 @@ def compute_broadcast_tiling(params: BroadcastTilingInput) -> BroadcastTilingDat
     Returns:
         BroadcastTilingData with all tiling parameters
     """
+    if type(params.is_dav3510) is not bool:
+        raise ValueError("is_dav3510 must explicitly identify the target generation")
+    for name in ("ub_size", "core_num"):
+        value = getattr(params, name)
+        if type(value) is not int or value <= 0:
+            raise ValueError(f"{name} must be a positive integer from the target platform")
+    if not 0 <= params.extra_size < params.ub_size:
+        raise ValueError("extra_size must be within the target UB budget")
+
     dtype_bytes_map = {"fp16": 2, "float16": 2, "bf16": 2, "bfloat16": 2,
                        "int8": 1, "fp32": 4, "float32": 4, "float": 4}
     dtype_bits_map = {"fp16": 16, "float16": 16, "bf16": 16, "bfloat16": 16,
@@ -567,6 +585,7 @@ def compute_broadcast_tiling(params: BroadcastTilingInput) -> BroadcastTilingDat
 
     result.input_shapes = collapsed_inputs
     result.scalar_flags = scalar_flags
+    result.is_dav3510 = params.is_dav3510
     return result
 
 
@@ -581,6 +600,9 @@ if __name__ == "__main__":
         input_shapes=[[4, 3, 8], [1, 3, 8]],
         output_shape=[4, 3, 8],
         dtype="fp16",
+        # Illustrative A5 resources, not defaults for any product family.
+        ub_size=248 * 1024,
+        core_num=64,
         is_dav3510=True,
     ))
     logger.info(json.dumps(tiling.to_dict(), indent=2))
