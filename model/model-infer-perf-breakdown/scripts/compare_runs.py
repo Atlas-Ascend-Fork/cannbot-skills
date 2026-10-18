@@ -12,7 +12,9 @@
 """Aggregate multiple render.py metrics.json files into a comparison HTML.
 
 Each row is one sub-item under a component_type (one cluster, the synthetic
-`bubble`, or the TOTAL layer-wall). Each column is one run. Cells show
+`bubble`, or the TOTAL layer-wall). Rows are keyed by kind as well as name so
+a user-defined cluster can share a display name with a synthetic row. Each
+column is one run. Cells show
 `median_ms (Δ%)` where Δ is relative to the baseline (first column unless
 overridden). Outliers per (sub-item, run) are listed inline so the reader
 can see how the outlier set shifted between versions.
@@ -86,24 +88,28 @@ def collect_rows(runs, metric):
         for sec in run.get("sections", []):
             ct = sec["component_type"]
             for item in sec.get("sub_items", []):
-                key = (ct, item["name"])
-                row = ensure(key,
-                             component_type=ct,
-                             sub_item=item["name"],
-                             kind=item["kind"],
-                             description=item.get("description", ""))
+                kind = item["kind"]
+                key = (ct, kind, item["name"])
+                row = ensure(
+                    key,
+                    component_type=ct,
+                    sub_item=item["name"],
+                    kind=kind,
+                    description=item.get("description", ""),
+                )
                 row["per_run"][label] = {
                     "value": pick_metric(item["metric"], metric),
                     "outliers": item.get("outliers", []),
                 }
             tot = sec.get("total") or {}
-            key = (ct, "TOTAL")
-            row = ensure(key,
-                         component_type=ct,
-                         sub_item="TOTAL",
-                         kind="total",
-                         description=tot.get("description",
-                                             "layer wall (union of every op)"))
+            key = (ct, "total", "TOTAL")
+            row = ensure(
+                key,
+                component_type=ct,
+                sub_item="TOTAL",
+                kind="total",
+                description=tot.get("description", "layer wall (union of every op)"),
+            )
             row["per_run"][label] = {
                 "value": pick_metric(tot.get("metric", {}), metric),
                 "outliers": tot.get("outliers", []),
@@ -212,8 +218,10 @@ def _row_class(kind):
 def _render_baseline_cell(value, outs):
     """Render a baseline (or base-missing) cell listing the full outlier set."""
     if outs:
-        body = (f"<span class='label'>outliers:</span>"
-                f"<span class='kept'>{html.escape(fmt_outlier_set(outs))}</span>")
+        body = (
+            f"<span class='label'>outliers:</span>"
+            f"<span class='kept'>{html.escape(fmt_outlier_set(outs))}</span>"
+        )
     else:
         body = "<span class='label'>outliers:</span>—"
     return (
@@ -321,14 +329,14 @@ def build_arg_parser_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     src = p.add_mutually_exclusive_group(required=True)
-    src.add_argument("-r", "--runs-dir",
-                     help="directory holding N */metrics.json files")
-    src.add_argument("--runs", nargs="+",
-                     help="explicit list of metrics.json paths in order")
-    p.add_argument("--baseline",
-                   help="label of baseline run (default: first run by order)")
-    p.add_argument("--metric", default="median_ms",
-                   choices=["median_ms", "mean_ms", "p95_ms", "max_ms", "std_ms"])
+    src.add_argument("-r", "--runs-dir", help="directory holding N */metrics.json files")
+    src.add_argument("--runs", nargs="+", help="explicit list of metrics.json paths in order")
+    p.add_argument("--baseline", help="label of baseline run (default: first run by order)")
+    p.add_argument(
+        "--metric",
+        default="median_ms",
+        choices=["median_ms", "mean_ms", "p95_ms", "max_ms", "std_ms"],
+    )
     p.add_argument("-o", "--output", required=True, help="output HTML path")
     return p.parse_args()
 
@@ -373,7 +381,10 @@ def main():
         f.write(out_html)
     logger.info(
         "history → %s (%d runs, baseline=%s, metric=%s)",
-        args.output, len(runs), baseline, args.metric,
+        args.output,
+        len(runs),
+        baseline,
+        args.metric,
     )
     for r in runs:
         logger.info("  %-20s ← %s", r["label"], r["__path"])
