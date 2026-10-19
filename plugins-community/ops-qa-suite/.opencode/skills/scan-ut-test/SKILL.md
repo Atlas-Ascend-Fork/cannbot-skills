@@ -449,21 +449,21 @@ cd {repo_root} && bash build.sh -u
 
 ### 4. UT 顺序执行阻塞
 
-|| 字段 | 内容 |
+| 字段 | 内容 |
 |-----|------|
-|| 问题描述 | build.sh 的 for 循环顺序执行，第一个失败后终止 |
-|| 根因 | build.sh 第 1349-1352 行无错误容忍机制 |
-|| 规避方案 | 单独构建和运行各 UT 目标 |
+| 问题描述 | build.sh 的 for 循环顺序执行，第一个失败后终止 |
+| 根因 | build.sh 第 1349-1352 行无错误容忍机制 |
+| 规避方案 | 单独构建和运行各 UT 目标 |
 
 ### 5. GCC 15.2 缺少 `<algorithm>` 头文件（系统性问题）
 
-|| 字段 | 内容 |
+| 字段 | 内容 |
 |-----|------|
-|| 问题描述 | GCC 15.2 对 `<algorithm>` 头文件依赖更严格，使用 `std::find`、`std::sort`、`std::unique`、`std::any_of` 等函数但未显式包含头文件的代码编译失败 |
-|| 错误输出 | `error: 'sort' is not a member of 'std'` 或 `error: no matching function for call to 'find(...)'` |
-|| 根因分析 | GCC 15.2 不再通过 `<vector>`、`<list>` 等头文件间接包含 `<algorithm>`，需显式添加 |
-|| 影响范围 | 系统性问题，影响 500+ 文件（ops-nn、ops-math 等仓库） |
-|| 解决方案 | 添加 `#include <algorithm>` 到受影响文件 |
+| 问题描述 | GCC 15.2 对 `<algorithm>` 头文件依赖更严格，使用 `std::find`、`std::sort`、`std::unique`、`std::any_of` 等函数但未显式包含头文件的代码编译失败 |
+| 错误输出 | `error: 'sort' is not a member of 'std'` 或 `error: no matching function for call to 'find(...)'` |
+| 根因分析 | GCC 15.2 不再通过 `<vector>`、`<list>` 等头文件间接包含 `<algorithm>`，需显式添加 |
+| 影响范围 | 系统性问题，影响 500+ 文件（ops-nn、ops-math 等仓库） |
+| 解决方案 | 添加 `#include <algorithm>` 到受影响文件 |
 
 **修复脚本**：
 ```bash
