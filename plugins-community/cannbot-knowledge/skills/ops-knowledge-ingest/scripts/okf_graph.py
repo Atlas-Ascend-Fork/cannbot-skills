@@ -148,7 +148,7 @@ DENYLIST = {  # structure / domain words that must never be terms
     "basic", "advanced", "data", "structures", "kernel", "operator", "intf", "impl",
     "simd", "simt", "tiling", "profiling", "vector", "scalar", "cube", "context",
     "com", "https", "html", "gitcode", "hiascend", "document", "detail", "blob", "tree",
-    "md", "cpp", "asc", "the", "and", "for", "with", "use", "using",
+    "md", "cpp", "the", "and", "for", "with", "use", "using",
 }
 
 FIELD_NOTE_KINDS = {"implementation_trap", "debugging_journey", "cross_skill_gap", "field_note"}
