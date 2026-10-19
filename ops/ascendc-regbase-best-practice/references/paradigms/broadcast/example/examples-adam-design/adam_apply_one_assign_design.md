@@ -2030,7 +2030,7 @@ __global__ __aicore__ void adam_apply_one_assign(
 | `pipe_` | `TPipe` | 1 | 流水线管理器 |
 | `gmIn_[i]` | `GlobalTensor<T>` | 10 | 入参 GM 视图 |
 | `gmOut_[i]` | `GlobalTensor<T>` | 3 | 出参 GM 视图 |
-| `buf_[i]` | `TBuf<TPosition::VECCALC>` | 5 | **P=5 个万能 UB buffer buffer** |
+| `buf_[i]` | `TBuf<TPosition::VECCALC>` | 5 | **P=5 个万能 UB buffer** |
 
 #### 方法
 

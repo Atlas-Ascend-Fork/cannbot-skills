@@ -69,7 +69,7 @@ Bytes_HBM ≈ 2 × Sk × D × sizeof(quant_T)
 
 Scale 在 L1 的布局取决于量化 dtype:
 - MXFP8:scale 是 E8M0,块大小 32 元素,沿 K-mmad 轴
-- 数据载体 vs scale 载体的 multi-head head offset 公式**必须独立推导**(公式系数可能不同)
+- 数据载体 vs scale 载体的 multi-head offset 公式**必须独立推导**(公式系数可能不同)
 
 ### §4.3 BMM2 Buffer 策略
 
