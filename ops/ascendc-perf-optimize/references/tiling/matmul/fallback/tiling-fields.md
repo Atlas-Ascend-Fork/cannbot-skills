@@ -92,8 +92,8 @@
 
 ### 7.2 group_matmul
 
-| 字段 | 含义 | 取值规则 |
-|------|------|---------|
+| 字段 | 含义 | 取值规则 | 推导出处 |
+|------|------|---------|---------|
 | `groupNum` | group 总数 | 输入参数 |
 | `cubeNumBlocksN` | N 方向并行的 cube block 数（split-N 模式） | 默认 `aicNum`；split-N 不能整除时回落到 `n / 128` | weight_quant_grouped_matmul §`CalcResplitTiling` |
 | `mainBlockSize` / `mainBlockCount` | split-N 主块大小与数量 | `n / (coreNum × 256)` | 同上 |
