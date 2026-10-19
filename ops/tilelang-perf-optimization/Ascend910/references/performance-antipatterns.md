@@ -25,7 +25,7 @@ NPU 上每一次 DMA 调用、每一次 tile 迭代、每一条向量指令都�
 ## 目录
 
 - [使用方式](#使用方式)
-- [硬件 buffer size 信息表（Ascend910，用于评估内存）](#硬件-buffer-size-信息表Ascend910用于评估内存)
+- [硬件 buffer size 信息表（Ascend910，用于评估内存）](#硬件-buffer-size-信息表ascend910用于评估内存)
 - [launch core 数需要重点关注](#launch-core-数需要重点关注)
 - [Vector Core 内逐元素/逐行 for loop 计算](#vector-core-内逐元素逐行-for-loop-计算)
 - [冗余全局同步](#冗余全局同步)
