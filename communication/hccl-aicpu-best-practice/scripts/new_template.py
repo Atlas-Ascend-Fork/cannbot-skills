@@ -489,7 +489,7 @@ def main():
         % (checker, repo, args.op, prefix, filebase)
     )
     print("  4. 将生成清单、静态检查结果和未处理 TODO 返回调用方。")
-    print("     完整构建、安装和双轨 Checker 由调用 Agent/Plugin 编排。")
+    print("     生成和静态检查结果不能替代完整构建、安装及双轨 Checker 证据。")
     return 0
 
 

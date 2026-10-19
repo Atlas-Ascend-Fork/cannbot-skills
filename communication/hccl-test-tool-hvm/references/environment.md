@@ -1,6 +1,6 @@
 # HCCL-VM 环境就绪检查
 
-本参考只判定 HCCL-VM 测试所需的技术条件，不下载安装软件、不修改 rootinfo、不推进上层工作流状态。
+本参考只判定 HCCL-VM 测试所需的技术条件，不下载安装软件、不修改 rootinfo、不推进上层工作流状态。源码修改后的构建安装部署由调用方按 [统一入口](../../hccl-aicpu-best-practice/references/build-verification.md) 执行；仅检查旧设备库存在不能证明修改已生效，运行前仍需核对本次归档的 host/device 库哈希。
 
 ## 输入
 

@@ -65,7 +65,25 @@ class WorkflowTests(unittest.TestCase):
         workflow.write_new(self.archive / "artifact.json", self.artifact)
         self.cann = self.root / "cann"
         self.cann.mkdir()
-        (self.cann / "set_env.sh").write_text("export SMOKE_CANN_LOADED=yes\n")
+        (self.cann / "set_env.sh").write_text(
+            'export SMOKE_CANN_LOADED=yes\nexport ASCEND_HOME_PATH="'
+            + str(self.cann)
+            + '"\n'
+        )
+        self.hcomm = self.root / "hcomm"
+        self.hvm = self.hcomm / "test/hccl_vm"
+        self.hvm.mkdir(parents=True)
+        self.entry = self.hvm / "build_pkg.sh"
+        self.entry.write_text(
+            "set -e\n"
+            'test "$PWD" = "$HCOMM_CODE_HOME/test/hccl_vm"\n'
+            'test "$HCCL_VM_PATH" = "$PWD"\n'
+            'test "$ASCEND_HOME_PATH" = "' + str(self.cann) + '"\n'
+            'test "$SMOKE_CANN_LOADED" = yes\n'
+            'echo "$@" > invocation\n'
+            'cd "$HCCL_CODE_HOME"\nbash build.sh --full\n'
+            'echo deployed > "$HCCL_VM_PATH/deployment"\n'
+        )
         toolbin = self.cann / "toolkit/toolchain/hcc/bin"
         toolbin.mkdir(parents=True)
         for tool in ("gcc", "g++", "ar", "ranlib", "strip", "ld", "nm", "objcopy"):
@@ -78,7 +96,7 @@ class WorkflowTests(unittest.TestCase):
             artifact=str(self.archive / "artifact.json"),
             baseline=[str(self.base)],
             output=str(self.root / "candidate"),
-            jobs=2,
+            hcomm=str(self.hcomm),
             clean_root=[],
             require_new_selector=False,
             check_only=False,
@@ -181,7 +199,12 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(result["exit_code"], 0)
         self.assertEqual(
             (out / "build.log").read_text().strip(),
-            "--pkg --full -j2 -p " + str(self.cann),
+            "--full",
+        )
+        self.assertEqual((self.hvm / "invocation").read_text(), "--install hccl\n")
+        self.assertEqual((self.hvm / "deployment").read_text(), "deployed\n")
+        self.assertEqual(
+            result["deployment"]["entrypoint_sha256"], workflow.digest(self.entry)
         )
         self.assertEqual((out / "build.exit_code").read_text(), "0\n")
         self.assertTrue((out / "source.diff").is_file())
@@ -195,6 +218,7 @@ class WorkflowTests(unittest.TestCase):
         (self.repo / "build.sh").write_text("echo failed\nexit 9\n")
         result = workflow.build(self.args)
         self.assertEqual(result["exit_code"], 9)
+        self.assertFalse((self.hvm / "deployment").exists())
         self.assertEqual(
             (Path(self.args.output) / "build.exit_code").read_text(), "9\n"
         )
@@ -209,6 +233,59 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(result["baseline"][0]["failures"], 1)
         self.assertFalse(Path(self.args.output).exists())
         self.assertFalse((self.repo / "calls").exists())
+
+    def test_failed_baseline_blocks_install_before_mutation(self):
+        self.args.baseline = [str(self.make_baseline("failed", "0", fail=True))]
+        with self.assertRaisesRegex(ValueError, "基线未全部通过"):
+            workflow.build(self.args)
+        self.assertFalse(Path(self.args.output).exists())
+        self.assertFalse((self.hvm / "invocation").exists())
+        self.assertFalse((self.repo / "calls").exists())
+
+    def test_deploy_failure_retains_combined_exit_and_log(self):
+        self.entry.write_text(
+            self.entry.read_text().replace(
+                'echo deployed > "$HCCL_VM_PATH/deployment"',
+                "echo deployment-failed\nexit 7",
+            )
+        )
+        result = workflow.build(self.args)
+        self.assertEqual(result["exit_code"], 7)
+        self.assertIn(
+            "deployment-failed", (Path(self.args.output) / "build.log").read_text()
+        )
+        self.assertEqual((self.repo / "calls").read_text(), "called\n")
+
+    def test_stale_environment_overridden_by_explicit_roots(self):
+        with patch.dict(
+            os.environ,
+            {
+                "HCCL_CODE_HOME": "/wrong/hccl",
+                "HCOMM_CODE_HOME": "/wrong/hcomm",
+                "HCCL_VM_PATH": "/wrong/hvm",
+            },
+        ):
+            result = workflow.build(self.args)
+        self.assertEqual(result["exit_code"], 0)
+        self.assertEqual((self.hvm / "deployment").read_text(), "deployed\n")
+
+    def test_missing_hvm_rejected_without_execution(self):
+        self.entry.unlink()
+        with self.assertRaisesRegex(ValueError, "HVM 构建部署入口不存在"):
+            workflow.build(self.args)
+        self.assertFalse(Path(self.args.output).exists())
+        self.assertFalse((self.repo / "calls").exists())
+
+    def test_hcomm_environment_fallback_and_missing_input(self):
+        self.args.hcomm = None
+        self.args.check_only = True
+        with patch.dict(os.environ, {"HCOMM_CODE_HOME": str(self.hcomm)}):
+            result = workflow.build(self.args)
+        self.assertEqual(result["deployment"]["cwd"], str(self.hvm))
+        self.assertFalse((self.hvm / "invocation").exists())
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(ValueError, "缺少 HCOMM"):
+                workflow.build(self.args)
 
     def test_requires_role_and_archive_identity(self):
         path = self.base / "manifest.json"

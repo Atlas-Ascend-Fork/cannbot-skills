@@ -1,18 +1,23 @@
 # 构建与双轨验证技术契约
 
-> **真源归属**：`hccl-aicpu-best-practice`（跨层共享）。事实来源：`${HCCL_ROOT}/build.sh` usage、`${HCCL_ROOT}/AGENTS.md` 第 5 节、`docs/zh/build/build.md` 和目标版本真实源码。
+> **真源归属**：`hccl-aicpu-best-practice`（跨层共享）。事实来源：`${HCOMM_CODE_HOME}/test/hccl_vm/README.md` §3.4、同目录 `build_pkg.sh` 及目标版本真实源码。
 >
-> 本文只定义构建、产物、基线和 Checker 证据何时有效。Agent 权限、用户交互、调用顺序、失败回退、任务状态和完成/提交决定由上层 Plugin 与角色契约负责。
+> 本文定义构建环境、产物身份、基线和 Checker 证据的有效条件。执行命令前须具备目标仓、安装环境及共享测试资源的相应操作授权。
 
 ## 1. 环境与唯一完整构建入口
 
 ```bash
 source <CANN路径>/set_env.sh
-cd "${HCCL_ROOT}"
-bash build.sh --pkg --full -j16
+export HCCL_CODE_HOME="${HCCL_ROOT}"
+export HCOMM_CODE_HOME="<已确认的HCOMM源码根>"
+export HCCL_VM_PATH="${HCOMM_CODE_HOME}/test/hccl_vm"
+cd "$HCCL_VM_PATH"
+bash build_pkg.sh --install hccl
 ```
 
-首次候选完整构建使用单一 `--pkg --full` 入口，同时覆盖 host 与 device。不要依次运行 `--aicpu`、`--pkg`、`--pkg --full`；当前 `build.sh` 会清理构建/输出目录，重复入口会销毁可复用状态。源码未变且构建树、CANN 来源和配置一致时，可以按真实 CMake target 增量构建 host/device 并重新打包；无法证明打包依赖完整时仍使用单次全量入口。
+仅修改 HCCL 时，统一入口是 HVM 的 `build_pkg.sh --install hccl`：脚本内部调用 HCCL `build.sh --full`，安装本次生成的 `.run` 包，再把设备符号部署到 `${HCCL_VM_PATH}/hccl_vm_install/lib/aarch64/`。无需另行执行 HCCL 构建或手工安装候选包。修改 HCOMM 时使用 `--install hcomm`；两仓同时修改时使用 `--full`，并保全两仓源码身份与产物证据。
+
+无参数 `bash build_pkg.sh` 仅从当前已安装包部署设备库，不编译、不安装，不能用于验证新修改。脚本没有 `-j`/`--jobs` 参数，构建并行度由其内部构建脚本决定。
 
 AICPU 功能验收还要求 §5 的 hccl-vm A/B 双轨通过。HCCL 仓内 ST/UT、单文件编译、静态检查和 Skill 自测均不能替代完整构建或双轨 Checker；若另有范围要求，其结果只能单独记录。
 
@@ -27,7 +32,7 @@ AICPU 功能验收还要求 §5 的 hccl-vm A/B 双轨通过。HCCL 仓内 ST/UT
 5. **用例证据可比较**：逐用例记录 case-id、算子、dtype、size、通信域、selector/算法覆盖配置、包身份、全部算法名及调用次数、Checker 状态和独立原始日志。只记录 PASS/FAIL 或缺少算法名都不满足比较条件。
 6. **切包不等于重编**：缺字段时先恢复原始日志；确需补测则安装已归档且哈希已验证的包。只有可信产物不存在或源码/构建输入变化时才重建。
 
-候选构建输入完整性与候选安装测试就绪性是两个条件：完整但存在未解释 FAIL 的旧基线可以满足构建输入完整性，但不满足安装测试就绪性。安装测试前须按 [定点补测](../../hccl-test-tool-hvm/references/recovery.md) 保留或补齐证据，并由 `repair.py ready` 给出就绪结果；不得改写旧 FAIL。
+统一入口会立即安装候选包，因此执行前旧基线必须完整且全部通过。存在 FAIL 时先按 [定点补测](../../hccl-test-tool-hvm/references/recovery.md) 保留或补齐证据，并由 `repair.py ready` 给出就绪结果；不得改写旧 FAIL。`--check-only` 可展示失败基线，但不表示允许执行。
 
 ### 2.2 基线与归档工具
 
@@ -41,7 +46,7 @@ AICPU 功能验收还要求 §5 的 hccl-vm A/B 双轨通过。HCCL 仓内 ST/UT
 首次构建就保存真实退出码：
 
 ```bash
-if bash build.sh --pkg --full > "$build_log" 2>&1; then
+if bash build_pkg.sh --install hccl > "$build_log" 2>&1; then
     build_rc=0
 else
     build_rc=$?
@@ -59,15 +64,15 @@ python3 <本skill路径>/scripts/workflow.py preflight \
   --previous <旧预检.json> --task-dir <任务持久目录> --environment-file <集群配置文件>
 
 python3 <本skill路径>/scripts/workflow.py build \
-  --repo <HCCL源码根> --artifact <旧包归档>/artifact.json \
+  --repo <HCCL源码根> --hcomm <HCOMM源码根> --artifact <旧包归档>/artifact.json \
   --baseline <旧selector基线目录> --baseline <新selector无配置基线目录> \
   --require-new-selector --cann <CANN目录或set_env.sh> \
-  --output <源码仓外的新候选输出目录> --jobs 16 --check-only
+  --output <源码仓外的新候选输出目录> --check-only
 ```
 
-检查通过后使用相同参数去掉 `--check-only`。正式执行仍会重新校验输入，并只运行一次 `bash build.sh --pkg --full -j16`。新增显式选路算法默认需要旧 selector 与新 selector 无配置路径两组基线。候选输出必须位于整个 HCCL 源码仓之外；会被构建清理的额外目录用 `--clean-root` 声明。该入口完成构建后，不再手工重复相同全量命令。
+确认 `baseline_all_passed=true` 且预检无缺项后，使用相同参数去掉 `--check-only`。正式执行仍会重新校验输入，并在 `${HCOMM_CODE_HOME}/test/hccl_vm` 只运行一次 `bash build_pkg.sh --install hccl`，统一完成构建、安装和设备库部署。新增显式选路算法默认需要旧 selector 与新 selector 无配置路径两组基线。候选输出必须位于整个 HCCL 源码仓之外；会被构建清理的额外目录用 `--clean-root` 声明。该入口完成后归档本次生成的包与证据，不再手工重复构建或安装。
 
-`build --check-only` 和正式构建都会解析 CANN 来源，在子环境加载 `set_env.sh` 并检查 host/device 工具。优先显式传入 `--cann`；也支持 `ASCEND_HOME_PATH`、`ASCEND_OPP_PATH` 和当前 `build.sh` 的默认路径。实际构建用 `-p` 固定同一 CANN 来源。
+`build --check-only` 和正式构建都会解析 CANN 来源，在子环境加载 `set_env.sh` 并检查 host/device 工具。优先显式传入 `--cann`；也支持 `ASCEND_HOME_PATH`、`ASCEND_OPP_PATH` 和当前 `build.sh` 的默认路径。实际执行继承该子环境中的 `ASCEND_HOME_PATH`；`--hcomm` 优先于 `HCOMM_CODE_HOME`，缺失时返回输入错误，不猜工作区路径。脚本显式设置 `HCCL_CODE_HOME=--repo`，并将 `HCCL_VM_PATH` 固定到本次 HCOMM 的工具目录，避免旧环境变量把设备库部署到其他工作区。`build.json` 记录统一命令、工作目录、入口脚本哈希和部署路径，`build.log`/`build.exit_code` 保存整个构建安装部署过程的输出和最终退出码。旧 `--jobs` 参数不再适用。
 
 可选单文件冒烟：
 
@@ -80,7 +85,7 @@ python3 <本skill路径>/scripts/workflow.py build ... \
 
 ### 2.4 可恢复源码快照与安装身份
 
-`workflow.py build` 在构建前保存 `source-snapshot/`：基准 commit、已跟踪文件二进制 diff、已变更跟踪文件与未跟踪源码的完整 Unix 权限，以及未跟踪源码内容。成功构建后使用 `archive_package.py --source-snapshot <本次输出/source-snapshot>` 随包归档。手工构建时先执行：
+`workflow.py build` 在构建前保存 `source-snapshot/`：基准 commit、已跟踪文件二进制 diff、已变更跟踪文件与未跟踪源码的完整 Unix 权限，以及未跟踪源码内容。统一构建安装部署成功后使用 `archive_package.py --source-snapshot <本次输出/source-snapshot>` 随包归档。手工构建时先执行：
 
 ```bash
 python3 <本skill路径>/scripts/source_snapshot.py capture \
@@ -92,7 +97,7 @@ python3 <本skill路径>/scripts/source_snapshot.py restore <归档/source-snaps
 
 恢复只写入新目录，并依赖基准 commit 仍可访问；忽略文件不属于源码快照。旧包没有快照时仍可作为已验证二进制用于基线，但不能据此宣称源码可恢复。
 
-安装参数必须来自当前 `.run` 包的帮助，或同包类型、同版本的已验证记录；不能把某次 `--quiet --full` 等组合推广到所有安装器。安装证据记录包哈希、命令、退出码、安装路径，并在部署后核对 host/device 库哈希。
+首次候选安装由 `build_pkg.sh` 内部完成，归档包须对应本次日志中实际安装的包，不能再手工安装一次。切回缓存版本时先校验并安装归档包，再在同一 HVM 目录执行无参数 `bash build_pkg.sh`，只部署已安装版本的设备库；不要用 `--install hccl` 切缓存版本，因为它会重新构建。手工恢复安装时，安装参数必须来自当前 `.run` 包的帮助，或同包类型、同版本的已验证记录；不能把某次 `--quiet --full` 等组合推广到所有安装器。安装证据记录包哈希、命令、退出码、安装路径，并在部署后核对 host/device 库哈希。
 
 ### 2.5 首次构建前的接入审查
 
@@ -218,7 +223,7 @@ bash run.sh -m AI_CPU -o allreduce -d int32 -s 64-4M -t 118 --timeout 180
 
 功能验收的客观结果只有在轨道 A、轨道 B、算法命中断言和选路契约全部通过时才是 PASS。该结果是上层状态判定的一项输入，不等同于任务完成或可提交结论。
 
-`hccl-test-tool-hvm` 的冒烟关卡、参数、`run.sh`、通信域配置与共享内存清理以其 SKILL.md 为真源。执行授权、共享环境 owner、重试/修复流转、sudo 交互、最终状态和提交决策以 `hccl-op-dev` Plugin 与 Agent 契约为准。
+`hccl-test-tool-hvm` 的冒烟关卡、参数、`run.sh`、通信域配置与共享内存清理以其 SKILL.md 为真源。执行前确认操作授权及共享环境的独占使用范围；失败时保留原始日志、退出码和未验证项。
 
 
 ## 交付文件与 Spec 身份

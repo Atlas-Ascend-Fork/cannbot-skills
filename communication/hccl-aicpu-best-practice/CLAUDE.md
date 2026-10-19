@@ -1,8 +1,6 @@
 # hccl-aicpu-best-practice 维护说明
 
-本目录是 AICPU 实现实践 Skill，也是跨层共享技术契约的承载目录，不是 HCCL 源码仓。Dataflow Spec 的知识与模板位于同级 `hccl-aicpu-design`；本目录提供 AICPU template 技术参考、骨架生成、静态检查和专项检视能力。
-
-本文仅约束 Skill 本身的维护。Agent 职责、用户交互、写入权限、任务状态、跨层构建测试与完成判定由 `plugins-official/hccl-op-dev/` 定义；本 Skill 不扩大授权或安排角色。
+本目录提供 HCCL AICPU template 实现实践、骨架生成、静态检查和专项检视能力。本文仅约束本 Skill 的文档、脚本与模板维护；目标 HCCL 源码仓由调用方显式提供。
 
 ## 外部仓输入
 
@@ -16,8 +14,7 @@
 
 ```bash
 python3 -B scripts/test_checks.py
-python3 -B ../../tests/behavior/teams/check_hccl_aicpu_rules.py
-python3 -B ../hccl-aicpu-design/scripts/test_design.py
+python3 -B -m unittest discover -s tests
 ```
 
 需要显式 HCCL 仓输入的能力：
@@ -67,12 +64,12 @@ SKILL.md 仅保留核心契约和路由，详细技术内容下沉到 `reference
 - repeat/stride：Dataflow Spec 第 5 章 ↔ `references/09-template-data-params.md` ↔ 设计 Skill 的 `scripts/check_layout.py` 和量化回归。
 - CMake 锚点：`new_template.py`/`cmake_utils.py` ↔ `references/05-build-and-verify.md` §1 ↔ 目标仓实际 CMake。
 - 骨架占位符：`assets/*.tpl` ↔ `new_template.py` 的 `render()`/`subs`。
-- 自定义算法路由：设计/实现 Skill ↔ `R-PROC-003/004` ↔ Architect；不得恢复成新增算法必读完整存量蓝本。
+- 自定义算法入口：`SKILL.md` §1.1 ↔ `R-PROC-003/004`；不得恢复成新增算法必读完整存量蓝本。
 - 算子卡与 API 动作导航：相关来源变化时更新对应结论与 `source-baseline.json`，不通过只刷新哈希宣称核验。
 - Parallel 接入卡：布局、资源与成本传递变化分别核对；`check_cost_forwarding.py` 仅覆盖直接聚合初始化，不把脚本 PASS 当作完整接入证明。
 - 成本检查按消费者选择 `--require-field`；默认仅 algName，兼容旧命令。来源检查保留总体状态并输出逐组状态，不能用未变组掩盖实际依赖的变化组。
-- 调研交接：自定义入口 ↔ Architect/prompt；传递实际加载路径、已有依据和未解问题，不新增默认子代理或绕过独立检视。
-- 规则登记：`references/07-rules.md` ↔ 实现 Skill 的 `check_template.py` / 设计 Skill 的 `check_spec.py` 的 `RULES` 字典 ↔ 仓库测试 `tests/behavior/teams/check_hccl_aicpu_rules.py` 词表。
+- 源码调查：自定义入口与来源卡保持一致；记录实际加载路径、已有依据和未解问题，按具体缺口定位源码。
+- 规则登记：`references/07-rules.md` 与 `check_template.py`、规格检查器的 `RULES` 字典同步核对编号、等级、适用范围及验证方式。
 
 ## 能力级不变式
 

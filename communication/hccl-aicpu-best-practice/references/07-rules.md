@@ -1,6 +1,6 @@
 # 07 · 规则总纲（Rule Register）
 
-本表是设计规格检查器与 template 实现检查器共用的规则维护登记，每条一个稳定 ID。设计原理见[通信算法设计](../../hccl-aicpu-design/references/08-algorithm-design.md)，Agent 职责、阶段流转与权限由 `hccl-op-dev` Plugin 定义；跨层证据见[共享契约](../aicpu-shared-contract.md)和[构建验证](build-verification.md)。其他文档解释「怎么做」，
+本表是设计规格检查器与 template 实现检查器共用的规则维护登记，每条一个稳定 ID。设计原理见[通信算法设计](../../hccl-aicpu-design/references/08-algorithm-design.md)；跨层证据见[共享契约](../aicpu-shared-contract.md)和[构建验证](build-verification.md)。其他文档解释「怎么做」，
 **不重复定义规则**——要引用就写 ID（如 `R-CMAKE-002`），脚本报错也带同一个 ID。
 
 ## 0. 怎么读这份表
@@ -31,9 +31,9 @@
 | `自动:<脚本>` | 脚本可检查，报错带同一个 ID | 脚本报告及退出码 |
 | `人工核对` | 脚本不能完整解析，但可从源码、spec 或公式得到结论 | 结论、证据位置和未覆盖范围 |
 | `外部环境` | 需要目标仓、编译或用例环境 | 环境前提、实际结果或未验证项 |
-| `上游输入` | 技术证据不能唯一确定的路径、需求语义或范围 | 结构化缺口，由调用 Agent/Plugin 按其契约处理 |
+| `上游输入` | 技术证据不能唯一确定的路径、需求语义或范围 | 缺失输入、影响范围及所需证据 |
 
-本表只说明能力依赖和证据类型，不为任何 Agent 授权，也不指定谁与用户交互。
+本表只说明技术前置条件、验证方式和证据类型。
 
 **等级 + 适用范围 → 脚本行为**（`check_template.py` 的 `effective_level()` 就是这张表）：
 
@@ -226,13 +226,13 @@ python3 "$SKILL_DIR/scripts/check_template.py" --rule R-SAFE-007   # 查单条
 | ID | 等级 | 验证方式 | 适用 | 规则 | 理由 |
 |---|---|---|---|---|---|
 | R-PROC-001 | MUST | 人工核对 | 全量 | 先判模式：**A 只读** / **B 局部改动** / **C 新算法或重构数据流**。判据只有一条——这次改动会不会动「谁的哪段字节搬到谁的哪段字节、在哪个流上、什么时候同步」 | 避免对只读分析和非数据流修改强制引入 spec |
-| R-PROC-002 | MUST | 人工核对 | 模式C | Dataflow Spec → 设计 Skill 的 `check_spec`/`check_layout` → 语义 TBD 清零 → 代码映射 → 实现 Skill 的 `check_template`；静态结果交由调用 Agent | 确保 spec 是实现的前置输入，不在能力层重复编排跨层验收 |
+| R-PROC-002 | MUST | 人工核对 | 模式C | Dataflow Spec → 设计 Skill 的 `check_spec`/`check_layout` → 语义 TBD 清零 → 代码映射 → 实现 Skill 的 `check_template`；输出静态检查结果和未验证项 | 确保 spec 是实现的前置输入，不在能力层重复编排跨层验收 |
 | R-PROC-003 | MUST | 人工核对 | 新增+修改 | 实现前核对目标算子/executor 契约及所需接口；来源匹配且范围相同时复用结论。修改/继承已有实现才读相关完整函数和调用关系，不要求新算法存在同类蓝本 | 保持来源可信，避免反复调研无关算法 |
 | R-PROC-004 | MUST | 人工核对 | 全量 | 技术结论必须基于完整函数体、调用方和目标版本真实源码；内容未变且适用范围一致时可复用已核对记录，差异定向补查，不得仅根据 diff 或未验证推测 | 保持技术信息可追溯 |
 | R-PROC-008 | MUST | 人工核对 | 全量 | 不得 `#include` HCOMM 私有头，不得引入对 `cann/hcomm` 的编译期硬依赖；跨仓调用走 `src/common/hcomm_dlsym/` | `$HCCL_REPO/AGENTS.md` §3 的硬性架构约束 |
 | R-PROC-009 | MUST | 人工核对 | 新增 | 官方新算子落 `src/ops/<op>/`，社区试验算子落 `experimental/ops/<op>/`，均按 `selector` + `algorithm/{executor,template}` 组织 | 同上 |
 
-> 修改范围、写入授权、Git 提交/推送和 Issue→PR→CI→检视链路已交由 Agent/Plugin 定义。已删除的 `R-PROC-005`—`007` 不复用。
+> 本表仅登记技术能力使用约束。已删除的 `R-PROC-005`—`007` 不复用。
 
 ---
 
@@ -273,7 +273,7 @@ python3 "$SKILL_DIR/scripts/check_template.py" --rule R-SAFE-007   # 查单条
 - **删规则**：从表里删掉，脚本里同步删。**ID 不回收**，避免旧评审意见指向新规则。
 - **改「验证方式」栏**：取值只能是 `自动:<脚本>` / `人工核对` / `外部环境` / `上游输入`
   （可加 ` + clang-format` 后缀）。仓库维护测试会校验这份词表，避免错别字产生未定义类别。
-- `上游输入` 只表示能力无法独立闭合的信息缺口；谁负责补齐、是否与用户交互，由 Agent/Plugin 决定。
+- `上游输入` 表示当前技术证据不能唯一确定的信息；记录缺失值、影响和可接受的输入形式。
 - **改等级或适用范围**：表和脚本 `RULES` 字典必须一起改——`check_template.py --rule <ID>` 打印的就是脚本里那份，两边不一致会立刻被人发现。
 - **每次改完**先跑仓库维护测试，再按目标环境运行 `bash scripts/selftest.sh "$HCCL_REPO"`。
 - 本表引用真仓 API 与规范的地方（§3 的基类、§7/§8 的编码规范）**会随真仓演进失效**，

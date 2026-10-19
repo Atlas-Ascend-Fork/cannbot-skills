@@ -36,7 +36,7 @@
         "eval_mode": "text"
       },
       "prompt": "我想在 HCCL 仓（/home/hccl/vibe/hccl）里给 AllReduce 新增一个板内 1D Mesh 的小数据 AICPU 算法变体，需要动哪些层？各层分别做什么、怎么验证？请包含具体的技术内容（目录结构、注册宏、验证工具），而不仅是流程步骤名称。\n\n【约束】请依据 hccl-aicpu-best-practice skill 的内容回答，不要执行任何工具调用（禁止 read、glob、bash 等），不要探索项目文件或目录结构。仅输出文本回答即可。",
-      "expected_output": "回复应体现共享技术 Skill 的分层路由知识，而非自行编排 Agent，覆盖：\n1. 三层结构：selector（SelectAicpuAlgo 选算法名）/ executor（REGISTER_EXEC_V2 注册 + Orchestrate）/ template（algorithm/template/aicpu/ 下 KernelRun 数据搬运），2026-09 目录重构后 executor/template 在 <op>/algorithm/ 下\n2. template 层要点：继承 InsAlgTemplateBase，实现 CalcRes/KernelRun/CalcScratchMultiple/GetNotifyIdx*，数据搬运优先用 wrapper（SendRecvBatchWrite/LocalCopy 等）\n3. 注册要点：REGISTER_EXEC_V2 的 name 是标识符（宏内字符串化），selector 的 selectAlgName 字符串必须与注册名逐字符一致\n4. 客观验收契约：build.sh --pkg --full 编译 + hccl-vm（AI_CPU 引擎）Checker 功能验证（不是只靠 ST/UT），但执行与状态裁决由 Agent/Plugin 负责\n5. 跨层一致性约束（算法名三处一致、CalcRes 与 notify 配比一致）",
+      "expected_output": "回复应体现分层实现的技术约束，覆盖：\n1. 三层结构：selector（SelectAicpuAlgo 选算法名）/ executor（REGISTER_EXEC_V2 注册 + Orchestrate）/ template（algorithm/template/aicpu/ 下 KernelRun 数据搬运），2026-09 目录重构后 executor/template 在 <op>/algorithm/ 下\n2. template 层要点：继承 InsAlgTemplateBase，实现 CalcRes/KernelRun/CalcScratchMultiple/GetNotifyIdx*，数据搬运优先用 wrapper（SendRecvBatchWrite/LocalCopy 等）\n3. 注册要点：REGISTER_EXEC_V2 的 name 是标识符（宏内字符串化），selector 的 selectAlgName 字符串必须与注册名逐字符一致\n4. 客观验收契约：HVM build_pkg.sh --install hccl 统一构建、安装、部署 + hccl-vm（AI_CPU 引擎）Checker 功能验证（不是只靠 ST/UT）；静态检查不能替代实际构建和 Checker 证据\n5. 跨层一致性约束（算法名三处一致、CalcRes 与 notify 配比一致）",
       "files": [],
       "expectations": []
     },
@@ -51,8 +51,8 @@
         "timeout": 900,
         "eval_mode": "text"
       },
-      "prompt": "Architect 向 hccl-aicpu-best-practice 提供了「为 AllReduce 新增 AICPU 算法」这一部分输入。请说明该 Skill 能直接推导什么、应返回哪些上游输入缺口，以及谁负责用户交互和状态推进。\n\n【约束】请依据 hccl-aicpu-best-practice skill 的内容回答，不要执行任何工具调用（禁止 read、glob、bash 等），不要探索项目文件或目录结构。仅输出文本回答即可。",
-      "expected_output": "回复应体现 Skill 只提供技术能力和结构化缺口，不直接编排角色：\n1. 已知算子为 AllReduce、意图为新增，直接继承；依据目标版本真实源码推导改动层级、可复用 executor、算法形态、线程分配和注册方式。\n2. 缺失且无法由技术证据推导的目标拓扑/rank、数据范围、默认选路授权和验收范围，以结构化上游输入缺口返回；已确认信息和授权不重复索取。\n3. 技术 TBD 先查真实源码、蓝本、公式和已有配置；可推导项记录依据和待验证范围，不把实现设计当作用户决策。\n4. Skill 不直接询问用户、不指定下一个 Agent、不改变任务状态；Architect 处理设计需求缺口，HCCLBot/Plugin 负责用户交互、调度和状态推进。\n5. 能力输出应包含路由结论、证据位置、Dataflow Spec 需求、静态检查结果、上游缺口和未验证范围。",
+      "prompt": "调用方给 hccl-aicpu-best-practice 提供了「为 AllReduce 新增 AICPU 算法」这一部分输入。请说明该 Skill 能直接推导什么、应返回哪些输入缺口，以及输出中如何区分已知信息与未确认条件。\n\n【约束】请依据 hccl-aicpu-best-practice skill 的内容回答，不要执行任何工具调用（禁止 read、glob、bash 等），不要探索项目文件或目录结构。仅输出文本回答即可。",
+      "expected_output": "回复应体现实现所需的技术输入与结构化缺口：\n1. 已知算子为 AllReduce、意图为新增，直接继承；依据目标版本真实源码推导改动层级、可复用 executor、算法形态、线程分配和注册方式。\n2. 缺失且无法由技术证据推导的目标拓扑/rank、数据范围、默认选路授权和验收范围，以结构化上游输入缺口返回；已确认信息和授权不重复索取。\n3. 技术 TBD 先查真实源码、蓝本、公式和已有配置；可推导项记录依据和待验证范围，不把实现设计当作用户决策。\n4. 缺失输入应列出影响、所需值与可接受的证据，不能用猜测补齐算法语义或验收范围。\n5. 能力输出应包含路由结论、证据位置、Dataflow Spec 需求、静态检查结果、上游缺口和未验证范围。",
       "files": [],
       "expectations": []
     },
@@ -67,8 +67,8 @@
         "timeout": 900,
         "eval_mode": "text"
       },
-      "prompt": "一个新的 AICPU AllReduce 模板已完成 KernelRun 实现和两处 CMake 登记。请根据 hccl-aicpu-best-practice 说明后续构建与功能验收的客观契约，并说明 Skill 与 Verifier/Plugin 的责任边界。\n\n【约束】请依据 hccl-aicpu-best-practice skill 的内容回答，不要执行任何工具调用（禁止 read、glob、bash 等），不要探索项目文件或目录结构。仅输出文本回答即可。",
-      "expected_output": "回复应覆盖：\n1. 先检查旧包/基线归档是否已经齐备。旧包默认路径基线必须在首次候选构建前完成（旧包身份、源码、日志、退出码和包哈希可追溯），不能拖到安装前；缺少时先恢复可追溯旧包并补齐。\n2. 通过 workflow.py build --check-only 预检后，正式 build.sh --pkg --full 只运行一次，保存完整日志、真实退出码与源码快照；输出目录在源码仓外，不重复构建只为获取日志。单文件语法冒烟不能代替全构建。\n3. 功能验证走 hccl-vm、AI_CPU、目标通信域与完整数据类型/大小/边界矩阵。轨道 A 强制新算法并用 --expect-algo 断言；轨道 B 不设置 HCCL_ALGO，覆盖默认路径。\n4. 默认不变任务用 evidence.py compare 比对基线；已批准 selector 变更任务按事先固定的范围/矩阵逐项验收，范围外仍与基线一致。现有 compare 没有允许改变选路的参数，须先 check 双侧证据再明确记录人工矩阵验收，不能篡改基线或伪称自动 compare 通过。\n5. Skill 只定义上述客观判据和证据格式；Verifier 执行构建/安装/双轨并产出报告，HCCLBot/Plugin 判定状态。ST/UT 是否执行按 Plugin 继承的用户授权，且不能替代 Checker。",
+      "prompt": "一个新的 AICPU AllReduce 模板已完成 KernelRun 实现和两处 CMake 登记。请根据 hccl-aicpu-best-practice 说明后续构建与功能验收的客观契约，并区分静态检查结果与实际构建、功能验证证据。\n\n【约束】请依据 hccl-aicpu-best-practice skill 的内容回答，不要执行任何工具调用（禁止 read、glob、bash 等），不要探索项目文件或目录结构。仅输出文本回答即可。",
+      "expected_output": "回复应覆盖：\n1. 先检查旧包/基线归档是否已经齐备。旧包默认路径基线必须在首次候选构建前完成（旧包身份、源码、日志、退出码和包哈希可追溯），不能拖到安装前；缺少时先恢复可追溯旧包并补齐。\n2. 通过 workflow.py build --check-only 预检且基线全通过后，正式 HVM build_pkg.sh --install hccl 统一构建安装部署只运行一次，保存完整日志、真实退出码与源码快照；输出目录在源码仓外，不重复构建只为获取日志。单文件语法冒烟不能代替全构建。\n3. 功能验证走 hccl-vm、AI_CPU、目标通信域与完整数据类型/大小/边界矩阵。轨道 A 强制新算法并用 --expect-algo 断言；轨道 B 不设置 HCCL_ALGO，覆盖默认路径。\n4. 默认不变任务用 evidence.py compare 比对基线；已批准 selector 变更任务按事先固定的范围/矩阵逐项验收，范围外仍与基线一致。现有 compare 没有允许改变选路的参数，须先 check 双侧证据再明确记录人工矩阵验收，不能篡改基线或伪称自动 compare 通过。\n5. 输出上述客观判据所需的命令、真实退出码和证据索引。ST/UT 在已确认的验证范围内单独记录，不能替代 Checker。",
       "files": [],
       "expectations": []
     },

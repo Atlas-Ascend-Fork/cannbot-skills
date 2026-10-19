@@ -2,7 +2,7 @@
 
 本 skill 从用户提供的 `template-review-skill-is-all-you-need` 迁入；迁入时源仓 HEAD 为
 `82e59a982d2178a994932f9112dcebfce54017db`。保留检查器、规则文档、报告模板和夹具，
-原仓 `CLAUDE.md` 的维护要点收录于本页。HCCLBot 的路径、报告和验证职责适配见 SKILL.md。
+原仓 `CLAUDE.md` 的维护要点收录于本页。仓库路径、报告格式和检查范围见 [评审指南](../GUIDE.md)。
 
 ## 知识边界
 

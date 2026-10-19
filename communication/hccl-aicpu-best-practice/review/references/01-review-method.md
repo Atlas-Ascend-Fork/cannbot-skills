@@ -110,7 +110,7 @@ python3 "$SKILL_DIR/scripts/review_template.py" --repo "$HCCL_REPO" --all --quie
 ## 8. 证据复用与 finding 统计
 
 首次评审保存关键入口、状态赋值/消费、wrapper 完成语义和资源消费的证据索引，绑定源码身份。
-作者提供的索引用于定位，Reviewer 仍独立核验关键结论。复审按 finding → 修复 → 影响范围 →
+作者提供的索引用于定位，检视时仍独立核验关键结论。复审按 finding → 修复 → 影响范围 →
 新证据核对；依赖未变时复用定位结果，跨层行为变化时扩展检查。
 
 给每条独立 finding 分配稳定 ID，复审沿用。分别记录有效性（确认/误报/待确认）、

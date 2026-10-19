@@ -7,7 +7,7 @@ description: 触发：本机缺少可用的 HCCL 开发环境，需要 clone 仓
 
 负责 HCCL 开发环境一键准备：clone hccl/hcomm 仓库 + 探测或安装 CANN + 生成 `hccl-env.sh`。
 
-本 Skill 只提供环境准备能力，不选择 Agent、不推进开发阶段。clone、下载和安装会改变外部环境；调用方必须在执行相应模式前确认目标路径和授权。探测模式也可能 clone 缺失仓库，不是纯只读操作。
+clone、下载和安装会改变外部环境；调用方必须在执行相应模式前确认目标路径和授权。探测模式也可能 clone 缺失仓库，不是纯只读操作。
 
 ## 输入
 
@@ -77,4 +77,4 @@ source ${WORKSPACE}/hccl-env.sh
 
 `hccl-env.sh` 已生成，`HCCL_ROOT`、`HCOMM_CODE_HOME`、`HCOMM_DOCS`、`CANN_HOME`、`ASCEND_HOME_PATH` 已设置。
 
-该结果只表示环境文件生成成功；仓库/CANN 是否满足当前任务要求仍由 `hccl-env-check` 独立检查，上层工作流自行决定后续状态。
+该结果只表示环境文件生成成功；使用前仍需按当前任务要求检查仓库结构、CANN 路径及环境变量一致性。

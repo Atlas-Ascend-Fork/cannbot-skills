@@ -14,4 +14,4 @@ description: 从 HCCL AICPU 算法的真实源码与 Dataflow Spec 设计可追�
 3. 对每条数据流用独立期望值核对源/目标、rank、slice、repeat、stride、scratch 容量与不重叠；对线程路径核对 Notify 数量、索引及同步前后的读写依赖。规则与量化方法分别见 [Template 规则](../hccl-aicpu-best-practice/references/07-rules.md) 和 [五参数说明](../hccl-aicpu-best-practice/references/09-template-data-params.md)。
 4. 将可执行用例映射到现有测试工具：静态检查证明结构或公式，Checker 用例证明功能；选路用定向命中和默认回归两种证据。UT/ST 只在目标仓存在适用入口且调用方明确纳入范围时设计，不把静态结果或 HCCL-VM dry-run 写为测试 PASS。
 
-每项矩阵至少记录 `case_id`、源码分支/条件、输入与拓扑、预期输出或错误、预期算法、所用工具、原始证据位置及来源身份。不可执行的分支保留为 `UNVERIFIED` 并注明缺少的工具、环境或可观察信号；不凭用例数宣称覆盖率。供 `hccl-op-dev` 使用时，Architect 将矩阵写入其拥有的 `TEST_PLAN.md`，Reviewer 可独立核对，Verifier 按冻结计划执行；本 Skill 不拥有这些角色或流程状态。
+每项矩阵至少记录 `case_id`、源码分支/条件、输入与拓扑、预期输出或错误、预期算法、所用工具、原始证据位置及来源身份。不可执行的分支保留为 `UNVERIFIED` 并注明缺少的工具、环境或可观察信号；不凭用例数宣称覆盖率。输出包含用例矩阵、源码证据索引、执行条件和未覆盖项，供测试执行与结果核对使用。

@@ -9,7 +9,7 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
 
-"""一次性源码定位和候选构建前基线门禁；不安装，不启动测试。"""
+"""源码定位与基线门禁；候选通过 HVM 统一构建、安装和部署，不启动测试。"""
 
 import argparse
 from datetime import datetime, timezone
@@ -174,6 +174,32 @@ def local_module(name):
     return module
 
 
+def hvm_environment(a, env, repo):
+    """固定本次源码及 HVM 部署目标，避免继承旧工作区的环境路径。"""
+    hcomm = getattr(a, "hcomm", None) or env.get("HCOMM_CODE_HOME")
+    if not hcomm:
+        raise ValueError("缺少 HCOMM 源码路径；使用 --hcomm 或 HCOMM_CODE_HOME")
+    hcomm = Path(hcomm).expanduser().resolve()
+    tool = hcomm / "test/hccl_vm"
+    entry = tool / "build_pkg.sh"
+    if not entry.is_file():
+        raise ValueError("HVM 构建部署入口不存在: " + str(entry))
+    if not env.get("ASCEND_HOME_PATH") or not Path(env["ASCEND_HOME_PATH"]).is_dir():
+        raise ValueError("CANN set_env.sh 未提供有效 ASCEND_HOME_PATH")
+    env.update(
+        HCCL_CODE_HOME=str(repo),
+        HCOMM_CODE_HOME=str(hcomm),
+        HCCL_VM_PATH=str(tool),
+    )
+    return {
+        "hcomm_repo": str(hcomm),
+        "cwd": str(tool),
+        "entrypoint_sha256": digest(entry),
+        "device_deploy_dir": str(tool / "hccl_vm_install/lib/aarch64"),
+        "ascend_home_path": env["ASCEND_HOME_PATH"],
+    }
+
+
 def preflight(a):
     started_at = datetime.now(timezone.utc).isoformat()
     repo = Path(a.repo).resolve()
@@ -333,8 +359,6 @@ def gate(a):
         raise ValueError(
             "缺少默认基线 selector=" + ",".join(sorted(needed - selectors))
         )
-    if a.jobs < 1:
-        raise ValueError("jobs 必须为正整数")
     return {
         "repo": str(repo),
         "artifact": str(artifact_path),
@@ -342,8 +366,8 @@ def gate(a):
         "archive_files_sha256": {str(p): digest(p) for p in (package, log, rc)},
         "baseline": summaries,
         "baseline_all_passed": all(x["failures"] == 0 for x in summaries),
-        "note": "基线完整允许构建；FAIL 必须保留，不能作为回归通过。",
-        "argv": ["bash", "build.sh", "--pkg", "--full", "-j" + str(a.jobs)],
+        "note": "统一入口会安装候选包；基线须全部通过后才能执行，FAIL 必须保留。",
+        "argv": ["bash", "build_pkg.sh", "--install", "hccl"],
     }
 
 
@@ -369,6 +393,7 @@ def source_identity(repo):
 def build(a):
     env, environment = build_environment(a)
     repo = Path(a.repo).resolve()
+    deployment = hvm_environment(a, env, repo)
     # 以 git common dir 为身份，同一仓库的不同 worktree 共用锁；不写 .git。
     common = git(repo, "rev-parse", "--git-common-dir").decode().strip()
     identity = str((repo / common).resolve())
@@ -382,7 +407,9 @@ def build(a):
             raise ValueError("同仓库已有构建工作流运行")
         report = gate(a)
         report["environment"] = environment
-        report["argv"] += ["-p", environment["cann"]]
+        report["deployment"] = deployment
+        if not a.check_only and not report["baseline_all_passed"]:
+            raise ValueError("基线未全部通过，禁止构建、安装和部署候选包")
         if getattr(a, "compile_smoke", None):
             report["compile_smoke"] = local_module("compile_smoke").run(
                 repo,
@@ -415,7 +442,7 @@ def build(a):
             try:
                 code = subprocess.call(
                     report["argv"],
-                    cwd=repo,
+                    cwd=deployment["cwd"],
                     env=env,
                     stdout=log,
                     stderr=subprocess.STDOUT,
@@ -447,7 +474,7 @@ def main():
     for flag in ("repo", "artifact", "output"):
         p.add_argument("--" + flag, required=True)
     p.add_argument("--baseline", action="append", required=True)
-    p.add_argument("--jobs", type=int, default=16)
+    p.add_argument("--hcomm", help="HCOMM 源码根目录；缺省读取 HCOMM_CODE_HOME")
     p.add_argument("--clean-root", action="append", default=[])
     p.add_argument("--require-new-selector", action="store_true")
     p.add_argument("--check-only", action="store_true")

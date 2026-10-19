@@ -95,7 +95,7 @@ python3 "$SKILL_DIR/scripts/check_template.py" --repo "$HCCL_REPO" --strict-new 
 
 ## 4. 跨层证据交接
 
-AICPU template 同时进入 host 侧 `libhccl.so` 和 device 侧 `libscatter_aicpu_kernel.so`，因此静态检查无法单独证明实现可用。交给调用 Agent 的证据至少包含：
+AICPU template 同时进入 host 侧 `libhccl.so` 和 device 侧 `libscatter_aicpu_kernel.so`，因此静态检查无法单独证明实现可用。实现证据至少包含：
 
 | 证据 | 内容 |
 |---|---|
@@ -105,4 +105,4 @@ AICPU template 同时进入 host 侧 `libhccl.so` 和 device 侧 `libscatter_aic
 | 静态结果 | 命令、退出码、报告路径及未解析 WARN |
 | 外部前提 | 构建所需 CANN/第三方环境，以及未验证范围 |
 
-完整构建、基线与产物归档、安装及 hccl-vm A/B 双轨的技术契约见[共享契约](../aicpu-shared-contract.md)和[构建验证](build-verification.md)；ST/UT 执行范围、角色调度和完成判定由调用 Agent/Plugin 负责。本文不复制命令、环境处置或状态门禁，避免产生第二套流程真源。
+完整构建、基线与产物归档、安装及 hccl-vm A/B 双轨的技术契约见[共享契约](../aicpu-shared-contract.md)和[构建验证](build-verification.md)。ST/UT 在验证范围明确要求时单独记录，不能替代 Checker。构建命令和环境条件统一引用上述参考。

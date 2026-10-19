@@ -24,11 +24,11 @@ python3 <hccl-aicpu-best-practice路径>/scripts/archive_package.py \
   --repo <HCCL源码根> --host-library <该包的libhccl.so> --device-library <该包的libscatter_aicpu_kernel.so> \
   --package <已构建包.run> --build-log <完整构建日志> --exit-code-file <构建退出码文件> \
   --source-id '<commit+工作区快照哈希>' --environment-id '<CANN版本+工具链+构建配置标识>' \
-  --build-command 'bash build.sh --pkg --full' --output <任务产物目录>/baseline-v1
+  --build-command 'bash build_pkg.sh --install hccl' --output <任务产物目录>/baseline-v1
 ```
 
 输出 `artifact.json`、归档包、日志及退出码。候选包使用不同目录，例如 candidate-v1、candidate-v2。
-切回已有版本时安装归档包并按 hccl-vm 部署 device 库，**不重新构建相同版本**。
+候选首次构建安装部署按 [统一入口](../../hccl-aicpu-best-practice/references/build-verification.md) 执行，成功后归档本次实际安装的包。切回已有版本时，安装已校验的归档包，再在 `${HCOMM_CODE_HOME}/test/hccl_vm` 执行无参数 `bash build_pkg.sh` 部署当前安装包的 device 库；显式设置 `HCCL_VM_PATH` 为该工具目录。**不使用 `--install hccl` 切换缓存包，因为它会重新构建。**
 
 归档时参考库必须来自该安装包或同次打包的最终 staging 产物（注意 strip/签名等后处理）。`--artifact` 会在启动测试前核对归档包内容哈希及现场 host/device 库与参考哈希是否一致，旧包身份配上新库会立即失败。工具不自行解包证明参考库来源，调用方仍须保存其打包/提取依据，不能拿当前安装的任意库充当旧包参考库。
 

@@ -1,6 +1,6 @@
 # HCCL AICPU 共享跨层契约
 
-> 本参考是 `hccl-aicpu-best-practice` 中设计、开发、测试和检视角色共享的 AICPU 技术真源，回答“怎么做、受什么约束、如何客观验证”。Agent 职责、权限、调用顺序、失败回退和完成状态由上层 Plugin 定义，不在本参考中编排。
+> 本参考定义 HCCL AICPU 实现的接口、资源、数据流、工程接线约束及客观验证判据，供实现、检视与验证时核对。
 
 ## 适用范围
 
@@ -12,11 +12,11 @@
 - `op_common/algorithm/topo_match/` 拓扑匹配
 - 上述层级之间的接口、资源和算法身份一致性
 
-不适用：AIV 模板、CCU 引擎、`src/legacy/` 新特性。CCU 暂不对外支持；环境准备使用 `hccl-env-setup`；功能测试执行使用 `hccl-test-tool-hvm`；AICPU 问题诊断使用 `hccl-aicpu-debug`。
+不适用：AIV 模板、CCU 引擎、`src/legacy/` 新特性。环境准备使用 `hccl-env-setup`；功能测试执行使用 `hccl-test-tool-hvm`；AICPU 问题诊断使用 `hccl-aicpu-debug`。
 
 ## 能力路由
 
-按改动对象加载最小必要能力。各 Skill 是技术能力，不代表 Agent 角色。
+按改动对象加载最小必要技术参考。
 
 | 改动对象 | 目标 Skill | 当前能力来源 |
 |---|---|---|
@@ -46,20 +46,7 @@ AllGather Sole/Parallel 直接加载[接入卡](references/allgather-integration
 复用 AllGather Parallel 时按需加载[四阶段契约](references/12-allgather-parallel.md)，
 不把单层契约外推到分层调用。不安排“读取全部参考”；交接已有来源记录和具体缺口即可。
 跨层改动继续加载相应能力，完整构建与双轨验收不变。
-调研是否委派及其输入范围由 Plugin/Agent 决定；本参考只提供已核验契约、来源证据和具体缺口，不扩大算法组合或验收范围。
-
-## 角色消费边界
-
-本参考不授予执行权限，具体权限以上层 Agent 定义为准。`hccl-op-dev` 的四个角色按以下范围消费能力：
-
-| 角色 | 使用本参考的能力 |
-|---|---|
-| Architect | 需求输入契约、三层架构、数据流规格、默认选路影响和测试矩阵 |
-| Developer | 分层实现、静态检查、生成器、CMake 接线和开发期诊断 |
-| Verifier | 基线证据、源码快照、唯一候选构建入口和双轨测试判据 |
-| Reviewer | 数据流、资源、注册、选路、架构红线和证据身份的独立核对 |
-
-角色间交接格式、状态推进和失败回退不在这里定义。
+源码调查只记录已核验契约、来源证据和具体缺口，不扩大算法组合或验收范围。
 
 ## 仓库与架构真源
 
@@ -150,13 +137,15 @@ python3 <本skill路径>/scripts/workflow.py preflight \
 首次完整构建的单一入口：
 
 ```bash
-cd ${HCCL_ROOT}
-bash build.sh --pkg --full -j16
+export HCCL_CODE_HOME="${HCCL_ROOT}"
+export HCCL_VM_PATH="${HCOMM_CODE_HOME}/test/hccl_vm"
+cd "$HCCL_VM_PATH"
+bash build_pkg.sh --install hccl
 ```
 
-实际候选构建优先使用 [workflow.py 构建门禁](references/build-verification.md#23-预检与候选构建入口)，由其检查基线、保存源码快照并执行上述命令。不要顺序执行 `--aicpu`、`--pkg`、`--pkg --full`，也不要为补取退出码或日志重复构建。
+实际候选构建优先使用 [workflow.py 构建门禁](references/build-verification.md#23-预检与候选构建入口)，由其检查基线全通过、保存源码快照并执行上述统一构建安装部署命令。该入口内部构建 HCCL、安装本次包并部署设备库，不再额外构建或手工安装；HCOMM 或两仓修改的对应入口见构建参考。不要为补取退出码或日志重复构建。
 
-HCCL 仓内 ST/UT 不是本参考的默认验收证据，也不能替代 Checker；是否执行由 Plugin/Verifier 依据上游授权决定。`check_spec.py`、`check_layout.py`、`check_template.py` 和 Skill 自身离线回归属于静态/工具检查，不是 HCCL ST/UT。
+HCCL 仓内 ST/UT 不是本参考的默认验收证据，也不能替代 Checker；仅在当前验证范围明确要求时单独执行并记录。`check_spec.py`、`check_layout.py`、`check_template.py` 和 Skill 自身离线回归属于静态/工具检查，不是 HCCL ST/UT。
 
 ### 5. 双轨功能验收
 
@@ -195,7 +184,7 @@ HCCL 仓内 ST/UT 不是本参考的默认验收证据，也不能替代 Checker
 | 工具 | 能力 | 边界 |
 |---|---|---|
 | `scripts/workflow.py preflight` | 记录源码、任务和环境指纹，定位相关入口 | 不证明实现正确 |
-| `scripts/workflow.py build` | 检查旧包和基线、保存源码身份、执行唯一候选全量构建 | 不安装、不运行 Checker |
+| `scripts/workflow.py build` | 检查旧包和基线、保存源码身份、调用 HVM 统一构建安装部署 | 会安装候选包；不运行 Checker |
 | `scripts/source_snapshot.py` | 捕获、校验、恢复已跟踪 diff、未跟踪源码和 Unix 权限 | 只恢复到新目录；依赖基准 commit |
 | `scripts/archive_package.py` | 归档包、构建日志、退出码、源码快照和哈希 | 不触发构建或安装 |
 | `scripts/check_deliverables.py` | 核对显式交付清单、Git 跟踪/忽略状态、Spec 与附件哈希 | 不暂存、不代替源码快照或实际归档 |

@@ -8,7 +8,7 @@ skill_name: hccl-aicpu-best-practice
 
 ## 能力契约问答
 
-原共享入口的 16 项文本用例已并入本目录的 `evals.json`（编号 3–18），覆盖分层路由、上游输入缺口、Skill/Agent/Plugin 边界、构建前基线、双轨验收、同步知识，以及已经授权的 selector 变更、自定义算法、来源漂移、成本参数、验证顺序与调研交接。由评测运行器向独立会话加载 `hccl-aicpu-best-practice`、[共享跨层契约](../aicpu-shared-contract.md)与必要参考后给出 prompt，以 expected_output 人工判定；禁止工具的用例只评估契约理解。
+原共享入口的 16 项文本用例已并入本目录的 `evals.json`（编号 3–18），覆盖分层路由、上游输入缺口、能力输入与证据范围、构建前基线、双轨验收、同步知识，以及已经授权的 selector 变更、自定义算法、来源漂移、成本参数、验证顺序与调研交接。由评测运行器向独立会话加载 `hccl-aicpu-best-practice`、[共享跨层契约](../aicpu-shared-contract.md)与必要参考后给出 prompt，以 expected_output 人工判定；禁止工具的用例只评估契约理解。
 
 关键判据：继承已有信息与授权；不编造 API 或验证成功；默认不追加 HCCL ST/UT；仅显式启用时默认选路不变；已批准的默认选路变更按预先固定的矩阵验收。当前 `hccl-test-tool-hvm/evidence.py compare` 不支持放宽选路比较，须明确区分自动比较与人工矩阵验收。
 
@@ -19,9 +19,9 @@ skill_name: hccl-aicpu-best-practice
 ```bash
 python3 -B -m unittest discover -s communication/hccl-aicpu-best-practice/tests -v
 python3 -B communication/hccl-aicpu-best-practice/scripts/test_checks.py
-python3 -B tests/behavior/teams/check_hccl_aicpu_rules.py
-bash tests/behavior/teams/test-hccl-op-dev-workflow.sh
 ```
+
+下方历史验证记录保留当时的脚本名称与测试统计；本页当前维护入口仅包含上述 Skill 工具检查。
 
 用例均在临时目录写入，覆盖：
 
@@ -37,8 +37,6 @@ bash tests/behavior/teams/test-hccl-op-dev-workflow.sh
 | 地址与语义筛查 | 地址错误、非法操作数、无条件成本候选等既有反例未被拦截 |
 
 `test_compile_probe.py` 用本机 g++ 真编译最小 C++ fixture，借助隔离树中不同的头文件常量验证 include 实际来源；缺少 g++/git 时会明确跳过。其结果不是 HCCL 骨架编译证据。
-
-Plugin 行为测试会在临时 Git 仓中构造任务目录和源码 diff，通过公开的路由、状态流转、恢复链和产物门禁 CLI dry-run 正常链、Review/Test 修复链与环境阻塞。构建与测试证据是合成的，不会调用真实 HCCL/CANN 构建或 Agent 运行器。
 
 ## 真实源码验证
 

@@ -1,11 +1,11 @@
 ---
 name: hccl-aicpu-best-practice
-description: HCCL AICPU 跨层实现实践与共享技术契约。触发：已有算法设计或需核对 template、executor、selector、TopoMatch 的具体实现、检视和验证时使用。提供资源、同步、构建证据、骨架、静态检查与专项 template 检视；算法语义和 Dataflow Spec 由设计能力负责，不负责 Agent 分工、阶段流转或最终裁决。
+description: HCCL AICPU 算法实现实践。触发：将已有算法设计或 Dataflow Spec 映射为 template 实现，修改已有 template，或核对 template 与 executor、selector、TopoMatch 的接线时使用；也用于只读检视现有 template。提供接口、资源与同步规则、代码骨架、CMake 接线检查及静态检视结果。
 ---
 
 # HCCL AICPU 实现实践
 
-> Agent 职责、任务状态、权限和完成判定由 `hccl-op-dev` Plugin 负责；跨层约束与验收契约见[共享跨层契约](aicpu-shared-contract.md)，基线与候选构建细节按需读[构建验证参考](references/build-verification.md)。
+> 实现约束与验证判据见[共享跨层契约](aicpu-shared-contract.md)，基线与候选构建细节按需读[构建验证参考](references/build-verification.md)。
 > template 实现规则见 [规则总纲](references/07-rules.md)；跨层接线见 [executor/selector](references/executor-selector.md) 和 [架构契约](references/architecture.md)。专项 template 检视使用[内置指南](review/GUIDE.md)及 `review/scripts/review_template.py`。脚本是静态筛查，不替代源码检视、编译和双轨验收。
 
 ## 0. 这是什么
@@ -76,7 +76,7 @@ ls "$HCCL_REPO/src/ops" "$HCCL_REPO/build.sh" && (cd "$HCCL_REPO" && git status 
 **无需先找到同类算法、全量扫描 template 或完整阅读 NHR/Mesh。**
 算子模板固定输入输出契约和工程接口，通信拓扑、阶段、peer、slice、scratch 与线程调度由本次算法设计。
 已有契约不能消解的问题记录为具体缺口，定向读完整函数及必要调用方；核对完成即可继续，不扩展为全仓调研。
-需要补充源码调查时，只传已有契约、来源校验结果和具体缺口；角色委派由 Plugin 决定。
+需要补充源码调查时，保留已有契约和来源校验结果，按具体缺口定位源码。
 
 修改/继承已有实现时，才按需定位并阅读相关方法：
 
@@ -181,7 +181,7 @@ python3 "$SKILL_DIR/scripts/check_template.py" \
 - spec 与代码的 offset、length、repeat/stride、scratch、thread/notify 和同步映射核对结果；
 - 未解决的上游输入缺口、外部环境依赖和未验证范围。
 
-完整构建、基线/包归档、安装和 hccl-vm A/B 双轨的客观标准由[共享跨层契约](aicpu-shared-contract.md)和[构建验证参考](references/build-verification.md)定义，执行与阶段裁决由调用 Agent/Plugin 负责。本 Skill 的静态检查、布局样例和离线回归不替代完整构建或 Checker，也不单独给出“任务完成/可提交”结论。
+完整构建、基线/包归档、安装和 hccl-vm A/B 双轨的客观标准见[共享跨层契约](aicpu-shared-contract.md)和[构建验证参考](references/build-verification.md)。本 Skill 的静态检查、布局样例和离线回归不替代完整构建或 Checker；输出须明确实际检查结果与未验证范围。
 
 技术接口和证据字段见 `references/05-build-and-verify.md`；共享跨层契约与 template 细则冲突时以跨层契约为准。
 
@@ -220,7 +220,7 @@ python3 "$SKILL_DIR/scripts/check_template.py" \
 | `references/06-template-catalog.md` | 可选：查已有实现、继承关系与绑定 executor；命名约定 |
 | [设计能力的数据流规格](../hccl-aicpu-design/references/07-dataflow-spec.md) | 仅在需重新起草或修订 Spec 时加载；已有合格 Spec 可直接作为输入 |
 | `references/08-thread-sync-patterns.md` | 多线程算法的**主从分配与同步顺序**：三级同步架构、notify 配比与索引约定、53 模板线程分配全量对照、8 种同步变体与设计规则 |
-| `references/07-rules.md` | template 规则 ID、等级、适用范围与架构决策字段；不能覆盖 Plugin 流程与共享验收契约 |
+| `references/07-rules.md` | template 规则 ID、等级、适用范围与架构决策字段 |
 | `references/09-template-data-params.md` | **写地址前必读**：五参数定义、布局量化、边界与 PR 2901 Ring 漏 rank 项案例 |
 
 ## 9. 目录内容
@@ -246,7 +246,7 @@ assets/_license.tpl              CANN Open Software License 版权头
 references/                      按需加载的参考（规则总纲与线程同步资料分别保留）
 ```
 
-生成器 `new_template.py` 会写目标 HCCL 仓；检查和清单脚本只读。是否允许写入由调用 Agent/Plugin 的权限契约决定，本 Skill 不扩大授权。
+生成器 `new_template.py` 会写目标 HCCL 仓；检查和清单脚本只读。执行生成器前确认目标路径和写入授权，可先用 `--dry-run` 查看变更预览。
 `selftest.sh` 会往 HCCL 仓生成 probe 文件并编译——默认在 `git worktree` 开的**隔离副本**里做，
 不碰原工作树；`--in-place` 会改动工作树，且要求两处 CMake 干净、结束按原始字节还原。调用方必须在执行前具备对应写入授权。
 `new_template.py` / `check_template.py` / `list_templates.py` 接受 `--repo`（或环境变量 `HCCL_REPO`），`selftest.sh` 接受位置参数仓路径——**没有内置默认路径**，缺了直接报错；

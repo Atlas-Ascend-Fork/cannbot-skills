@@ -44,7 +44,7 @@ ring / HD 的部分判据尚未获得 CANN 实现验证；先核对目标版本�
 
 仓路径来自用户、调用工作流已确认的路径，或环境变量 `HCCL_REPO` / `HCCL_ROOT`。
 复用已确认的路径；缺失时返回输入缺口，不猜常见路径、不扫盘。用户交互由调用 Agent 负责。
-脚本接受 `--repo`，未传时只读取 `HCCL_REPO`；HCCLBot 工作流显式传 `--repo "$HCCL_ROOT"`。
+脚本接受 `--repo`，未传时只读取 `HCCL_REPO`；已确认 `HCCL_ROOT` 时可显式传 `--repo "$HCCL_ROOT"`。
 
 ```bash
 export HCCL_REPO=<用户给的 HCCL 仓根目录>
@@ -175,7 +175,7 @@ repeat 循环、include guard 命名之类），**别一股脑贴给作者，只
 - 输入：仓路径、目标文件、模式 A/B/C、固定的 base commit（模式 B）、各 template 对应的 spec（可选），以及对应代码版本的验证证据。
 - 增量复审沿用首次评审的 base commit，不随修复提交移动 `HEAD` 基线；首次将用户指定 ref 解析为 commit 并记入报告。
 - spec 一份对应一个 template，分别执行 `--spec`；没有 spec 如实标注契约层未执行。
-- 脚本只输出检查结果到终端；证据可按 `assets/review-report.md` 汇总，实际报告路径和状态由调用 Agent/Plugin 指定。
+- 脚本只输出检查结果到终端；证据可按 `assets/review-report.md` 汇总，报告路径由调用方提供，结论须与实际检查证据一致。
 - 已确认未解决的 BLOCKER、未澄清的 MAJOR 和必需检查未完成须分别列明；未完成不能冒充代码缺陷或通过。
 - 脚本退出码 0 不等于整体评审通过；`--strict` 会让 MAJOR 也返回非 0，不能替代证据复核。功能验证状态单列，静态通过不等于任务验收通过。
 - 本指南不修改被审源码，也不决定修复或复测角色。

@@ -7,7 +7,7 @@
       "title": "AICPU 跨层方案与输入缺口",
       "config": {"eval_mode": "text"},
       "prompt": "用户只说为 AllReduce 新增 AICPU Ring 算法，没有给目标拓扑、默认选路影响和验收数据范围。依据 hccl-aicpu-design，说明可以先推导的技术方案和必须返回的输入缺口。仅输出文本，不调用工具。",
-      "expected_output": "可按目标版本源码划分 template、executor、selector、TopoMatch 的候选改动，不把所有层默认列为必改；固定算子语义与算法身份。缺少会影响设计或验收的拓扑、默认选路授权、rank/数据类型/数据量时列出输入缺口，不猜测，不代替上层 Agent 询问或推进状态。",
+      "expected_output": "可按目标版本源码划分 template、executor、selector、TopoMatch 的候选改动，不把所有层默认列为必改；固定算子语义与算法身份。缺少会影响设计或验收的拓扑、默认选路授权、rank/数据类型/数据量时列出输入缺口，不猜测；输出每项缺口对设计和验收的影响。",
       "files": [],
       "expectations": []
     },
@@ -15,8 +15,8 @@
       "id": 2,
       "title": "数据流变化要求先有可检规格",
       "config": {"eval_mode": "text"},
-      "prompt": "AICPU template 新算法会改变 slice 和线程同步，但 Dataflow Spec 中还有语义 TBD。依据 hccl-aicpu-design，说明进入实现前的技术检查，以及 Skill 与 Agent 的边界。仅输出文本。",
-      "expected_output": "按设计 Skill 的记法与模板写每轮源、目标、偏移、长度和同步，用本 Skill 的 check_spec.py 和 check_layout.py 消除语义 TBD；未满足条件不进入实现。Skill 提供技术判据，设计产物 owner、用户交互和状态门禁仍归上层 Agent/Plugin。",
+      "prompt": "AICPU template 新算法会改变 slice 和线程同步，但 Dataflow Spec 中还有语义 TBD。依据 hccl-aicpu-design，说明进入实现前的技术检查，以及能够输出的设计证据和未验证范围。仅输出文本。",
+      "expected_output": "按设计 Skill 的记法与模板写每轮源、目标、偏移、长度和同步，用本 Skill 的 check_spec.py 和 check_layout.py 消除语义 TBD；未满足条件不进入实现。输出检查结果、规格证据及未验证范围；静态规格通过不等于实现已通过功能验证。",
       "files": [],
       "expectations": []
     },

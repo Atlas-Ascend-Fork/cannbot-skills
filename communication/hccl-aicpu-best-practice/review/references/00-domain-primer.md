@@ -170,6 +170,6 @@ bash build.sh --pkg               # host 侧；-Werror，警告即失败
 bash build.sh --st_ops=<算子>     # 单算子 ST；全量 --st
 ```
 
-ST（`test/st/algorithm/`）是此独立 skill 原有的验证参考。接入 HCCLBot 后，功能验收以调用工作流为准，由 Verifier 执行 hccl-vm 等验证；静态评审不替代运行验证。
+ST（`test/st/algorithm/`）是原独立 Skill 的验证参考。当前 AICPU 功能验收需要 hccl-vm 等真实运行证据；静态评审或 ST 不能替代 Checker 验证。
 scratch 倍数、slice 偏移、notify 索引错位这三类错误编译期一律抓不到——
 这正是本 skill 存在的理由。

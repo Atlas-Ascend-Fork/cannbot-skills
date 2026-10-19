@@ -1,19 +1,18 @@
 ---
 name: hccl-test-tool-hvm
-description: 触发：需要用 HCCL-VM 对 AICPU 集合通信算子执行 Checker、生成结构化证据、比较基线与回归，或为失败/缺失用例生成定点补测计划时使用。环境安装、Agent 调度和任务完成判定不属于本 Skill。
+description: 触发：需要用 HCCL-VM 对 AICPU 集合通信算子执行 Checker、生成结构化证据、比较基线与回归、为失败/缺失用例生成定点补测计划，或在功能验证通过后用 estimate 模式估算算法性能时使用。输出用例结果、算法命中、源码/包身份及可追溯的原始证据。
 ---
 
 # HCCL-VM 测试能力
 
-HCCL-VM 是无需实物 NPU 的集合通信仿真工具。本 Skill 提供环境就绪检查、覆盖计划校验、用例执行、证据固化、基线比较和定点补测能力。Skill 名为 `hccl-test-tool-hvm`；实际工具的 `hccl-vm` 命令及 HCOMM 中的 `test/hccl_vm` 路径保持原名。
+HCCL-VM 是无需实物 NPU 的集合通信仿真工具。本 Skill 提供环境就绪检查、覆盖计划校验、用例执行、证据固化、基线比较、定点补测和性能估算能力。Skill 名为 `hccl-test-tool-hvm`；实际工具的 `hccl-vm` 命令及 HCOMM 中的 `test/hccl_vm` 路径保持原名。
 
 ## 能力边界
 
 - 本 Skill 定义怎么检查和执行 HCCL-VM，以及什么证据能证明某个用例或测试批次通过。
 - 调用方提供测试目标、冻结矩阵、环境路径、源码/包身份和执行授权；已提供的信息不得重复询问。
-- 本 Skill 不选择 Agent，不推进 Plugin 状态，不决定构建、安装或 Review 的调度顺序，也不宣布整个开发任务完成。
 - 本 Skill 不修改 HCCL 生产源码或测试期望。缺少环境、权限或可信包时输出 `NOT_READY` 及证据，不自行转入环境安装或源码修复。
-- 环境准备由 `hccl-env-setup` 提供，环境静态检查由 `hccl-env-check` 提供；是否调用它们由上层工作流决定。
+- 执行前加载已确认的 CANN 环境文件并核对工具、测试程序和设备库；缺项时记录具体路径和所需条件。
 - HCCL-VM 工具目录固定复用 `${HCOMM_CODE_HOME}/test/hccl_vm`；该目录已提供现成工具和构建/安装入口，不再下载或克隆 CheckerL2。目录或产物缺失时输出 `NOT_READY`，不自行补充下载。
 
 ## 输入契约
@@ -33,11 +32,13 @@ HCCL-VM 是无需实物 NPU 的集合通信仿真工具。本 Skill 提供环境
 
 | 任务 | 入口 |
 |---|---|
+| 修改源码后构建、安装并部署设备库（由调用方授权执行） | [统一构建部署入口](../hccl-aicpu-best-practice/references/build-verification.md) |
 | 检查二进制、CANN、测试程序、设备库和 rootinfo | [环境就绪检查](references/environment.md) |
 | 固定多批次覆盖、检查参数、计算多 loop 边界 | [测试覆盖计划](references/test-plan.md) 与 `plan.py` |
 | 执行一个测试矩阵并保存原始日志 | `run.sh` |
 | 检查证据、比较 baseline/regression | [基线证据与回归比较](references/evidence.md) 与 `evidence.py` |
 | 生成失败/缺失用例补测计划、合并证据 | [定点补测与切包前检查](references/recovery.md) 与 `repair.py` |
+| 功能验证通过后执行性能估算、整理报告内容 | [estimate 性能估算](references/estimate.md) |
 
 只读取当前任务所需的参考。工具帮助是参数真源：
 
@@ -57,7 +58,7 @@ python3 <hccl-test-tool-hvm>/repair.py --help
 - `CCU_SCHED`：CCU 调度模式。
 - `CCU_MS`：CCU 多流模式。
 - `AI_CPU`：AICPU 展开模式，需要对应设备侧符号和 QEMU 环境。
-- 前两项是 HCCL-VM 工具参数，不表示本 Plugin 已对外支持 CCU 算法开发；CCU 请求由路由门禁阻断。
+- 模式是否可用以当前 HCCL-VM 版本、设备符号及测试程序为准。
 - 支持算子：`allgather, allreduce, alltoall, alltoallv, reduce, reduce_scatter, scatter, broadcast`。
 - 支持数据类型以 `run.sh --help` 和指定测试程序相邻源码为准；不能因拼写合法推断目标算法支持该类型。
 - Runner 默认关闭。只有测试计划明确要求时才传 `--runner`；`--no-checker` 的结果不能作为 Checker PASS。
@@ -76,7 +77,7 @@ python3 <hccl-test-tool-hvm>/repair.py --help
 
 ### 定向与回归
 
-- `--role` 是证据类别 `ordinary|baseline|directed|regression`，不是 Agent 角色。
+- `--role` 指定证据类别 `ordinary|baseline|directed|regression`。
 - `directed` 必须同时提供非空 `HCCL_ALGO` 和 `--expect-algo`，证明新算法实际命中。
 - `baseline` 与 `regression` 必须提供各自包的 `artifact.json`，使用相同矩阵和可比较环境。
 - baseline/regression 不设置 `HCCL_ALGO`；默认选路和显式选路是不同证据轨道。
@@ -109,6 +110,12 @@ bash <hccl-test-tool-hvm>/run.sh \
 - 同条件偶发性诊断最多重跑一次；后续实验必须有明确假设、唯一变化和区分标准。
 - 环境、包、测试程序或矩阵变化会影响可比较性，必须记录新身份。
 
+### 功能验证后的性能估算
+
+算法开发任务使用 HCCL-VM 完成功能验证并取得当前候选算法的有效 PASS 证据后，继续执行 `estimate` 性能估算模式，按 [estimate 性能估算](references/estimate.md) 操作。默认使用 `hccl-vm mock-comm 112`；用户有组网需求时根据需求修改 `mock-comm` 参数，记录实际通信域和拓扑。此默认值只用于性能估算，不改变功能验证的冻结矩阵。
+
+估算必须使用本次开发并验证的包和目标算法，保留算法命中证据。输出可纳入报告的性能估算结果，由调用方在最终报告中呈现给用户，说明此次开发算法在所记录条件下的估算耗时、主要观察和适用范围。未执行、失败或无法确认算法命中时如实记录原因，不填入推测数值。
+
 ## 结果语义
 
 单个用例只有同时满足以下条件才是 PASS：
@@ -119,7 +126,7 @@ bash <hccl-test-tool-hvm>/run.sh \
 - 要求算法命中时，完整算法集合和预期注册名一致；
 - 原始日志、测试程序、包和配置身份可追溯。
 
-批次 PASS 表示该矩阵的技术验证通过，不等同于 Review PASS、Plugin 状态推进或整个任务完成。输出至少包含 run 目录、总数/通过数/失败数、失败用例与原因、实际算法名、配置和证据哈希。
+批次 PASS 只覆盖本次实际执行的矩阵和已核验的包/环境身份。输出至少包含 run 目录、总数/通过数/失败数、失败用例与原因、实际算法名、配置和证据哈希。
 
 ## 已知限制
 
