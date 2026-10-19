@@ -532,8 +532,6 @@ __aicore__ inline void Process() {
 }
 ```
 
-**PipeBarrier**：阻塞相同流水线。编译器通常自动处理同流水线内的顺序，一般不需手动调用。Kernel 退出前必须调 `PipeBarrier<PIPE_ALL>()` 排空所有流水线。
-
 ### 7.2 范式特殊的同步
 
 > 如多核同步
