@@ -35,7 +35,6 @@ Each entry should follow this template:
 - {condition 2}
 
 **Strategy IDs**: {P1, P2, ...} or {X-series if novel}
-```
 
 ## 按算子类型索引
 

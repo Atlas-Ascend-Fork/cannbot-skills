@@ -168,8 +168,6 @@ python3 "${SHMEM_REPO}/custom-ops/scripts/lib/parse_msprof_perf.py" \
 
 完整工作流见 [baseline-compare-workflow.md](baseline-compare-workflow.md)。
 
-```
-
 ## 1.4 HCCL 展开模式（与 SHMEM 公平对比）
 
 采集 HCCL / aclnn baseline 前 **MUST** 按 [hccl-expansion-mode.md](hccl-expansion-mode.md)：
