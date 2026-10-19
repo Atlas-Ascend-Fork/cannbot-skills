@@ -136,6 +136,8 @@ def test_static_concepts_have_pinned_sources_and_footnotes():
         "4c07565db3ab0f4bfc1dd20857154688883427ce/",
         "https://github.com/flashserve/flash-linear-attention-npu/blob/"
         "1b2ed3e13a446337d69ab5efbaf64af216adbf06/",
+        "https://gitcode.com/cann/cannbot-skills/blob/"
+        "4f4e76089077fc302c410c7d12c42d85268dca7b/",
         "project-evidence:",
     )
     allowed_types = {
@@ -181,6 +183,73 @@ def test_static_concepts_have_pinned_sources_and_footnotes():
                     assert heading in body
             assert "git-source:" not in raw
             assert "seed" not in raw.casefold()
+
+
+def test_linear_attention_design_generation_optimization_guide_is_complete():
+    path = ROOT / "knowledge/optimization/linear-attention-design-generation-optimization.md"
+    text = path.read_text(encoding="utf-8")
+    assert "[Linear Attention 设计、生成与优化](linear-attention-design-generation-optimization.md)" in (
+        ROOT / "knowledge/optimization/index.md"
+    ).read_text(encoding="utf-8")
+    for section in (
+        "# 接口与概念",
+        "# 用法",
+        "# 性能架构路由门禁",
+        "# 两步方案设计",
+        "# Stage、任务映射与依赖",
+        "## R01 Stage 类型和 AIC/AIV 映射",
+        "## R02 Stage 输入依赖",
+        "## R03 L1/UB 硬件边界",
+        "## R04 Cube 到 Vector 的 UB 驻留",
+        "## R05 Vector 中间结果驻留",
+        "## R06 Vector 到 Cube 的 GM 交接",
+        "## R07 Cube 中间结果的 L1 驻留",
+        "# 容量、地址与生命周期",
+        "## R20 沿 HV 分核和 CG 选择",
+        "## R21 数值稳定性检查",
+        "# 任务、同步与地址生命周期",
+        "# 单位下三角矩阵逆",
+        "# 候选策略",
+        "# 代码模式",
+        "# 约束",
+        "# 失败表现",
+        "# 验证方法",
+    ):
+        assert section in text
+    assert "Nwork=Nbase*ceil(HV/CG)" in text
+    assert "逐 head 分配" in text and "同 head 分片" in text
+    assert "不是排他知识源" in text
+    assert "本文不禁止读取其他设计" in text
+    assert "architecture_envelope" in text
+    assert "architecture_package" in text
+    assert "task 聚合 + 双 AIV" in text
+    assert "共享 RHS/对角 subtile" in text
+    assert "具体实现失败" in text
+    assert "包不可行" in text
+
+    mixed = (ROOT / "knowledge/optimization/mixed-cube-vector-kda.md").read_text(
+        encoding="utf-8"
+    )
+    for marker in (
+        "# 生成前性能架构门禁",
+        "group_size in {1,2,4}",
+        "AIV0/AIV1",
+        "共享 RHS",
+        "逐局部块紧凑 MMAD",
+        "group DMA",
+        "packed solve",
+        "# 耦合架构包与实现可行性门禁",
+        "最小可行架构包",
+        "owner/address 表",
+        "同步代际表",
+    ):
+        assert marker in mixed
+
+    aiv = (ROOT / "knowledge/optimization/aiv-vector-layout-mte.md").read_text(
+        encoding="utf-8"
+    )
+    assert "可证伪架构包" in aiv
+    assert "有效输出区间必须形成无重叠、无遗漏" in aiv
 
 
 def test_core_api_concept_covers_complete_fixed_revision_export_surface():
@@ -314,7 +383,7 @@ def test_every_static_concept_is_offline_and_detail_complete():
         assert "# 验证方法" in text
 
 
-def test_initialize_copies_bundle_without_overwriting(tmp_path):
+def test_initialize_preserves_concepts_and_refreshes_query_vocabulary(tmp_path):
     knowledge = load_module()
     target = tmp_path / ".catlass-dsl/knowledge"
     copied = knowledge.initialize(ROOT / "knowledge", target)
@@ -322,8 +391,16 @@ def test_initialize_copies_bundle_without_overwriting(tmp_path):
     assert (target / "dsl/core-api.md").is_file()
     target_index = target / "index.md"
     target_index.write_text("owned", encoding="utf-8")
-    knowledge.initialize(ROOT / "knowledge", target)
+    target_vocabulary = target / "query-vocabulary.yaml"
+    target_vocabulary.write_text(
+        'schema_version: "1"\noperator_families: {}\n', encoding="utf-8"
+    )
+    refreshed = knowledge.initialize(ROOT / "knowledge", target)
     assert target_index.read_text(encoding="utf-8") == "owned"
+    assert refreshed == ["query-vocabulary.yaml"]
+    assert target_vocabulary.read_bytes() == (
+        ROOT / "knowledge/query-vocabulary.yaml"
+    ).read_bytes()
 
 
 def test_record_writes_okf_concept_and_regenerates_index(tmp_path):
@@ -614,15 +691,164 @@ def test_operator_family_alias_is_a_hard_filter_and_never_matches_source_urls():
     assert report["query"]["normalized_operator_family"] == "gated-delta-rule"
     assert report["results"]
     assert all(
-        "/linear-attention/gdn/" in result["path"]
-        or result["path"]
-        == "operator/linear-attention/kda/chunk-gated-delta-rule-fwd-h.md"
+        "gated-delta-rule" in knowledge.get_concept(
+            ROOT / "knowledge", result["path"]
+        )["metadata"].get("operator_families", [])
         for result in report["results"]
     )
     assert not any("convolution" in result["path"] for result in report["results"])
-    assert [result["path"] for result in report["results"]] == sorted(
-        result["path"] for result in report["results"]
+    repeated = knowledge.query_bundle_report(
+        ROOT / "knowledge", operator_family="chunk_gdn2", arch="c310"
     )
+    assert repeated["results"] == report["results"]
+
+
+def test_category_and_compound_family_route_linear_attention_guide():
+    knowledge = load_module()
+    report = knowledge.query_bundle_report(
+        ROOT / "knowledge",
+        category="optimization",
+        operator_family="kda-linear-attention",
+        arch="c310",
+        tags=["linear-attention", "design", "generation"],
+        compact=True,
+    )
+    assert report["query"]["normalized_operator_family"] == "linear-attention"
+    assert [result["path"] for result in report["results"]] == [
+        "optimization/linear-attention-design-generation-optimization.md"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("family", "canonical"),
+    [
+        ("linear-attention", "linear-attention"),
+        ("kda-linear-attention", "linear-attention"),
+        ("kda", "kda"),
+        ("gated-delta-rule", "gated-delta-rule"),
+        ("gdn", "gated-delta-rule"),
+        ("gdn2", "gated-delta-rule"),
+    ],
+)
+def test_fresh_cli_discovers_shared_linear_attention_knowledge(tmp_path, family, canonical):
+    project = tmp_path / "project"
+
+    def cli(*args):
+        result = subprocess.run(
+            [sys.executable, "-X", "utf8", str(SCRIPT), *args, "--project-root", str(project)],
+            check=True, text=True, encoding="utf-8", stdout=subprocess.PIPE,
+        )
+        return json.loads(result.stdout)
+
+    cli("initialize")
+    report = cli(
+        "query", "--category", "optimization", "--operator-family", family,
+        "--arch", "c310", "--text", "design", "--compact",
+    )
+    assert report["query"]["normalized_operator_family"] == canonical
+    entry = ".catlass-dsl/knowledge/optimization/linear-attention-design-generation-optimization.md"
+    assert entry in [item["path"] for item in report["results"]]
+    concept = cli("get", "--path", entry)["concept"]
+    assert {"linear-attention", "kda", "gated-delta-rule"}.issubset(
+        concept["metadata"]["operator_families"]
+    )
+    specialists = cli(
+        "query", "--category", "optimization", "--operator-family", family,
+        "--arch", "c310", "--compact",
+    )
+    paths = {item["path"] for item in specialists["results"]}
+    for name in (
+        "mixed-cube-vector-kda", "aiv-vector-layout-mte", "regbase-and-reduction",
+        "matmul-and-grouped", "matmul-memory-and-layout",
+    ):
+        assert ".catlass-dsl/knowledge/optimization/{}.md".format(name) in paths
+
+
+@pytest.mark.parametrize("family", ["matmul", "flash-attention", "softmax"])
+def test_shared_linear_attention_entry_keeps_unrelated_family_filter_strict(family):
+    knowledge = load_module()
+    report = knowledge.query_bundle_report(
+        ROOT / "knowledge", category="optimization", operator_family=family,
+        arch="c310", compact=True,
+    )
+    assert "optimization/linear-attention-design-generation-optimization.md" not in {
+        item["path"] for item in report["results"]
+    }
+
+
+@pytest.mark.parametrize(
+    ("text", "expected_paths"),
+    [
+        (
+            "mixed cube vector task coarsening dual aiv shared rhs diagonal subtile",
+            ["optimization/mixed-cube-vector-kda.md"],
+        ),
+        (
+            "aiv mte vector layout task coarsening grouped dma",
+            [
+                "optimization/aiv-vector-layout-mte.md",
+                "optimization/mixed-cube-vector-kda.md",
+            ],
+        ),
+        (
+            "matmul shared rhs diagonal subtile layout",
+            [
+                "optimization/matmul-memory-and-layout.md",
+                "optimization/matmul-and-grouped.md",
+            ],
+        ),
+    ],
+)
+def test_linear_attention_routes_performance_architecture_specialists(
+    text, expected_paths
+):
+    knowledge = load_module()
+    report = knowledge.query_bundle_report(
+        ROOT / "knowledge",
+        category="optimization",
+        operator_family="kda-linear-attention",
+        arch="c310",
+        text=text,
+        limit=10,
+        compact=True,
+    )
+    assert report["query"]["normalized_operator_family"] == "linear-attention"
+    # Routing examples can also match the entry guide; specialists stay first.
+    paths = [result["path"] for result in report["results"]]
+    assert paths[:len(expected_paths)] == expected_paths
+
+
+def test_fresh_bundle_discovers_simd_policy_and_domain_routing(tmp_path):
+    knowledge = load_module()
+    target = tmp_path / ".catlass-dsl/knowledge"
+    knowledge.initialize(ROOT / "knowledge", target)
+    report = knowledge.query_bundle_report(
+        target,
+        category="optimization",
+        operator_family="kda-linear-attention",
+        arch="c310",
+        text="design generation",
+        compact=True,
+    )
+    assert report["query"]["normalized_operator_family"] == "linear-attention"
+    path = report["results"][0]["path"]
+    concept = knowledge.get_concept(target, path)
+    body = concept["body"]
+    assert 'tla.vec.func(mode="simd")' in body
+    assert "不要使用 SIMT 风格" in body
+    assert "cross-family fallback query" in body
+
+
+def test_category_is_distinct_from_exact_okf_type():
+    knowledge = load_module()
+    assert knowledge.query_bundle_report(
+        ROOT / "knowledge", category="optimization"
+    )["results"]
+    assert knowledge.query_bundle_report(
+        ROOT / "knowledge", concept_type="optimization"
+    )["results"] == []
+    with pytest.raises(ValueError, match="category"):
+        knowledge.query_bundle_report(ROOT / "knowledge", category="unknown")
 
 
 def test_hybrid_query_relaxes_text_but_not_structured_filters_and_honors_limit():

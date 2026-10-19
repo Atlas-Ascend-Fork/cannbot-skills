@@ -173,9 +173,9 @@ python3 skills/catlass-dsl-knowledge/scripts/record_knowledge.py initialize \
 python3 skills/catlass-dsl-knowledge/scripts/record_knowledge.py query \
   --project-root <project> --text "layout"
 
-# 按算子族 + 标签查询
+# 按知识类别 + 算子族查询
 python3 skills/catlass-dsl-knowledge/scripts/record_knowledge.py query \
-  --project-root <project> --operator-family matmul --tag optimization
+  --project-root <project> --category optimization --operator-family matmul
 ```
 
 > 知识涵盖 DSL API、算子样例、调试方法、优化技巧及项目实测经验。查询仅读取本地文件；来源链接仅用于归因和可选审计。

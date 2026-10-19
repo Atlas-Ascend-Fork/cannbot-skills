@@ -65,7 +65,7 @@ description: Iteratively optimize, speed up, benchmark, and profile one existing
 
    ```bash
    python3 skills/catlass-dsl-knowledge/scripts/record_knowledge.py query \
-     --project-root <workspace> --type optimization \
+     --project-root <workspace> --category optimization \
      --operator-family <family> --arch c310 --text "<bottleneck-or-api>" --compact
    ```
 

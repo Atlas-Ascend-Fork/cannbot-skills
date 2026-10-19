@@ -2,11 +2,12 @@
 type: CATLASS DSL Optimization Guide
 title: CANN 样例：MatMul 片上复用与布局候选
 description: 从 CANN Features 样例提取全载、L1 Bank 隔离、Scale 聚合缓存、SWAT 遍历和预转换权重候选。
-tags: [catlass-dsl, optimization, matmul, l1, cache, layout, mte1, mte2]
+tags: [catlass-dsl, optimization, matmul, l1, cache, layout, mte1, mte2, shared-rhs, diagonal-subtile]
 status: draft
 generated: {by: process:cann-samples-feature-extract, at: '2026-08-12T00:00:00Z'}
 verified:
   - {by: process:cann-samples-source-audit, at: '2026-08-12T00:00:00Z'}
+  - {by: process:catlass-dsl-kda-architecture-review, at: '2026-10-11T00:00:00+08:00'}
 sources:
   - id: full-load
     resource: https://gitcode.com/cann/cann-samples/blob/928d8dfa322731f576b697c9ec997d34abd810b7/Samples/1_Features/memory_optimization/full_load/main.asc
@@ -23,7 +24,7 @@ sources:
   - id: weight-nz
     resource: https://gitcode.com/cann/cann-samples/blob/928d8dfa322731f576b697c9ec997d34abd810b7/Samples/1_Features/instruction_optimization/weightnz/main.asc
     title: Prepacked FRACTAL_NZ weight implementation
-operator_families: [matmul, quantized-matmul]
+operator_families: [matmul, quantized-matmul, mixed, attention, linear-attention, gated-delta-rule, kda]
 arch: [c310]
 ---
 

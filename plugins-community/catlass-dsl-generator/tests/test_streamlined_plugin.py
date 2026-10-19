@@ -233,7 +233,7 @@ def test_optimize_skill_documents_agent_first_iteration_protocol():
         "Query knowledge",
         "每轮都调用 `catlass-dsl-knowledge query`",
         "knowledge_sources",
-        "--type optimization",
+        "--category optimization",
         "Knowledge admission after finalization",
         "至少 5% latency 改善",
         "kernel_sha256",
@@ -259,6 +259,27 @@ def test_optimize_skill_documents_agent_first_iteration_protocol():
         "--contract",
     ):
         assert forbidden not in skill
+
+
+def test_workflow_skills_keep_domain_rules_in_knowledge():
+    workflows = [
+        (ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+        for name in (
+            "catlass-dsl-design", "catlass-dsl-develop",
+            "catlass-dsl-optimize", "catlass-dsl-knowledge", "catlass-dsl-bench",
+        )
+    ]
+    template = (ROOT / "skills/catlass-dsl-design/templates/DESIGN.md").read_text(
+        encoding="utf-8"
+    )
+    # Workflows route knowledge without prescribing one operator family.
+    for text in [*workflows, template]:
+        for rule in (
+            "linear-attention", "Linear Attention", "KDA", "R01-R21",
+            "mixed-cube-vector-kda.md", "group_size=2/4", "packed solve",
+            "共享 RHS", "双 AIV", "矩阵逆",
+        ):
+            assert rule not in text
 
 
 def test_readme_documents_user_workflows_and_public_skills():

@@ -26,14 +26,16 @@ python skills/catlass-dsl-knowledge/scripts/record_knowledge.py initialize \
   --project-root <confirmed-worktree>
 ```
 
-初始化只复制缺失文件，不覆盖目标项目已有内容。
+初始化复制缺失文件，不覆盖目标项目已有 concept 或 learned 内容；作为版本化路由元数据的
+`query-vocabulary.yaml` 会从内置 bundle 原子同步，避免项目继续使用已失效的 family 别名。
 
 ## 查询
 
 ```bash
 python skills/catlass-dsl-knowledge/scripts/record_knowledge.py query \
   --project-root <confirmed-worktree> \
-  [--type <OKF-type>] [--tag <tag>] [--status <status>] \
+  [--category <dsl|operator|debug|profiler|optimization|learned>] \
+  [--type <exact-OKF-type>] [--tag <tag>] [--status <status>] \
   [--operator-family <family>] [--arch c310] [--text <term>] [--limit <count>] \
   [--compact]
 
@@ -43,6 +45,8 @@ python skills/catlass-dsl-knowledge/scripts/record_knowledge.py get \
 ```
 
 查询先使用正式 YAML frontmatter 解析并校验整个 bundle，再按结构化字段过滤。
+`--category` 按知识根目录的第一层目录过滤；`--type` 只精确匹配 YAML frontmatter 的
+`type`，不得用 `--type optimization`、`--type dsl` 等目录名代替 category。
 `--tag` 可重复。完整结果包含项目相对路径、标题、描述、状态、验证记录和来源；
 `--compact` 只返回选择所需的摘要、评分、命中字段、命中词和最多三条带行号的正文片段。
 Agent 应先用 compact 查询缩小范围，再用 `get --path` 仅读取选中的完整 concept；`get`
@@ -52,6 +56,8 @@ Agent 应先用 compact 查询缩小范围，再用 `get --path` 仅读取选中
 确定性加权排序。全部词零命中时才允许至少半数词命中的受控放宽，结果通过 `score`、
 `matched_fields`、`matched_terms` 解释原因；CLI 默认返回前 20 条并报告总数、匹配模式和
 零命中建议。建议不自动参与召回。
+检索覆盖不足时，显式调整过滤条件并重新查询，记录初始查询、
+调整条件及采用依据；不得仅凭零命中断言没有相关知识。
 concept 必须包含执行所需的接口、代码模式、约束和验证方法。`knowledge/operator/`
 concept 保留这些通用章节，并在其中分别加入“算子算法”“分核策略与基本块切分”
 “数据路径与存储层级”“流水排布、同步关系与数值精度”四个二级主题。离线时使用内置concept，

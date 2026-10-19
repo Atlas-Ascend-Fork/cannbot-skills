@@ -2,11 +2,12 @@
 type: CATLASS DSL Optimization Guide
 title: CANN Performance：MatMul 与 Grouped MatMul 模板选择
 description: 从 MatMul/GMM 递进样例提取按 Bound 选模板、组间连续排核、动态 M 均衡、Scale/Weight 布局和 L2 bypass 候选。
-tags: [catlass-dsl, optimization, matmul, grouped-matmul, quantization, scheduling, l2]
+tags: [catlass-dsl, optimization, matmul, grouped-matmul, quantization, scheduling, l2, shared-rhs, diagonal-subtile]
 status: draft
 generated: {by: process:cann-samples-performance-extract, at: '2026-08-12T00:00:00Z'}
 verified:
   - {by: process:cann-samples-source-audit, at: '2026-08-12T00:00:00Z'}
+  - {by: process:catlass-dsl-kda-architecture-review, at: '2026-10-11T00:00:00+08:00'}
 sources:
   - id: matmul-guide
     resource: https://gitcode.com/cann/cann-samples/blob/928d8dfa322731f576b697c9ec997d34abd810b7/Samples/2_Performance/matmul_story/docs/matmul_performance.md
@@ -17,7 +18,7 @@ sources:
   - id: grouped-guide
     resource: https://gitcode.com/cann/cann-samples/blob/928d8dfa322731f576b697c9ec997d34abd810b7/Samples/2_Performance/grouped_matmul_story/docs/quant_grouped_matmul_mx_performance.md
     title: Quantized Grouped MatMul performance guide
-operator_families: [matmul, grouped-matmul, quantized-matmul]
+operator_families: [matmul, grouped-matmul, quantized-matmul, mixed, attention, linear-attention, gated-delta-rule, kda]
 arch: [c310]
 ---
 

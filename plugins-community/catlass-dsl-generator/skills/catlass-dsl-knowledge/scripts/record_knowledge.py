@@ -62,6 +62,9 @@ SOURCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 QUERY_VOCABULARY = "query-vocabulary.yaml"
 QUERY_VOCABULARY_VERSION = "1"
+KNOWLEDGE_CATEGORIES = {
+    "dsl", "operator", "debug", "profiler", "optimization", "learned",
+}
 QUERY_FIELD_WEIGHTS = {
     "title": 12,
     "operator_families": 10,
@@ -233,10 +236,27 @@ def initialize(bundle, target):
             continue
         if not source.is_file():
             raise ValueError("内置 bundle 只允许普通文件和目录：{}".format(relative))
-        if destination.exists():
+        if destination.exists() and relative.as_posix() != QUERY_VOCABULARY:
             continue
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(str(source), str(destination))
+        if destination.exists() and source.read_bytes() == destination.read_bytes():
+            continue
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=".{}-".format(destination.name),
+            suffix=".tmp",
+            dir=str(destination.parent),
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "wb") as target_handle:
+                with source.open("rb") as source_handle:
+                    shutil.copyfileobj(source_handle, target_handle)
+                target_handle.flush()
+                os.fsync(target_handle.fileno())
+            os.replace(str(temporary), str(destination))
+        finally:
+            if temporary.exists():
+                temporary.unlink()
         copied.append(str(relative))
     return copied
 
@@ -606,7 +626,7 @@ def get_concept(knowledge_root, concept_path):
         raise ValueError("concept 不存在：{}".format(relative))
     metadata, body = _frontmatter(path.read_text(encoding="utf-8"), str(relative))
     return {
-        "path": str(relative),
+        "path": relative.as_posix(),
         "metadata": _json_safe(metadata),
         "body": body,
     }
@@ -734,9 +754,12 @@ def validate_bundle(knowledge_root):
 def query_bundle_report(
     knowledge_root, concept_type=None, tags=None, status=None,
     operator_family=None, arch=None, text=None, limit=None, compact=False,
+    category=None,
 ):
     root = Path(knowledge_root).resolve()
     validate_bundle(root)
+    if category is not None and category not in KNOWLEDGE_CATEGORIES:
+        raise ValueError("category 非法：{}".format(category))
     aliases = _query_aliases(_load_query_vocabulary(root))
     required_tags = set(tags or [])
     terms, normalized_text = _normalize_query(text, aliases) if text else ([], "")
@@ -758,6 +781,8 @@ def query_bundle_report(
         if path.name in {"index.md", "log.md"}:
             continue
         relative = path.relative_to(root)
+        if category and relative.parts[0] != category:
+            continue
         raw = path.read_text(encoding="utf-8")
         metadata, body = _frontmatter(raw, str(relative))
         body_line_offset = raw[:len(raw) - len(body)].count("\n")
@@ -778,7 +803,7 @@ def query_bundle_report(
             relative, metadata, body, terms, normalized_text
         )
         result = {
-            "path": str(relative),
+            "path": relative.as_posix(),
             "type": metadata["type"],
             "title": metadata["title"],
             "description": metadata["description"],
@@ -847,9 +872,11 @@ def query_bundle_report(
 def query_bundle(
     knowledge_root, concept_type=None, tags=None, status=None,
     operator_family=None, arch=None, text=None, limit=None, compact=False,
+    category=None,
 ):
     return query_bundle_report(
         knowledge_root,
+        category=category,
         concept_type=concept_type,
         tags=tags,
         status=status,
@@ -1057,7 +1084,13 @@ def build_parser():
     record_parser.add_argument("--date")
     query_parser = subparsers.add_parser("query")
     query_parser.add_argument("--project-root", required=True)
-    query_parser.add_argument("--type")
+    query_parser.add_argument(
+        "--category", choices=sorted(KNOWLEDGE_CATEGORIES),
+        help="knowledge directory category; independent from OKF frontmatter type",
+    )
+    query_parser.add_argument(
+        "--type", help="exact OKF frontmatter type, for example CATLASS DSL Optimization Guide",
+    )
     query_parser.add_argument("--tag", action="append", default=[])
     query_parser.add_argument("--status")
     query_parser.add_argument("--operator-family")
@@ -1098,6 +1131,7 @@ def main(argv=None):
         elif args.command == "query":
             report = query_bundle_report(
                 Path(args.project_root) / PROJECT_KNOWLEDGE,
+                category=args.category,
                 concept_type=args.type,
                 tags=args.tag,
                 status=args.status,
@@ -1108,7 +1142,7 @@ def main(argv=None):
                 compact=args.compact,
             )
             for item in report["results"]:
-                item["path"] = str(PROJECT_KNOWLEDGE / item["path"])
+                item["path"] = (PROJECT_KNOWLEDGE / item["path"]).as_posix()
             result = {
                 "status": "passed",
                 "count": len(report["results"]),
@@ -1123,7 +1157,7 @@ def main(argv=None):
                 Path(args.project_root) / PROJECT_KNOWLEDGE,
                 args.path,
             )
-            concept["path"] = str(PROJECT_KNOWLEDGE / concept["path"])
+            concept["path"] = (PROJECT_KNOWLEDGE / concept["path"]).as_posix()
             result = {
                 "status": "passed",
                 "concept": concept,

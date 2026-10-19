@@ -469,6 +469,7 @@ def test_develop_records_local_knowledge_queries(tmp_path):
         "trigger": "compile",
         "failure_signature": "compile|required-main|LayoutError|f16-8x8",
         "filters": {
+            "category": "debug",
             "tags": ["build"],
             "operator_family": "elementwise",
             "text": "LayoutError",

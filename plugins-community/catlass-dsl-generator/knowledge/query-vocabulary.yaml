@@ -1,5 +1,8 @@
 schema_version: "1"
 operator_families:
+  linear-attention:
+    aliases:
+      - kda-linear-attention
   flash-attention:
     aliases:
       - fa

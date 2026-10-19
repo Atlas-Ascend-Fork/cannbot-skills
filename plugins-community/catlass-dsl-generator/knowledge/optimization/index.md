@@ -5,6 +5,7 @@
 - [Pipelining 与同步轴](pipeline-and-synchronization.md)
 - [正确性与性能证据门禁](evidence-gates.md)
 - [AIV 向量布局与 MTE](aiv-vector-layout-mte.md)
+- [Linear Attention 设计、生成与优化](linear-attention-design-generation-optimization.md)
 - [Mixed CUBE/VECTOR 局部块](mixed-cube-vector-kda.md)
 - [舍入差异集合的选择性修正](selective-rounding-exception-fastpath.md)
 - [MatMul 片上复用与布局候选](matmul-memory-and-layout.md)

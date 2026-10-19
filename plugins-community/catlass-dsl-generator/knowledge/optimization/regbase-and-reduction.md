@@ -2,11 +2,12 @@
 type: CATLASS DSL Optimization Guide
 title: CANN Performance：RegBase、SIMD 与归约链优化
 description: 从 GELU、Softmax、RmsNormQuant、KV-RMSNorm-RoPE 和 SIMD VF 专题提取寄存器融合、循环组织、归约并行与大 tile 候选。
-tags: [catlass-dsl, optimization, vector, regbase, simd, reduction, softmax, rmsnorm]
+tags: [catlass-dsl, optimization, vector, regbase, simd, reduction, softmax, rmsnorm, packed-solve, gate]
 status: draft
 generated: {by: process:cann-samples-performance-extract, at: '2026-08-12T00:00:00Z'}
 verified:
   - {by: process:cann-samples-source-audit, at: '2026-08-12T00:00:00Z'}
+  - {by: process:catlass-dsl-kda-architecture-review, at: '2026-10-11T00:00:00+08:00'}
 sources:
   - id: gelu
     resource: https://gitcode.com/cann/cann-samples/blob/928d8dfa322731f576b697c9ec997d34abd810b7/Samples/2_Performance/gelu_eltwise_regbase_story/README.md
@@ -23,7 +24,7 @@ sources:
   - id: simd-vf
     resource: https://gitcode.com/cann/cann-samples/blob/928d8dfa322731f576b697c9ec997d34abd810b7/Samples/2_Performance/simd_vf_story/README.md
     title: SIMD VF broadcast, elementwise and reduction patterns
-operator_families: [elementwise, softmax, normalization, reduction, rope]
+operator_families: [elementwise, softmax, normalization, reduction, rope, mixed, attention, linear-attention, gated-delta-rule, kda]
 arch: [c310]
 ---
 
@@ -31,6 +32,8 @@ arch: [c310]
 
 共性主线是固定外层 GM/UB 数据流，只把热 compute body 从“每步读写 UB”改为“一次 load、寄存器串联、
 一次 store”；随后才测试 VF 循环拆分/合并、常量外提、多行并行和 tile 扩大。[^gelu][^kv-rope]
+这些候选也适用于 mixed kernel 中边界清楚的 gate、mask 和局部 solve Vector Stage，但不能据此改变
+跨 Stage owner、同步或数值顺序；相关架构变化需先完成 mixed-kernel 设计门禁。
 RmsNormQuant 明确展示瓶颈迁移顺序：共享 gamma 预加载、多核、VF 融合减少中间 UB 写、等 Vector 与
 MTE2 接近后再开双缓冲、扩大 UB tile，最后单独实验二分累加。[^rmsnorm]
 

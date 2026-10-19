@@ -875,7 +875,9 @@ def _validate_knowledge_queries(result, kernel_sha256):
         filters = query["filters"]
         if not isinstance(filters, dict) or not filters:
             raise ContractError("knowledge query filters 必须是非空对象")
-        allowed_filters = {"type", "tags", "status", "operator_family", "arch", "text"}
+        allowed_filters = {
+            "category", "type", "tags", "status", "operator_family", "arch", "text",
+        }
         if any(key not in allowed_filters for key in filters):
             raise ContractError("knowledge query filter 非法")
         tags = filters.get("tags", [])

@@ -104,7 +104,9 @@ revision 并重新批准。
 
 1. 只读探索目标仓库，确认 `python/tla_dsl` 来源、Python 导入方式、已有 `.py` 算子
    模式、构建/测试入口和参考实现。
-2. 明确算子名称、family、用途和可观察行为。
+2. 明确算子名称、family、用途和可观察行为。按 `catlass-dsl-knowledge` 初始化并查询与
+   当前算子、目标架构及设计问题相关的知识，完整读取实际采用的条目；检索覆盖不足时按
+   该 Skill 的通用规则显式重查。将查询条件、知识版本、采用路径和适用约束写入 `DESIGN.md`。
 3. 固定每个输入输出的 symbolic shape、dtype、layout 和语义。
 4. 写清数学计算、广播/尾块/空输入等边界行为，以及累加精度、舍入和 NaN/Inf 规则。
 5. 生成 Torch `reference.py` 和 `definition.json`，并把每个非 performance required
