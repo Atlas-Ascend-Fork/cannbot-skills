@@ -667,7 +667,7 @@ def _compare_numeric_leaf(
             bound=1 if comparison_path == "quantized-fp-to-int" else 0,
         )
     return _compare_floating_output(
-        context=context,
+        actual_cpu=actual_cpu, golden_cpu=golden_cpu, context=context,
     )
 
 
