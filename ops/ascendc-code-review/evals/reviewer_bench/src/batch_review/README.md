@@ -299,7 +299,6 @@ prompt.py       Prompt 构建 — 生成 PROMPT.md、构建双引擎命令、环
 timeout.py      超时控制 — 固定超时计时器 + 空闲超时监控线程
 state.py        状态持久化 — 原子 JSON 写入、运行/任务状态追踪（含 engine/cost 字段）
 ```
-```
 
 ---
 
@@ -310,3 +309,4 @@ state.py        状态持久化 — 原子 JSON 写入、运行/任务状态追�
 ```gitignore
 # 防止 settings.json（含明文 API Key）意外提交
 **/settings.json
+```
