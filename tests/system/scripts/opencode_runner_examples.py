@@ -14,6 +14,7 @@ OpencodeRunner 启动参数示例
 
 本文件展示 OpencodeRunner 的各种启动方式和参数配置
 """
+
 import argparse
 import json
 import logging
@@ -22,7 +23,9 @@ from pathlib import Path
 
 from opencode_runner import OpencodeRunner
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s", stream=sys.stderr)
+logging.basicConfig(
+    level=logging.INFO, format="%(levelname)s: %(message)s", stream=sys.stderr
+)
 logger = logging.getLogger(__name__)
 
 
@@ -38,15 +41,17 @@ def example_basic_run():
         logger.info("\n解决方案:")
         logger.info("  方案1: 安装 opencode 并添加到 PATH")
         logger.info("  方案2: 指定 opencode_path 参数")
-        logger.info("    runner = OpencodeRunner(opencode_path='D:/tools/opencode.exe')")
+        logger.info(
+            "    runner = OpencodeRunner(opencode_path='D:/tools/opencode.exe')"
+        )
         return
 
-    result = runner.run_stream("请帮我写一个简单的 Python 函数", '“')
+    result = runner.run_stream("请帮我写一个简单的 Python 函数", "“")
 
-    logger.info("成功: {result.success}")
-    logger.info("输出: {result.output}")
+    logger.info(f"成功: {result.success}")
+    logger.info(f"输出: {result.output}")
     if result.error:
-        logger.error("错误: {result.error}")
+        logger.error(f"错误: {result.error}")
 
 
 def example_with_opencode_path():
@@ -56,13 +61,10 @@ def example_with_opencode_path():
 
     opencode_path = "D:/tools/opencode.exe"
 
-    runner = OpencodeRunner(
-        opencode_path=opencode_path,
-        verbose=True
-    )
+    runner = OpencodeRunner(opencode_path=opencode_path, verbose=True)
 
-    logger.info("opencode 路径: {runner.get_opencode_path()}")
-    logger.info("是否可用: {runner.is_available()}")
+    logger.info(f"opencode 路径: {runner.get_opencode_path()}")
+    logger.info(f"是否可用: {runner.is_available()}")
 
 
 def example_check_availability():
@@ -73,7 +75,7 @@ def example_check_availability():
     runner = OpencodeRunner(verbose=True)
 
     if runner.is_available():
-        logger.info("[OK] opencode 可用: {runner.get_opencode_path()}")
+        logger.info(f"[OK] opencode 可用: {runner.get_opencode_path()}")
     else:
         logger.info("[FAIL] opencode 不可用")
         logger.info("\n可能的解决方案:")
@@ -87,10 +89,7 @@ def example_with_model():
     logger.info("示例4: 指定模型运行")
     logger.info("=" * 60)
 
-    runner = OpencodeRunner(
-        model="GLM-5",
-        verbose=True
-    )
+    runner = OpencodeRunner(model="GLM-5", verbose=True)
 
     if not runner.is_available():
         logger.info("opencode 不可用，跳过此示例")
@@ -98,8 +97,8 @@ def example_with_model():
 
     result = runner.run("解释什么是 pytest")
 
-    logger.info("成功: {result.success}")
-    logger.info("输出: {result.output}")
+    logger.info(f"成功: {result.success}")
+    logger.info(f"输出: {result.output}")
 
 
 def example_streaming():
@@ -117,11 +116,11 @@ def example_streaming():
     for chunk in runner.run_stream("请写一个 hello world 程序"):
         if chunk["type"] == "json_output":
             data = chunk["data"]
-            logger.debug("[JSON] {json.dumps(data, indent=2)}")
+            logger.debug(f"[JSON] {json.dumps(data, indent=2)}")
         elif chunk["type"] == "raw_output":
-            logger.debug("[RAW] {chunk['data']}")
+            logger.debug(f"[RAW] {chunk['data']}")
         elif chunk["type"] == "complete":
-            logger.info("\n完成! Session: {chunk.get('session_file')}")
+            logger.info(f"\n完成! Session: {chunk.get('session_file')}")
 
 
 def example_keep_session():
@@ -129,22 +128,19 @@ def example_keep_session():
     logger.info("示例6: 保持 Session 文件")
     logger.info("=" * 60)
 
-    runner = OpencodeRunner(
-        keep_session=True,
-        verbose=True
-    )
+    runner = OpencodeRunner(keep_session=True, verbose=True)
 
     if not runner.is_available():
         logger.info("opencode 不可用，跳过此示例")
         logger.info("\nSession 文件管理演示 (不需要真实运行):")
-        logger.info("Session 目录: {runner.session_dir}")
-        logger.info("Session 列表: {runner.list_sessions()}")
+        logger.info(f"Session 目录: {runner.session_dir}")
+        logger.info(f"Session 列表: {runner.list_sessions()}")
         return
 
     result = runner.run("第一次对话")
 
-    logger.info("Session 文件: {result.session_file}")
-    logger.info("Sessions 列表: {runner.list_sessions()}")
+    logger.info(f"Session 文件: {result.session_file}")
+    logger.info(f"Sessions 列表: {runner.list_sessions()}")
 
 
 def example_resume_session():
@@ -162,13 +158,13 @@ def example_resume_session():
     result1 = runner1.run("请记住我的名字是 Alice")
     session_file = result1.session_file
 
-    logger.info("第一次 Session: {session_file}")
+    logger.info(f"第一次 Session: {session_file}")
 
     runner2 = OpencodeRunner(keep_session=True, verbose=True)
     result2 = runner2.resume_session(session_file, "你还记得我的名字吗？")
 
-    logger.info("恢复成功: {result2.success}")
-    logger.info("输出: {result2.output}")
+    logger.info(f"恢复成功: {result2.success}")
+    logger.info(f"输出: {result2.output}")
 
 
 def example_with_skill():
@@ -182,13 +178,10 @@ def example_with_skill():
         logger.info("opencode 不可用，跳过此示例")
         return
 
-    result = runner.run(
-        prompt="请生成测试用例",
-        skill="ascendc-st-design"
-    )
+    result = runner.run(prompt="请生成测试用例", skill="ascendc-st-design")
 
-    logger.info("成功: {result.success}")
-    logger.info("输出: {result.output}")
+    logger.info(f"成功: {result.success}")
+    logger.info(f"输出: {result.output}")
 
 
 def example_with_timeout():
@@ -196,13 +189,10 @@ def example_with_timeout():
     logger.info("示例7: 设置超时")
     logger.info("=" * 60)
 
-    runner = OpencodeRunner(
-        timeout=600,
-        verbose=True
-    )
+    runner = OpencodeRunner(timeout=600, verbose=True)
     result = runner.run("复杂的长时间任务")
 
-    logger.info("成功: {result.success}")
+    logger.info(f"成功: {result.success}")
     if not result.success and "timeout" in result.error:
         logger.info("任务超时")
 
@@ -213,14 +203,11 @@ def example_with_workdir():
     logger.info("=" * 60)
 
     workdir = Path(__file__).parent.parent.parent
-    runner = OpencodeRunner(
-        workdir=str(workdir),
-        verbose=True
-    )
+    runner = OpencodeRunner(workdir=str(workdir), verbose=True)
     result = runner.run("请列出当前目录的文件")
 
-    logger.info("工作目录: {runner.workdir}")
-    logger.info("成功: {result.success}")
+    logger.info(f"工作目录: {runner.workdir}")
+    logger.info(f"成功: {result.success}")
 
 
 def example_cleanup_sessions():
@@ -228,17 +215,14 @@ def example_cleanup_sessions():
     logger.info("示例9: 清理 Session 文件")
     logger.info("=" * 60)
 
-    runner = OpencodeRunner(
-        keep_session=True,
-        verbose=True
-    )
+    runner = OpencodeRunner(keep_session=True, verbose=True)
 
     # 创建一些 session 文件用于演示清理功能
     # 使用公有方法 run() 来触发 session 创建
-    logger.info("Session 文件数量: {len(runner.list_sessions())}")
+    logger.info(f"Session 文件数量: {len(runner.list_sessions())}")
 
     runner.cleanup_all_sessions()
-    logger.info("清理后数量: {len(runner.list_sessions())}")
+    logger.info(f"清理后数量: {len(runner.list_sessions())}")
 
 
 def example_cli_usage():
@@ -251,41 +235,41 @@ def example_cli_usage():
         "python opencode_runner.py --check",
         "",
         "# 基本运行",
-        "python opencode_runner.py \"你的提示\"",
+        'python opencode_runner.py "你的提示"',
         "",
         "# 指定模型",
-        "python opencode_runner.py \"你的提示\" --model gpt-4",
+        'python opencode_runner.py "你的提示" --model gpt-4',
         "",
         "# 指定 opencode 路径 (Windows)",
-        "python opencode_runner.py \"你的提示\" --opencode-path D:/tools/opencode.exe",
+        'python opencode_runner.py "你的提示" --opencode-path D:/tools/opencode.exe',
         "",
         "# 保持 session",
-        "python opencode_runner.py \"你的提示\" --keep-session",
+        'python opencode_runner.py "你的提示" --keep-session',
         "",
         "# 流式输出",
-        "python opencode_runner.py \"你的提示\" --stream",
+        'python opencode_runner.py "你的提示" --stream',
         "",
         "# 详细输出",
-        "python opencode_runner.py \"你的提示\" --verbose",
+        'python opencode_runner.py "你的提示" --verbose',
         "",
         "# 设置超时",
-        "python opencode_runner.py \"你的提示\" --timeout 600",
+        'python opencode_runner.py "你的提示" --timeout 600',
         "",
         "# 使用 skill",
-        "python opencode_runner.py \"你的提示\" --skill ascendc-st-design",
+        'python opencode_runner.py "你的提示" --skill ascendc-st-design',
         "",
         "# 指定工作目录",
-        "python opencode_runner.py \"你的提示\" --workdir /path/to/dir",
+        'python opencode_runner.py "你的提示" --workdir /path/to/dir',
         "",
         "# 恢复 session",
-        "python opencode_runner.py \"你的提示\" --resume-session session.json",
+        'python opencode_runner.py "你的提示" --resume-session session.json',
         "",
         "# 清理 session",
-        "python opencode_runner.py \"你的提示\" --cleanup",
+        'python opencode_runner.py "你的提示" --cleanup',
     ]
 
     for _ex in examples:
-        logger.info("  {ex}")
+        logger.info(f"  {_ex}")
 
 
 def example_full_config():
@@ -299,18 +283,18 @@ def example_full_config():
         session_dir="/tmp/opencode_sessions",
         timeout=600,
         verbose=True,
-        workdir=str(Path.cwd())
+        workdir=str(Path.cwd()),
     )
 
     result = runner.run(
         prompt="请帮我分析这段代码的质量",
         skill="code-review",
-        additional_args=["--max-tokens", "4000"]
+        additional_args=["--max-tokens", "4000"],
     )
 
-    logger.info("成功: {result.success}")
-    logger.info("Session: {result.session_file}")
-    logger.info("Metadata: {result.metadata}")
+    logger.info(f"成功: {result.success}")
+    logger.info(f"Session: {result.session_file}")
+    logger.info(f"Metadata: {result.metadata}")
 
 
 def print_usage_guide():
@@ -333,38 +317,38 @@ OpencodeRunner 使用指南
 
 Windows 用户特别注意:
   如果 opencode 未添加到 PATH，请使用 --opencode-path 参数指定完整路径:
-  
+
   python opencode_runner.py "你的提示" --opencode-path D:/tools/opencode.exe
-  
+
   或在 Python API 中:
-  
+
   runner = OpencodeRunner(opencode_path="D:/tools/opencode.exe")
 
 Python API 使用:
   from opencode_runner import OpencodeRunner
-  
+
   # 基本使用
   runner = OpencodeRunner()
-  
+
   # 检查是否可用
   if runner.is_available():
       result = runner.run("你的提示")
-  
+
   # 指定 opencode 路径
   runner = OpencodeRunner(opencode_path="D:/tools/opencode.exe")
   result = runner.run("你的提示")
-  
+
   # 指定模型
   runner = OpencodeRunner(model="gpt-4", keep_session=True)
   result = runner.run("你的提示")
-  
+
   # 流式输出
   for chunk in runner.run_stream("你的提示"):
       print(chunk)
-  
+
   # 恢复 session
   runner.resume_session("session.json", "继续对话")
-  
+
   # 清理 session
   runner.cleanup_all_sessions()
 """)
@@ -400,28 +384,19 @@ def _run_example(example_name):
 def main():
     parser = argparse.ArgumentParser(
         description="OpencodeRunner 启动示例",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--example",
         choices=list(EXAMPLE_DISPATCH.keys()) + ["all"],
         default="basic",
-        help="运行指定示例"
+        help="运行指定示例",
     )
     parser.add_argument(
-        "--prompt",
-        default="请帮我写一个简单的 Python 函数",
-        help="测试提示"
+        "--prompt", default="请帮我写一个简单的 Python 函数", help="测试提示"
     )
-    parser.add_argument(
-        "--opencode-path",
-        help="opencode 可执行文件路径"
-    )
-    parser.add_argument(
-        "--guide",
-        action="store_true",
-        help="显示使用指南"
-    )
+    parser.add_argument("--opencode-path", help="opencode 可执行文件路径")
+    parser.add_argument("--guide", action="store_true", help="显示使用指南")
     args = parser.parse_args()
     example_with_skill()
     if args.guide:
