@@ -623,6 +623,7 @@ cudaError_t cudaFuncGetParamInfo(const void *func, size_t paramIndex,
 - 功能：查询 CANN function handle 的名称、参数个数以及参数 offset/size。
 - 兼容层口径：分别映射到 `aclrtGetFunctionName`、`aclrtFunctionGetParamCount`、`aclrtFunctionGetParamInfo`；`cudaFuncGetName` 返回兼容层内部静态缓冲区指针。
 - 限制：`func` 必须是 CANN Runtime 可识别的 function handle，不支持普通 CUDA `__global__` 函数指针作为 NPU 成功路径。
+- 验证规则：不得用 `reinterpret_cast<void *>(0x1)`、普通 host 函数指针、CUDA `__global__` 函数指针或 Host fallback 函数指针伪造成功路径；没有真实 CANN function handle 时，只验证空指针/非法输出参数等错误路径，并将成功路径记录为明确 `SKIP`。
 
 ### cudaLaunchKernelEx
 ```c
@@ -632,6 +633,7 @@ cudaError_t cudaLaunchKernelEx(const cudaLaunchConfig_t *config,
 - 功能：使用扩展配置启动 kernel。
 - 兼容层口径：通过 `aclrtFunctionGetParamCount` 和 `aclrtFunctionGetParamInfo` 查询参数布局，将 `void **args` 打包成 Host 连续参数区后调用 `aclrtLaunchKernelWithHostArgs`。
 - 限制：仅适用于 CANN Runtime 可识别的 function handle；普通 CUDA kernel 指针仍按 Host fallback 或错误边界处理。
+- 验证规则：`cudaLaunchKernelEx` 成功路径必须使用真实 CANN function handle 和参数布局信息；不能用假指针或 Host fallback 函数指针探测成功路径。没有真实 handle 时，只验证 `config == nullptr`、`func == nullptr`、zero grid/block 等错误路径。
 
 ---
 

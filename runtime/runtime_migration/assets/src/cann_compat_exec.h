@@ -41,6 +41,17 @@ extern "C"
         return cudaSuccess;
     }
 
+    static inline int cudaCompatLikelyInvalidFunctionHandle(const void *func)
+    {
+        /*
+         * CANN function query/launch APIs require an aclrtFuncHandle obtained
+         * from a real binary/module loading flow.  Very small non-null pointer
+         * values are commonly used by smoke tests as fake handles; passing them
+         * through to CANN may crash before an error code can be returned.
+         */
+        return ((uintptr_t)func) < 4096U;
+    }
+
 
     static inline cudaError_t cudaLaunchHostFunc(cudaStream_t stream,
                                                  cudaHostFn_t fn,
@@ -71,6 +82,9 @@ extern "C"
     {
         if (!attr || !func) {
             return cudaErrorInvalidValue;
+        }
+        if (cudaCompatLikelyInvalidFunctionHandle(func)) {
+            return cudaErrorInvalidDeviceFunction;
         }
 #ifdef __cplusplus
         *attr = cudaFuncAttributes();
@@ -109,6 +123,9 @@ extern "C"
         if (!name || !func) {
             return cudaErrorInvalidValue;
         }
+        if (cudaCompatLikelyInvalidFunctionHandle(func)) {
+            return cudaErrorInvalidDeviceFunction;
+        }
         aclError ret = aclrtGetFunctionName((aclrtFuncHandle)func, (uint32_t)sizeof(funcName), funcName);
         if (ret != ACL_SUCCESS) {
             return acl2cudaError(ret);
@@ -122,6 +139,9 @@ extern "C"
         if (!func || !paramCount) {
             return cudaErrorInvalidValue;
         }
+        if (cudaCompatLikelyInvalidFunctionHandle(func)) {
+            return cudaErrorInvalidDeviceFunction;
+        }
         aclError ret = aclrtFunctionGetParamCount(func, paramCount);
         return acl2cudaError(ret);
     }
@@ -134,6 +154,9 @@ extern "C"
         if (!func || (!paramOffset && !paramSize)) {
             return cudaErrorInvalidValue;
         }
+        if (cudaCompatLikelyInvalidFunctionHandle(func)) {
+            return cudaErrorInvalidDeviceFunction;
+        }
         aclError ret = aclrtFunctionGetParamInfo(func, paramIndex, paramOffset, paramSize);
         return acl2cudaError(ret);
     }
@@ -145,6 +168,9 @@ extern "C"
     {
         if (!dynamicSmemSize || !func || numBlocks <= 0 || blockSize <= 0) {
             return cudaErrorInvalidValue;
+        }
+        if (cudaCompatLikelyInvalidFunctionHandle(func)) {
+            return cudaErrorInvalidDeviceFunction;
         }
         aclError ret = aclrtFunctionGetAvailDynUbufPerBlock((void *)func, 0, dynamicSmemSize);
         return acl2cudaError(ret);
@@ -292,6 +318,9 @@ extern "C"
         uint32_t numBlocks = cudaCompatGridBlocks(config->gridDim);
         if (numBlocks == 0 || !cudaCompatBlockDimValid(config->blockDim)) {
             return cudaErrorInvalidConfiguration;
+        }
+        if (cudaCompatLikelyInvalidFunctionHandle(func)) {
+            return cudaErrorInvalidDeviceFunction;
         }
 
         void *hostArgs = NULL;

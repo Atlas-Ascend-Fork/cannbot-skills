@@ -140,7 +140,7 @@ cd your_app_dir
 gcc -I/path/to/runtime_migration/assets/src \
     your_code.c \
     -L/path/to/runtime_migration/assets/src/build -lcudacompat \
-    -L~/Ascend/cann/lib64 -lacl_rt \
+    -L~/Ascend/cann/lib64 -lacl_rt -lc_sec \
     -o your_app
 ```
 
@@ -233,11 +233,12 @@ kernel<<<grid, block, shared_mem, stream>>>(args);
 - 通过 `cudaCompatLaunchHostKernel()` 调用该 fallback，保留主流程中的“launch”语义
 - 对 `cudaLaunchKernel(func, grid, block, args, ...)` 的 host fallback，按 CUDA 参数数组语义解析 `args`：`args[i]` 是第 i 个实参的地址，不能把 `args` 或 `args[i]` 本身直接当成设备指针写入。
 - 如果源代码对已迁移为 Host fallback 的 CUDA kernel 调用 `cudaFuncGetAttributes`，改为调用 `cudaCompatFuncGetHostFallbackAttributes(&attrs)`；不要把 Host fallback 函数指针强行传给 `aclrtGetFunctionAttribute`。
+- `cudaFuncGetName`、`cudaFuncGetParamCount`、`cudaFuncGetParamInfo`、`cudaLaunchKernelEx`、`cudaOccupancyAvailableDynamicSMemPerBlock` 的 CANN 成功路径必须使用 CANN Runtime 可识别的真实 `aclrtFuncHandle`，例如由 CANN binary/module 加载流程取得的 handle。迁移验证用例不得用 `reinterpret_cast<void *>(0x1)`、普通 host 函数指针、CUDA `__global__` 函数指针或 Host fallback 函数指针探测这些接口的成功路径；无真实 handle 时只保留空指针、非法配置等错误路径，并把成功路径写成明确 `SKIP - requires a real CANN aclrtFuncHandle`。
 - 在调用处添加注释，并在 README 或迁移报告中明确说明该路径在 Host/CPU 上执行，不是 NPU kernel 执行
 - 不使用 Host fallback 的结果声称已完成 NPU kernel 迁移、设备侧正确性验证或性能验证
 - 如需 NPU 设备侧实现，将其记录为本技能范围外事项，交由独立算子 skill 处理；本技能不得内部依赖或调用该 skill
 
-当只验证 CUDA 版本升级引入的少量 Runtime API 签名、返回码或参数约束时，不要把完整 `apiRuntimeCoverage_cuda.cu` 直接作为 CANN 转测产物。应按本轮接口范围生成最小 CANN smoke，只保留目标 API 的基本成功/错误路径和数据校验；`cudaLaunchKernelEx`、`cudaFuncGet*`、`cudaLaunchHostFunc*` 等依赖真实 CANN function handle 或 host callback 同步/销毁语义的专项路径，除非本轮目标正是验证这些能力，否则不要混入 batch copy、managed memory、capture info 等接口的基本场景验收，避免无关挂死遮蔽真正结论。
+当只验证 CUDA 版本升级引入的少量 Runtime API 签名、返回码或参数约束时，不要把完整 `apiRuntimeCoverage_cuda.cu` 直接作为 CANN 转测产物。应按本轮接口范围生成最小 CANN smoke，只保留目标 API 的基本成功/错误路径和数据校验；`cudaLaunchKernelEx`、`cudaFuncGet*`、`cudaLaunchHostFunc*` 等依赖真实 CANN function handle 或 host callback 同步/销毁语义的专项路径，除非本轮目标正是验证这些能力，否则不要混入 batch copy、managed memory、capture info 等接口的基本场景验收，避免无关挂死遮蔽真正结论。若目标正是验证 function handle 类 API，也必须先准备真实 CANN binary/function handle；没有真实 handle 时，生成的 CANN 用例只能验证错误路径和条件 `SKIP`，不能伪造 handle。
 
 ##### 4.1.5 Device Symbol / PTX Module Host Fallback
 
@@ -316,6 +317,20 @@ cudaIpcOpenMemHandle(&d_ptr, handle, cudaIpcMemLazyEnablePeerAccess);
 - 如果转换产物里同时有同设备 `cudaMemcpyPeerAsync(dst, 0, src, 0, ...)` 和跨设备 `0->1`，同设备路径可作为单卡基础验证；跨设备路径必须按上述 CANN P2P 流程生成，不能复用单卡 stream 或在分配内存后才 enable peer access。
 - 清理时分别切回对应 Device 释放各自 buffer 和 stream，并尽量关闭两端 peer access；关闭失败可按环境限制记录为 `SKIP`，不要影响已完成的数据校验结论。
 
+##### 4.1.11 3D Pitched Memory 验证注意事项
+
+迁移 `cudaMemcpy3D*`、`cudaMemset3D*` 或 3D batch/attributes copy 用例时，数据断言必须按 CUDA extent 语义生成：
+
+- `extent.width` 是每行有效字节数，`pitch - extent.width` 是 padding；3D copy/memset 不保证改写 padding，不能把整段 `pitch * height * depth` 缓冲区直接与期望值比较。
+- 数据校验应逐 `z`、逐 `y` 比较每行前 `extent.width` 字节；只有在源、目的 padding 都已显式初始化为同一值时，才允许整缓冲区比较。
+- `cudaMemset3D` / `cudaMemset3DAsync` 成功后必须回读并检查有效 extent 内的值，不能只检查返回码或回读调用是否成功。
+- `cudaMemcpy3DBatchOp` 的 `rowLength`、`layerHeight` 和 location hint 必须与源用例保持一致，避免测试因错误推断 Host/Device 位置而走到不同复制路径。
+
+##### 4.1.12 转换覆盖与环境跳过
+
+- 报告把 CUDA 版本别名、重载或 `_v2` 符号分别计入覆盖数时，转换用例必须存在对应的真实调用路径；只打印多个 `COVER` 标签、却重复调用同一个重载，不能作为多 spelling 覆盖证据。若 CUDA 公共头文件只暴露非版本化名称，应在 CANN 产物中验证该包装函数确实委托到版本化实现，并在报告中说明两者关系。
+- `cudaGetDeviceCount` 返回 `cudaSuccess` 但 count 为 0 时，应输出 `SKIP - no visible CANN device (count=0)` 等准确原因；不要用 `cudaGetErrorString(cudaSuccess)` 生成 `SKIP - no error`。该状态只证明程序可启动，不得写成设备用例已运行通过。
+
 #### 4.2 直接迁移方式改写步骤
 
 ##### 4.2.1 API 映射对照
@@ -387,7 +402,7 @@ include_directories(${RUNTIME_MIGRATION_DIR})
 
 find_library(CUDACOMPAT libcudacompat.so 
     PATHS ${RUNTIME_MIGRATION_DIR}/build)
-target_link_libraries(your_target ${CUDACOMPAT} acl_rt)
+target_link_libraries(your_target ${CUDACOMPAT} acl_rt c_sec)
 ```
 
 ##### 4.3.2 Makefile 改写示例
@@ -402,8 +417,10 @@ LDFLAGS += -L/usr/local/cuda/lib64 -lcudart
 RUNTIME_MIGRATION_DIR = /path/to/runtime_migration/assets/src
 CFLAGS += -I$(RUNTIME_MIGRATION_DIR)
 LDFLAGS += -L$(RUNTIME_MIGRATION_DIR)/build -lcudacompat
-LDFLAGS += -L~/Ascend/cann/lib64 -lacl_rt
+LDFLAGS += -L~/Ascend/cann/lib64 -lacl_rt -lc_sec
 ```
+
+说明：兼容层头文件在 CANN 环境提供 `securec.h` 时会使用 `memcpy_s` 等安全函数，独立迁移样例或应用链接时需同时链接 `libc_sec`。
 
 ##### 4.3.3 独立编译兼容层库
 
@@ -444,7 +461,7 @@ cd your_app_dir
 gcc -I/path/to/runtime_migration/assets/src \
     your_app.c \
     -L/path/to/runtime_migration/assets/src/build -lcudacompat \
-    -L~/Ascend/cann/lib64 -lacl_rt \
+    -L~/Ascend/cann/lib64 -lacl_rt -lc_sec \
     -o your_app
 ```
 

@@ -578,6 +578,7 @@ aclError aclrtGetFunctionName(aclrtFuncHandle funcHandle, uint32_t maxLen, char 
 ```
 - 功能：根据 CANN function handle 获取 kernel/function 名称
 - 约束：`name` 由调用方提供缓冲区；兼容层为 `cudaFuncGetName` 使用内部静态缓冲区承接
+- 验证约束：`funcHandle` 必须来自 CANN binary/module 加载等真实获取流程。不要把 `0x1`、普通 host 函数指针、CUDA `__global__` 函数指针或 Host fallback 函数指针传入 CANN function 查询接口；无真实 handle 时应验证错误路径并明确 `SKIP` 成功路径。
 - 返回：ACL_SUCCESS 或错误码
 
 ### aclrtFunctionGetParamCount / aclrtFunctionGetParamInfo
@@ -588,6 +589,7 @@ aclError aclrtFunctionGetParamInfo(const void *func, size_t paramIndex,
 ```
 - 功能：查询 CANN function handle 的参数个数以及指定参数的 offset/size
 - 约束：`aclrtFunctionGetParamInfo` 的两个输出指针不能同时为空；兼容层用该布局为 `cudaLaunchKernelEx` 打包 HostArgs
+- 验证约束：参数查询成功路径必须使用真实 `aclrtFuncHandle`；假 handle 不能作为成功路径用例。
 - 返回：ACL_SUCCESS 或错误码
 
 ### aclrtLaunchKernelWithHostArgs
@@ -609,6 +611,7 @@ aclError aclrtLaunchKernelWithArgsArray(void *func, uint32_t numBlocks,
 ```
 - 功能：使用 Host 参数数组启动 Kernel
 - 约束：`func` 必须是 CANN Runtime 可识别的 kernel/function handle；`args` 中每个元素指向 Host 侧参数数据，顺序需与 kernel 参数顺序一致
+- 验证约束：`cudaLaunchKernelEx` / HostArgs launch 成功路径不得使用假指针或 Host fallback 函数指针；没有真实 function handle 时只验证错误路径和条件跳过。
 - 返回：ACL_SUCCESS 或错误码
 
 ### aclrtLaunchSIMTKernelWithArgsArray

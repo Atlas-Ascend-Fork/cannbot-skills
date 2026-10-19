@@ -774,6 +774,8 @@ void CheckManagedMemoryApis(int device)
     location.id = device;
     OptionalSuccess("cudaMemPrefetchAsync_v2",
                     cudaMemPrefetchAsync(managed, bytes, location, 0, nullptr));
+    OptionalSuccess("cudaMemPrefetchAsync",
+                    cudaMemPrefetchAsync(managed, bytes, location, 0, nullptr));
     const void *prefetchPtrs[] = {managed};
     size_t prefetchSizes[] = {bytes};
     size_t locationIdxs[] = {0};
