@@ -623,3 +623,4 @@ constraints:
     expression: "[sources[0][1], sources[1][2]]"
     description: "out.shape = [M, N] = [batch1[1], batch2[2]]"
 ---
+```

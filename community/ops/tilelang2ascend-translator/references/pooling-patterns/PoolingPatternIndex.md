@@ -39,6 +39,7 @@ Pooling 的**设计语义**来自 `tilelang-op-design` 的 Pooling 领域参考�
 3. 基础实现：读 ub-management.md / alignment-guards.md / precision-patterns.md（buffer、对齐、精度）。
 4. 落地踩坑：读 backward-implementation.md §11（WAR、标杆、串行瓶颈）+ grad-v2-lessons.md（核数、Axpy、Cast、data_format、分桶）。
 5. 常见错误：读 pooling-anti-patterns.md 对照检查。
+```
 
 前向 reduce 算子按需读 tilelang-translation.md（转译映射）+ ub-management.md / alignment-guards.md / precision-patterns.md；NDHWC 布局落地读 layout-implementation.md，KH==1&&KW==1 深度快路径落地读 reduce-d-fastpath-implementation.md。
 
