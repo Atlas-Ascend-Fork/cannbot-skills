@@ -1,22 +1,21 @@
 # PR 检视场景
-
 ## 触发
 检视 PR、审核 PR、帮我检视这个 PR
 
 ---
 
 ## 编排
-
 ### 任务清单
 
-启动时创建 4 个固定任务（全部 pending）：
+启动时创建 5 个固定任务（全部 pending）：
 
 | 任务 | 阶段 | 内容 |
 |------|------|------|
-| 任务0 | 获取 diff + 代码概要 + API 预研 + 检视计划设计 | code-fetch → 并行派发 code-summarize + api-prestudy（仅 Kernel 侧）→ 检视计划设计 |
+| 任务0 | 获取 diff + 代码概要 + API 预研 + 检视计划设计 | 派发 code-fetch 子 Agent 获取 diff 和完整源码 → 并行派发 code-summarize + api-prestudy（仅 Kernel 侧）→ 检视计划（通用分组 + 跳过清单 + 仅核对清单） |
 | 任务1 | 逐条检视 | 按波次派发通用检视子 agent |
 | 任务2 | 行号校对 | steps/pr-review.line-verify.md |
 | 任务3 | 撰写报告 | steps/common.report-write.md |
+| 任务4 | 可选行内评论 | 检查 gitcode-toolkit 可用性后执行 steps/pr-review.inline-pr-comment.md |
 
 ### 阶段0：获取 diff + 代码概要 + API 预研 + 检视计划设计
 
@@ -63,17 +62,21 @@
 8. 将任务1 标记为 done
 
 ### 阶段2：行号校对
-
 1. 将任务2 标记为 in_progress
 2. Read + 执行 `steps/pr-review.line-verify.md` 薄壳，传入 yaml_dir + diff路径 + repo_path。薄壳内部调用 `{skill_base}/scripts/workflow.line_verify.py` 扫描 yaml 目录、原地修正行号 + diff 红线校验
 3. 将任务2 标记为 done
 
 ### 阶段3：撰写报告
-
 1. 将任务3 标记为 in_progress
 2. Read + 执行 `steps/common.report-write.md` 薄壳：传入 yaml_dir + 报告输出路径 + 头部元信息（检视文件数/代码行数 = code-fetch 返回的变更文件数/变更行数）。薄壳内部调用 `{skill_base}/scripts/workflow.assemble_report.py` 组装报告正文，主 Agent 替换头部占位符。**替换完成后检查报告行数（`wc -l`），若 >2000 行则派发 `steps/common.report-filter.md` 过滤子 Agent 原地精简报告**
 3. 报告输出路径 `./operators/pr-{pr_number}/{pr_number}_review_summary.md`
 4. 将任务3 标记为 done
+
+### 阶段4：可选行内评论（最后执行）
+1. 将任务4 标记为 in_progress，先向用户展示最终报告或报告链接；阶段3 的头部补齐与超长过滤必须已完成。
+2. 检查能否找到 `gitcode-toolkit` skill 及其行内评论说明；找不到则跳过本阶段，不读取或执行下一步文件。
+3. 仅当可用时，Read + 执行 `steps/pr-review.inline-pr-comment.md`，传入 PR URL + repo_path + diff_path + yaml_dir + 最终报告路径 + 用户对本次 PR 评论的明确要求（保留原话及后续调整，未指定则留空）；检视 head SHA 取已获取源码的 `git rev-parse HEAD`，不得用当前远端 SHA 替代。
+4. 发布完成、用户取消或跳过后将任务4 标记为 done；等待问卷回答时保持 in_progress。本阶段不改变已完成的报告。
 
 ---
 
