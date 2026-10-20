@@ -280,6 +280,8 @@ def main():
     (tests / f"test_{op}.py").write_text(runner, encoding="utf-8")
     helper = (ROOT / "assets" / "case_contract.py").read_text(encoding="utf-8")
     (tests / "cannbotdsl_case_contract.py").write_text(helper, encoding="utf-8")
+    cache = (ROOT / "assets" / "case_cache.py").read_text(encoding="utf-8")
+    (tests / "cannbotdsl_case_cache.py").write_text(cache, encoding="utf-8")
     for sheet in ("tdd", "whitebox", "blackbox"):
         (tests / "testcase_output" / sheet).mkdir(parents=True, exist_ok=True)
     LOGGER.info(f"validated {reference_path}")

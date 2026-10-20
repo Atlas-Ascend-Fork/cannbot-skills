@@ -25,6 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "assets"))
 from build_whitebox_cases import validated_branches
+from case_cache import CaseCache, load_golden
 from case_contract import case_calls, check_inputs, validate_assertions, validate_checks
 from casebook import read_casebook
 from generator_support import (
@@ -210,6 +211,11 @@ def main():
     if len({case["case_id"] for case in cases}) != len(cases):
         fail("duplicate TDD case ID")
     LOGGER.info(f"validated {len(cases)} TDD rows")
+    cache = CaseCache(work.test, load_golden(golden))
+    report = cache.prepare(read_casebook(work, op), case_calls)
+    LOGGER.info(
+        f"prepared CPU case cache: built={report['built']} hits={report['hits']}"
+    )
 
 
 def validate_unit_evidence(row, obligations, refs):

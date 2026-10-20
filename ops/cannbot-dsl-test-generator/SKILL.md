@@ -55,6 +55,8 @@ metadata:
 
 依据 `UNITS/U*.yaml` 的 `verification_obligations` 逐项编写 CSV 的 tdd 行，明确公开输入、预期结果、断言和可选白盒分支 ID。数值义务使用 Golden，semantic/device 义务验证公开可观察行为；输入不变性使用测试侧 `input_unchanged`。纯结构承诺由负责验收的 Agent 通过 review_evidence 核验；测试诊断与正式算子分离。遇到输入契约不兼容时，执行 Agent 按证据契约处理并保留验证责任，不向使用者派发内部文件修改任务。实际有效工作量、连续调用与重复验证按 [TDD 输入与证据契约](references/evidence.md) 编写，物化配方确认触发，不能仅靠义务 ID 关联宣布覆盖。运行 `scripts/build_tdd_cases.py --spec SPEC --design DESIGN --units-dir UNITS --test-dir TEST_DIR`，校验义务与用例覆盖、TDD 输入配方及实际触发条件、白盒关联及 Golden；不写中间文件。
 
+`build_tdd_cases.py` 校验成功后，增量准备三个分组全部 active 用例的 CPU 输入和 Golden 缓存，供后续 Red、Green 和回归复用；不导入目标实现或运行 NPU。缓存由 CSV 和 Golden 派生，失效与独立复跑规则见 [脚本生成与执行验收](references/execution.md)。
+
 ## 验收
 
 生成运行脚本及验收入口时读取 [脚本生成与执行验收](references/execution.md)，落实退出码、当前结果、可迁移路径与辅助模块交付要求。

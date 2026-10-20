@@ -27,6 +27,7 @@ from test_skills import fixture, run_script, write_rows
 ASSETS = Path(__file__).resolve().parents[1] / "assets"
 sys.path.insert(0, str(ASSETS))
 from case_contract import validate_assertions
+import case_cache
 
 
 class EvidenceChainTests(unittest.TestCase):
@@ -264,7 +265,13 @@ class EvidenceChainTests(unittest.TestCase):
             "runner_under_test", ASSETS / "test.py"
         )
         runner = importlib.util.module_from_spec(spec)
-        with patch.dict(sys.modules, {"cannbotdsl_case_contract": case_contract}):
+        with patch.dict(
+            sys.modules,
+            {
+                "cannbotdsl_case_contract": case_contract,
+                "cannbotdsl_case_cache": case_cache,
+            },
+        ):
             spec.loader.exec_module(runner)
 
         original = {"x": torch.tensor([float("nan"), 0.0])}
@@ -313,7 +320,13 @@ class EvidenceChainTests(unittest.TestCase):
             "runner_under_test", ASSETS / "test.py"
         )
         runner = importlib.util.module_from_spec(spec)
-        with patch.dict(sys.modules, {"cannbotdsl_case_contract": case_contract}):
+        with patch.dict(
+            sys.modules,
+            {
+                "cannbotdsl_case_contract": case_contract,
+                "cannbotdsl_case_cache": case_cache,
+            },
+        ):
             spec.loader.exec_module(runner)
 
         original = {"x": torch.tensor([1.0])}

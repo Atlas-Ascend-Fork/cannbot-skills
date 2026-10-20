@@ -11,6 +11,9 @@
 # ----------------------------------------------------------------------------------------------------------
 
 import csv
+import copy
+import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -19,6 +22,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import ModuleType
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -312,6 +317,406 @@ class ExplicitPathTests(unittest.TestCase):
                         )
 
 
+class BatchSelectionTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="dsl batch spaces ")
+        self.addCleanup(self.temporary.cleanup)
+        self.work = Path(self.temporary.name)
+        _, rows = fixture(self.work)
+        for case_id, uid in (
+            ("TD-u01-second", "u01"),
+            ("TD-u02-main", "u02"),
+            ("TD-u010-main", "u010"),
+        ):
+            rows.append(row("tdd", case_id, PAIR, unit_id=uid, expected="match_golden"))
+        rows.append(
+            row("tdd", "TD-u01-excluded", unit_id="u01", exclude_reason="fixture")
+        )
+        rows.append(
+            row("blackbox", "TD-u01-other-sheet", PAIR, expected="match_golden")
+        )
+        write_rows(self.work, rows)
+        prepared = run_script("prepare_golden.py", self.work)
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        self.test_dir = self.work / "operators/add/test"
+        self.log = self.work / "calls.log"
+        (self.work / "batch_target.py").write_text(
+            "import os\nfrom pathlib import Path\n"
+            "log = Path(os.environ['CANNBOTDSL_TEST_LOG'])\n"
+            "with log.open('a') as stream:\n"
+            "    stream.write(f'import {os.getpid()}\\n')\n"
+            "calls = 0\n"
+            "def run(x, y):\n"
+            "    global calls\n"
+            "    calls += 1\n"
+            "    with log.open('a') as stream:\n"
+            "        stream.write(f'call {os.getpid()}\\n')\n"
+            "    if os.environ.get('CANNBOTDSL_TEST_FAIL') and calls == 1:\n"
+            "        raise RuntimeError('fixture failure')\n"
+            "    return x + y\n",
+            encoding="utf-8",
+        )
+        self.env = {
+            **os.environ,
+            "PYTHONPATH": str(self.work),
+            "CANNBOTDSL_OP_MODULE": "batch_target",
+            "CANNBOTDSL_TEST_LOG": str(self.log),
+        }
+
+    def invoke(self, *selection):
+        return subprocess.run(
+            [
+                sys.executable,
+                str(self.test_dir / "test_add.py"),
+                "--sheet",
+                "tdd",
+                "--device",
+                "cpu",
+                *selection,
+            ],
+            cwd=self.work.parent,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    def result_path(self, expression):
+        digest = hashlib.sha256(expression.encode("utf-8")).hexdigest()[:16]
+        return (
+            self.test_dir / f"testcase_output/tdd/verify_result_tdd_grep_{digest}.csv"
+        )
+
+    def read_results(self, expression):
+        with self.result_path(expression).open(
+            encoding="utf-8-sig", newline=""
+        ) as handle:
+            return list(csv.DictReader(handle))
+
+    def test_unit_batch_runs_all_bound_cases_in_one_process(self):
+        expression = "^TD-u01-"
+        result = self.invoke("--grep", expression)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rows = self.read_results(expression)
+        self.assertEqual(
+            [item["case_id"] for item in rows], ["TD-u01-main", "TD-u01-second"]
+        )
+        self.assertTrue(all(item["status"] == "passed" for item in rows))
+        events = [line.split() for line in self.log.read_text().splitlines()]
+        self.assertEqual([event[0] for event in events], ["import", "call", "call"])
+        self.assertEqual(len({event[1] for event in events}), 1)
+
+    def test_multi_unit_batch_has_separate_results(self):
+        expression = "^TD-(?:u01|u02)-"
+        single = self.result_path("^TD-u01-")
+        single.write_text("previous unit batch", encoding="utf-8")
+        full = single.parent / "verify_result_tdd.csv"
+        full.write_text("previous full sheet", encoding="utf-8")
+        result = self.invoke("--grep", expression)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            [item["case_id"] for item in self.read_results(expression)],
+            ["TD-u01-main", "TD-u01-second", "TD-u02-main"],
+        )
+        self.assertEqual(single.read_text(), "previous unit batch")
+        self.assertEqual(full.read_text(), "previous full sheet")
+
+    def test_failed_batch_finishes_and_replaces_stale_success(self):
+        expression = "^TD-u01-"
+        self.result_path(expression).write_text("old success", encoding="utf-8")
+        self.env["CANNBOTDSL_TEST_FAIL"] = "1"
+        result = self.invoke("--grep", expression)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(
+            [item["status"] for item in self.read_results(expression)],
+            ["failed", "passed"],
+        )
+
+    def test_invalid_or_empty_selection_removes_stale_results(self):
+        for expression in ("[", "^TD-missing-", "^TD-u01-excluded$", "other-sheet$"):
+            with self.subTest(expression=expression):
+                path = self.result_path(expression)
+                path.write_text("old success", encoding="utf-8")
+                result = self.invoke("--grep", expression)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn(
+                    "invalid --grep" if expression == "[" else "no cases selected",
+                    result.stderr,
+                )
+                self.assertFalse(path.exists())
+        self.assertFalse(self.log.exists())
+
+    def test_grep_and_case_id_are_mutually_exclusive(self):
+        result = self.invoke("--grep", "^TD-u01-", "--case-id", "TD-u01-main")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("not allowed with argument", result.stderr)
+        self.assertFalse(self.log.exists())
+
+
+class CpuCaseCacheTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="dsl CPU cache spaces ")
+        self.addCleanup(temporary.cleanup)
+        self.work = Path(temporary.name)
+        _, self.rows = fixture(self.work)
+        prepared = run_script("prepare_golden.py", self.work)
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        self.test_dir = self.work / "operators/add/test"
+        self.cache_module = self.load_module(
+            "cache_under_test", self.test_dir / "cannbotdsl_case_cache.py"
+        )
+        contract = self.load_module(
+            "contract_under_test", self.test_dir / "cannbotdsl_case_contract.py"
+        )
+        with mock.patch.dict(
+            sys.modules,
+            {
+                "cannbotdsl_case_cache": self.cache_module,
+                "cannbotdsl_case_contract": contract,
+            },
+        ):
+            self.runner = self.load_module(
+                "runner_under_test", self.test_dir / "test_add.py"
+            )
+        self.golden = self.cache_module.load_golden(self.test_dir / "add_golden.py")
+        self.cache = self.cache_module.CaseCache(self.test_dir, self.golden)
+        self.case = next(r for r in self.rows if r["sheet"] == "tdd")
+        self.target = ModuleType("cache_target")
+        self.target.run = lambda x, y: x + y
+        self.counts = {"inputs": 0, "golden": 0}
+        make_inputs, simulate = self.golden.make_inputs, self.golden.simulate
+
+        def counted_inputs(*args, **kwargs):
+            self.counts["inputs"] += 1
+            return make_inputs(*args, **kwargs)
+
+        def counted_golden(*args, **kwargs):
+            self.counts["golden"] += 1
+            return simulate(*args, **kwargs)
+
+        self.golden.make_inputs = counted_inputs
+        self.golden.simulate = counted_golden
+
+    @staticmethod
+    def load_module(name, path):
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def call(self):
+        return {
+            "inputs": json.loads(self.case["inputs_json"]),
+            "seed": int(self.case["seed"]),
+            "assertions": json.loads(self.case["assertions_json"]),
+        }
+
+    def run_case(self):
+        invocation = self.runner.Invocation(self.target.run, self.golden, "cpu")
+        return self.runner._case_result(self.case, "cpu", invocation, cache=self.cache)
+
+    def test_generation_prepares_all_active_groups_and_reuses_entries(self):
+        result = run_script("build_tdd_cases.py", self.work)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        active = sum(r["status"] == "active" for r in self.rows)
+        self.assertEqual(len(list(self.cache.root.glob("*.pt"))), active)
+        original = {p.name: p.stat().st_mtime_ns for p in self.cache.root.glob("*.pt")}
+        repeated = run_script("build_tdd_cases.py", self.work)
+        self.assertEqual(repeated.returncode, 0, repeated.stderr)
+        self.assertIn(f"built=0 hits={active}", repeated.stdout)
+        self.assertEqual(
+            original,
+            {p.name: p.stat().st_mtime_ns for p in self.cache.root.glob("*.pt")},
+        )
+
+    def test_hit_skips_input_generation_and_golden(self):
+        first = self.cache.get(self.case, self.call(), 0)
+        self.assertEqual(self.counts, {"inputs": 2, "golden": 1})
+        second = self.cache.get(self.case, self.call(), 0)
+        self.assertEqual(self.counts, {"inputs": 2, "golden": 1})
+        self.cache_module.torch.testing.assert_close(first["inputs"], second["inputs"])
+        self.cache_module.torch.testing.assert_close(
+            first["expected"], second["expected"]
+        )
+        self.assertEqual((self.cache.built, self.cache.hits), (1, 1))
+
+    def test_recipe_seed_and_assertion_changes_rebuild_only_changed_call(self):
+        call = self.call()
+        self.cache.get(self.case, call, 0)
+        for change in ("seed", "inputs", "assertions"):
+            altered = copy.deepcopy(call)
+            if change == "seed":
+                altered["seed"] += 1
+            elif change == "inputs":
+                altered["inputs"]["x"]["fill"] = "zeros"
+            else:
+                altered["assertions"] = [{"kind": "output_dtype", "dtype": "float32"}]
+            self.cache.get(self.case, altered, 0)
+        self.cache.get(self.case, call, 0)
+        self.assertEqual((self.cache.built, self.cache.hits), (4, 1))
+
+    def test_golden_edit_with_same_size_and_mtime_invalidates_cache(self):
+        first = self.cache.get(self.case, self.call(), 0)
+        path = self.test_dir / "add_golden.py"
+        stat = path.stat()
+        path.write_text(path.read_text().replace("torch.add(x, y)", "torch.sub(x, y)"))
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        golden = self.cache_module.load_golden(path)
+        cache = self.cache_module.CaseCache(self.test_dir, golden)
+        second = cache.get(self.case, self.call(), 0)
+        self.assertNotEqual(first["key"], second["key"])
+        self.assertFalse(
+            self.cache_module.torch.equal(first["expected"], second["expected"])
+        )
+        self.assertEqual(cache.built, 1)
+
+    def test_corrupt_or_mismatched_entry_rebuilt_using_restricted_cpu_load(self):
+        data = self.cache.get(self.case, self.call(), 0)
+        path = next(self.cache.root.glob("*.pt"))
+        for broken in (b"truncated cache", None):
+            if broken is not None:
+                path.write_bytes(broken)
+            else:
+                data["key"] = "stale key"
+                self.cache_module.torch.save(data, path)
+            with mock.patch.object(
+                self.cache_module.torch, "load", wraps=self.cache_module.torch.load
+            ) as load:
+                result = self.cache.get(self.case, self.call(), 0)
+            load.assert_called_once_with(path, map_location="cpu", weights_only=True)
+            self.assertNotEqual(result["key"], "stale key")
+        self.assertEqual(self.cache.built, 3)
+        self.assertFalse(list(self.cache.root.glob("*.tmp")))
+
+    def test_write_failure_propagates_and_cleans_temporary_file(self):
+        with mock.patch.object(
+            self.cache_module.torch, "save", side_effect=OSError("disk full")
+        ):
+            with self.assertRaisesRegex(OSError, "disk full"):
+                self.cache.get(self.case, self.call(), 0)
+        self.assertFalse(list(self.cache.root.iterdir()))
+
+    def test_sequence_repeats_use_fresh_inputs_and_still_call_target(self):
+        self.case["assertions_json"] = json.dumps(
+            [
+                {
+                    "kind": "execution",
+                    "repeat": 3,
+                    "bitwise": True,
+                    "calls": [{"inputs": PAIR, "seed": 43}],
+                }
+            ]
+        )
+        calls = []
+
+        def target(x, y):
+            calls.append(True)
+            return x.add_(y)
+
+        self.target.run = target
+        first = self.run_case()
+        second = self.run_case()
+        self.assertEqual(first["status"], "passed", first["detail"])
+        self.assertEqual(first, second)
+        self.assertEqual(len(calls), 12)
+        self.assertEqual(self.counts, {"inputs": 4, "golden": 2})
+        self.assertEqual(len(list(self.cache.root.glob("*.pt"))), 2)
+
+    def test_implementation_changes_and_input_mutation_are_not_cached_as_success(self):
+        self.case["assertions_json"] = json.dumps(
+            [{"kind": "input_unchanged", "inputs": ["x"]}]
+        )
+        first = self.run_case()
+        self.assertEqual(first["status"], "passed", first["detail"])
+        self.target.run = lambda x, y: x.add_(y)
+        failed = self.run_case()
+        self.assertEqual(failed["status"], "failed")
+        self.assertIn("input_unchanged failed", failed["detail"])
+        self.target.run = lambda x, y: x + y
+        self.assertEqual(self.run_case(), first)
+        self.assertEqual(self.counts, {"inputs": 2, "golden": 1})
+
+    def test_dst_args_and_multiple_outputs_get_fresh_zero_buffers(self):
+        self.golden.OUTPUT_NAMES = ["out_add", "out_sub"]
+        self.golden.GOLDEN_FUNCTION = lambda x, y: (x + y, x - y)
+        self.case["output_json"] = json.dumps(
+            {name: PAIR["x"] for name in self.golden.OUTPUT_NAMES}
+        )
+        self.case["assertions_json"] = json.dumps(
+            [{"kind": "execution", "repeat": 2, "bitwise": True}]
+        )
+        torch = self.cache_module.torch
+
+        def target(x, y, out_add, out_sub):
+            self.assertEqual(torch.count_nonzero(out_add).item(), 0)
+            self.assertEqual(torch.count_nonzero(out_sub).item(), 0)
+            out_add.add_(x + y)
+            out_sub.add_(x - y)
+
+        self.target.run = target
+        first = self.run_case()
+        self.assertEqual(first["status"], "passed", first["detail"])
+        self.assertEqual(self.run_case(), first)
+        self.assertEqual(self.counts, {"inputs": 3, "golden": 1})
+
+    def test_nan_result_detail_preserved_on_hit(self):
+        inputs = copy.deepcopy(PAIR)
+        inputs["x"]["fill"] = "nan_one"
+        self.case["inputs_json"] = json.dumps(inputs)
+        self.case["expected"] = "match_golden_nan"
+        first = self.run_case()
+        self.assertEqual(first["status"], "passed", first["detail"])
+        self.assertEqual(self.run_case(), first)
+        self.assertEqual(self.counts, {"inputs": 2, "golden": 1})
+
+    def test_behavior_and_expected_error_do_not_compute_golden(self):
+        self.case["expected"] = "assertions"
+        self.case["assertions_json"] = json.dumps(
+            [{"kind": "output_shape", "shape": [2, 8]}]
+        )
+        self.assertEqual(self.run_case()["status"], "passed")
+        self.case["expected"] = "raises_error:shape_mismatch"
+        self.case["assertions_json"] = "[]"
+
+        def target(x, y):
+            error = ValueError("fixture error")
+            error.code = "shape_mismatch"
+            raise error
+
+        self.target.run = target
+        first = self.run_case()
+        self.assertEqual(first["status"], "passed", first["detail"])
+        self.assertEqual(self.run_case(), first)
+        self.assertEqual(self.counts, {"inputs": 2, "golden": 0})
+
+    def test_tensor_lists_optional_values_and_noncontiguous_layout(self):
+        self.case["expected"] = "assertions"
+        call = {
+            "inputs": {
+                "items": {"tensors": [PAIR["x"], PAIR["y"]]},
+                "optional": None,
+                "scale": 0.25,
+            },
+            "seed": 42,
+            "assertions": [],
+        }
+        first = self.cache.get(self.case, call, 0)
+        second = self.cache.get(self.case, call, 0)
+        self.cache_module.torch.testing.assert_close(first["inputs"], second["inputs"])
+        self.assertIsNone(second["inputs"]["optional"])
+        self.assertEqual(second["inputs"]["scale"], 0.25)
+        base = self.golden.make_inputs
+        self.golden.make_inputs = lambda *a, **kw: {
+            name: value.t() for name, value in base(*a, **kw).items()
+        }
+        self.case["case_id"] = "TD-u01-strided"
+        data = self.cache.get(self.case, self.call(), 0)
+        loaded = self.cache.get(self.case, self.call(), 0)
+        cloned = copy.deepcopy(loaded["inputs"])
+        self.assertEqual(data["inputs"]["x"].stride(), cloned["x"].stride())
+        self.assertFalse(cloned["x"].is_contiguous())
+
+
 class DirectArtifactTests(unittest.TestCase):
     def test_failed_rerun_does_not_keep_success_and_paths_are_portable(self):
         with tempfile.TemporaryDirectory(prefix="dsl runner spaces ") as tmp:
@@ -330,8 +735,6 @@ class DirectArtifactTests(unittest.TestCase):
                 "whitebox",
                 "--device",
                 "cpu",
-                "--workers",
-                "1",
             ]
             report = test / "testcase_output/whitebox/verify_result_whitebox.csv"
 

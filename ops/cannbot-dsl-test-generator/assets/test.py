@@ -13,46 +13,45 @@
 """Fixed CANNBotDSL runner for testcase.csv blackbox/whitebox/TDD rows."""
 
 import argparse
+import copy
 import csv
+import hashlib
 import importlib
-import importlib.util
 import json
-import multiprocessing
 import os
+import re
 import sys
 import tempfile
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, NamedTuple
 
 import torch
+from cannbotdsl_case_cache import CaseCache, load_golden
 from cannbotdsl_case_contract import case_calls, check_inputs, validate_assertions
 
 TEST_DIR = Path(__file__).resolve().parent
 OP_NAME = "__CANNBOTDSL_OP_NAME__"  # Bound from spec.op.name by prepare_golden.py.
 CASEBOOK = TEST_DIR / "testcase.csv"
-_WORKER_INVOCATION = None
-_WORKER_ERROR = None
 
 
-def _result_path(sheet, case_id):
+def _result_path(sheet, case_id, grep=None):
     suffix = f"_{case_id}" if case_id else ""
+    if grep is not None:
+        suffix = "_grep_" + hashlib.sha256(grep.encode("utf-8")).hexdigest()[:16]
     output_dir = TEST_DIR / "testcase_output" / sheet
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir / f"verify_result_{sheet}{suffix}.csv"
 
 
 def _golden():
-    path = TEST_DIR / f"{OP_NAME}_golden.py"
-    spec = importlib.util.spec_from_file_location("cannbotdsl_golden", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"missing golden: {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load_golden(TEST_DIR / f"{OP_NAME}_golden.py")
 
 
-def _rows(sheet, case_id):
+def _rows(sheet, case_id, grep=None):
+    try:
+        pattern = re.compile(grep) if grep is not None else None
+    except re.error as exc:
+        raise ValueError(f"invalid --grep: {exc}") from exc
     if not CASEBOOK.is_file():
         raise RuntimeError(f"missing casebook: {CASEBOOK}")
     with CASEBOOK.open(encoding="utf-8-sig", newline="") as handle:
@@ -66,10 +65,15 @@ def _rows(sheet, case_id):
     for row in all_rows:
         if row.get("sheet") != sheet or row.get("status") != "active":
             continue
-        if case_id is None or row.get("case_id") == case_id:
-            found.append(row)
+        if case_id is not None and row.get("case_id") != case_id:
+            continue
+        if pattern is not None and not pattern.search(row["case_id"]):
+            continue
+        found.append(row)
     if not found:
-        raise ValueError(f"no cases selected: sheet={sheet!r} case_id={case_id!r}")
+        raise ValueError(
+            f"no cases selected: sheet={sheet!r} case_id={case_id!r} grep={grep!r}"
+        )
     keys = [(row["sheet"], row["case_id"]) for row in all_rows]
     if len(keys) != len(set(keys)) or any(not row.get("inputs_json") for row in found):
         raise ValueError("duplicate case or missing inputs_json in testcase.csv")
@@ -173,7 +177,14 @@ class Invocation(NamedTuple):
     device: str
 
 
-def _invoke(invocation, inputs, output_map, expected_error_code=None, unchanged=()):
+def _invoke(
+    invocation,
+    inputs,
+    output_map,
+    expected_error_code=None,
+    unchanged=(),
+    prepared_outputs=None,
+):
     run, golden, device = invocation
     inputs = _to_device(inputs, device)
     if device != "cpu":
@@ -192,7 +203,12 @@ def _invoke(invocation, inputs, output_map, expected_error_code=None, unchanged=
             golden.OUTPUT_NAMES
         ):
             raise ValueError("output_json must contain exactly the spec outputs")
-        outputs = _to_device(golden.make_inputs(output_map, seed=0), device)
+        outputs = _to_device(
+            prepared_outputs
+            if prepared_outputs is not None
+            else golden.make_inputs(output_map, seed=0),
+            device,
+        )
         for tensor in outputs.values():
             if isinstance(tensor, torch.Tensor):
                 tensor.zero_()
@@ -228,13 +244,6 @@ def _invoke(invocation, inputs, output_map, expected_error_code=None, unchanged=
     )
 
 
-def _positive_int(value):
-    number = int(value)
-    if number < 1:
-        raise argparse.ArgumentTypeError("must be a positive integer")
-    return number
-
-
 def _load_invocation(golden, device):
     module_name = os.environ.get("CANNBOTDSL_OP_MODULE")
     if not module_name:
@@ -244,23 +253,11 @@ def _load_invocation(golden, device):
     return Invocation(run, golden, device)
 
 
-def _init_worker(device):
-    # Keep module state private and amortize imports across many rows.
-    global _WORKER_INVOCATION, _WORKER_ERROR
-    _WORKER_INVOCATION, _WORKER_ERROR = None, None
-    try:
-        # Avoid multiplying the CPU Golden's intra-op threads by the pool size.
-        torch.set_num_threads(1)
-        _WORKER_INVOCATION = _load_invocation(_golden(), device)
-    except Exception as exc:
-        _WORKER_ERROR = str(exc)
-
-
-def _case_result(row, device, invocation=None, load_error=None):
+def _case_result(row, device, invocation=None, load_error=None, cache=None):
     try:
         if invocation is None:
             raise RuntimeError(load_error)
-        status, detail = _run_case(row, invocation)
+        status, detail = _run_case(row, invocation, cache)
     except Exception as exc:
         status, detail = "failed", str(exc)
     return {
@@ -272,44 +269,14 @@ def _case_result(row, device, invocation=None, load_error=None):
     }
 
 
-def _worker_case(row, device):
-    return _case_result(row, device, _WORKER_INVOCATION, _WORKER_ERROR)
-
-
-def _run_rows(rows, golden, device, workers):
-    workers = min(workers, len(rows))
-    if workers == 1:
-        invocation, load_error = None, None
-        try:
-            invocation = _load_invocation(golden, device)
-        except Exception as exc:
-            load_error = str(exc)
-        return [_case_result(row, device, invocation, load_error) for row in rows]
-
-    results = [None] * len(rows)
-    # Never fork an initialized accelerator runtime. Only recipes cross processes;
-    # tensors, Golden and target modules stay in their worker.
-    with ProcessPoolExecutor(
-        max_workers=workers,
-        mp_context=multiprocessing.get_context("spawn"),
-        initializer=_init_worker,
-        initargs=(device,),
-    ) as executor:
-        pending = {}
-        for index, row in enumerate(rows):
-            try:
-                pending[executor.submit(_worker_case, row, device)] = index
-            except RuntimeError as exc:
-                results[index] = _case_result(row, device, load_error=str(exc))
-        for future in as_completed(pending):
-            index = pending[future]
-            try:
-                results[index] = future.result()
-            except Exception as exc:
-                results[index] = _case_result(
-                    rows[index], device, load_error=f"worker failed: {exc}"
-                )
-    return results
+def _run_rows(rows, golden, device):
+    invocation, load_error = None, None
+    cache = CaseCache(TEST_DIR, golden)
+    try:
+        invocation = _load_invocation(golden, device)
+    except Exception as exc:
+        load_error = str(exc)
+    return [_case_result(row, device, invocation, load_error, cache) for row in rows]
 
 
 def main():
@@ -317,17 +284,15 @@ def main():
     parser.add_argument(
         "--sheet", required=True, choices=("blackbox", "whitebox", "tdd")
     )
-    parser.add_argument("--case-id")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--case-id")
+    selection.add_argument(
+        "--grep", help="regular expression matching case_id within the sheet"
+    )
     parser.add_argument("--device", required=True)
     parser.add_argument("--require-accelerator", action="store_true")
-    parser.add_argument(
-        "--workers",
-        type=_positive_int,
-        default=4,
-        help="concurrent case processes (default: 4); use 1 for serial execution",
-    )
     args = parser.parse_args()
-    result_path = _result_path(args.sheet, args.case_id)
+    result_path = _result_path(args.sheet, args.case_id, args.grep)
     result_path.unlink(missing_ok=True)
     if args.require_accelerator and torch.device(args.device).type == "cpu":
         print(
@@ -335,12 +300,12 @@ def main():
         )
         return 2
     try:
-        rows = _rows(args.sheet, args.case_id)
+        rows = _rows(args.sheet, args.case_id, args.grep)
         golden = _golden()
     except (RuntimeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
-    results = _run_rows(rows, golden, args.device, args.workers)
+    results = _run_rows(rows, golden, args.device)
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -436,7 +401,7 @@ def _compare_tensor(actual, expected, tolerance, path, equal_nan):
     return [detail]
 
 
-def _run_case(row, invocation):
+def _run_case(row, invocation, cache):
     _, golden, device = invocation
     spec_map = json.loads(row["inputs_json"])
     if not isinstance(spec_map, dict):
@@ -454,13 +419,23 @@ def _run_case(row, invocation):
     validate_assertions(assertions)
     if expectation and expectation.startswith("raises_error:"):
         code = expectation.removeprefix("raises_error:")
-        inputs = golden.make_inputs(spec_map, seed=int(row.get("seed") or 42))
+        data = cache.get(
+            row,
+            {
+                "inputs": spec_map,
+                "seed": int(row.get("seed") or 42),
+                "assertions": assertions,
+            },
+            0,
+        )
+        inputs = copy.deepcopy(data["inputs"])
         _invoke(
             invocation,
             inputs,
             output_map,
             expected_error_code=code,
             unchanged=_unchanged_names(assertions),
+            prepared_outputs=copy.deepcopy(data["outputs"]),
         )
         return "passed", json.dumps({"expected_error_code": code}, ensure_ascii=False)
     if expectation not in ("match_golden", "match_golden_nan", "assertions"):
@@ -474,7 +449,8 @@ def _run_case(row, invocation):
         for index, call in enumerate(calls):
             if set(call["inputs"]) - public_names:
                 raise ValueError("sequence inputs contain names outside spec")
-            inputs = golden.make_inputs(call["inputs"], seed=call["seed"])
+            data = cache.get(row, call, index)
+            inputs = copy.deepcopy(data["inputs"])
             checks = [
                 c
                 for a in call["assertions"]
@@ -485,7 +461,7 @@ def _run_case(row, invocation):
             numeric = expectation != "assertions"
             expected = None
             if numeric:
-                _, expected = golden.simulate(call["inputs"], seed=call["seed"])
+                expected = data["expected"]
                 if expectation == "match_golden_nan" and not _has_nan(expected):
                     raise AssertionError("spec expects NaN but Golden returned no NaN")
             actual = _invoke(
@@ -493,6 +469,7 @@ def _run_case(row, invocation):
                 inputs,
                 output_map,
                 unchanged=_unchanged_names(call["assertions"]),
+                prepared_outputs=copy.deepcopy(data["outputs"]),
             )
             _assert_device(actual, device)
             if bitwise:
