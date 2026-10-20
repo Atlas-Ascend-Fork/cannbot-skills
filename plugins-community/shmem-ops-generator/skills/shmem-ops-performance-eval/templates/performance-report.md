@@ -28,7 +28,7 @@
 ### 3.1 性能结果表
 
 | case_id | shape | dtype | n_pes | e2e_us | kernel_us | kernel_bus_bandwidth_GBps | algo_GBps | e2e_bus_bandwidth_GBps | utilization% |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
 ### 3.2 通信指标表（**MUST**）
 
