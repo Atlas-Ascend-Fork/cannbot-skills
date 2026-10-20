@@ -84,7 +84,7 @@ DESC_COMBINED_MAX = int(RULES.get("skill_description_combined_max", 1536))
 
 ACTION_VERB_RE = re.compile(
     r"[A-Za-z\u4e00-\u9fff]+?("
-    r"提供|Provides?|处理|Handles?|负责|生成|支持|Suppors?|"
+    r"提供|Provides?|处理|Handles?|负责|生成|支持|Supports?|"
     r"Designs?|实现|Implements?|设计|Optimizes?|优化|"
     r"创建|Creates?|分析|Analyzes?|验证|Validates?|"
     r"检查|Checks?|提取|Extracts?|定位|Locates?|"
