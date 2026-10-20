@@ -142,6 +142,37 @@ shape 检查不会报错，只有数值会错。写法见 KB 卡 `ops/triton/opt
 - **禁止直接移植**：不能简单复制 GPU kernel 并替换 import，必须基于 sketch 和 Ascend 最佳实践重新实现
 - **下标 dtype**：GPU FLA 常见 `program_id().to(tl.int64)` 不得原样流进 `o_t` 一类 **mask 比较链**（改 `.to(tl.int32)`）。`bos`/`eos`/`i_tg`、`base + bos * stride` 等 **指针基址保持 int64**，不要凡整数都改 int32。
 
+## 知识检索前置（强制，生成前必做）
+
+在加载任何参考文档、写出代码之前，**必须先做一次 KB 检索**：
+
+1. 运行 knowledge-query 的 `preflight` 检索（脚本候选：`$PWD/.claude/skills/knowledge-query/scripts/knowledge_query.py`、`$PWD/.agents/skills/knowledge-query/scripts/knowledge_query.py`）：
+   ```
+   knowledge_query.py preflight --task "<算子名 + 类别 + 已知约束 + (上一轮错误，若迭代修复)>"
+   ```
+2. 读取 `read_first` 主证据卡（`Read local_path`），按 `sufficiency_rule` 判断充分性；不足时追 `neighbors` / `pipeline` / 二次 `preflight`。
+3. 约束卡加载仍按下方「知识加载规则」的 `$KB_ROOT(...)_constraints.md` 映射执行，二者互补不重复轮询。一级 API 用法（A 系列）与瓶颈预判（B 系列）以 KB 卡片为准，不再依赖独立的 `template/` 文件。
+4. 检索完成后，**必须在终端输出以下盒装摘要**：
+   ```
+   ┌─ KB 知识检索摘要 [coding preflight] ──────────
+   │ 主证据卡: <doc-id 1..3>（<strong/medium/weak>）
+   │ 证据充分性: <已满足 sufficiency / 需追 neighbors·pipeline>
+   │ 应用策略: <直接复用 / 按约束生成 / 二次检索>
+   └─────────────────────────────────────────────
+   ```
+5. 若 knowledge-query 不可用或 KB 解析失败，回退到「知识加载规则」的通用加载路径，不阻塞生成流程，并在摘要注明「KB 不可用，按内置约束生成」。
+
+### 错误类型 → 检索/处理映射（迭代修复时强制）
+
+上一轮验证失败时，**必须先按错误类型路由到对应检索/修复路径，再做代码修改**：
+
+| `error_type` | 处理路径 |
+|---|---|
+| `CompilationError` / 编译类 | `knowledge_query.py preflight --task "<报错摘要>"` 查编译错误诊断卡，再按「模式 3」修 |
+| `AccuracyError` / 精度类 | **先跑 `triton-precision-debug`** 定位精度根因，再 `preflight --task "<精度现象>"` 补证据后修 |
+| `HiddenStateMismatch` | 按「参考实现的 nn.Module 语义复刻」C1/C2 修权重/缓冲复刻，不依赖检索 |
+| `RuntimeError` / 其它 | `preflight --task "<报错摘要>"` 查运行错误诊断，再按「模式 3」修 |
+
 ## 知识加载规则
 
 ### 知识库定位（KB_ROOT 解析，加载任何 KB 卡片前先执行）

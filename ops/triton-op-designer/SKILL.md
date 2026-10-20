@@ -46,6 +46,28 @@ argument-hint: >
 - **剔除 GPU 特有参数**：GPU kernel 中的 `num_warps`、`num_stages`、`num_ctas` 等参数在 NPU 上不生效，草图设计时直接忽略，使用 Ascend 的配置方式（如 `num_cores`）
 - **下标 dtype**：FLA/GPU 的 `program_id().to(tl.int64)` 不要写进 `o_t` 等 **mask 比较链**（草图标 int32）；`bos`/`i_tg` 等 **指针基址标 int64**。
 
+## 知识检索前置（强制，设计前必做）
+
+在加载任何参考文档、给出草图之前，**必须先做一次 KB 检索**，避免凭记忆或凭 GPU 参考直接设计：
+
+1. 运行 knowledge-query 的 `preflight` 检索（脚本候选：`$PWD/.claude/skills/knowledge-query/scripts/knowledge_query.py`、`$PWD/.agents/skills/knowledge-query/scripts/knowledge_query.py`）：
+   ```
+   knowledge_query.py preflight --task "<当前设计目标：算子名 + 类别 + 关键约束/难点>"
+   ```
+2. 读取 `preflight` 返回的 `read_first` 主证据卡（用 `Read local_path` 深读），按 `sufficiency_rule` 判断证据是否足够；不足时按 `follow_candidates` 追 `neighbors` / `pipeline` / 二次 `preflight`。
+3. 约束卡加载仍按下方「知识加载规则」的 `$KB_ROOT(...)_constraints.md` 映射执行，二者互补不重复轮询。
+4. 检索完成后，**必须在终端输出以下盒装摘要**（草案阶段的可复核痕迹）：
+   ```
+   ┌─ KB 知识检索摘要 [designer preflight] ──────────
+   │ 主证据卡: <doc-id 1..3>（<strong/medium/weak>）
+   │ 证据充分性: <已满足 sufficiency / 需追 neighbors·pipeline>
+   │ 应用策略: <直接复用 / 读取 read_first 后按约束设计 / 二次检索>
+   └─────────────────────────────────────────────
+   ```
+5. 若 knowledge-query 不可用或 KB 解析失败，回退到「知识加载规则」的通用加载路径，不阻塞设计流程，并在摘要注明「KB 不可用，按内置约束设计」。
+
+> 检索是证据前置，不是装饰：设计结论必须落到 `@references/sketch-design.md` 语法与下方约束卡 Layer 1 之上，检索到的 GPU 参考只作算法结构参考，不覆盖 Ascend 约束。
+
 ## 知识加载规则
 
 ### 知识库定位（KB_ROOT 解析，加载任何 KB 卡片前先执行）

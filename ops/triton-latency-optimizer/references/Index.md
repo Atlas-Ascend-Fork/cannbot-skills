@@ -54,7 +54,7 @@
 | 30 | Attention/MLA 类算子专用优化 | MLA 主链算子（矩阵吸收：`ckv` 同时作 K 与 V，`o = softmax(sm_scale·(q_nope·ckv + q_pe·kpe)) @ ckv`；含 BatchMLAPagedAttention / BatchDecodeMlaPaged / TRT-LLM MLA / DSV4 稀疏 MLA） | `BLOCK_QO` 未固定为 1（非仿射 store 逐元素化 / 间歇 aicore timeout）、KV 迭代数可压缩（`BLOCK_KV` 未开到 UB 上限 / 页表映射未 kernel 内做 / 16-bit 输入未做 `P_SPLIT`）。**本优化点是 #29/#30 的 MLA 子类细化，命中后可与 #29、#30 的子文档一并加载，不受「一次只能参考一个文档」限制。** | `references/operators/mla-paged-attention-optimization.md`（KB 暂未收录，保留本地） |
 | 31 | IR分析优化 | 所有算子类型 | 每轮作为最后一个优化点必须执行 | `KB:ops/triton/guides/ir/ir_analysis_workflow.md` |
 | 32 | Autotune 自动调优（终止步骤） | 存在可调 `tl.constexpr` 参数 | 存在可调参数且未使用 `@triton.autotune`；**BLOCK 由 host 侧按 shape 分档选择时视为不适用，不命中** | `KB:ops/triton/optimizations/operator_optimization/autotune.md` |
-| 33 | Block Size Scaling（终止步骤，30 的 fallback） | 存在单维 BLOCK 参数（任意命名：`BLOCK`/`BLOCK_SIZE`/`XBLOCK`） | 优化点 30 未被采纳（失败或不适用），且 BLOCK 值可静态解析 | `KB:ops/triton/optimizations/operator_optimization/block_size_scaling.md` |
+| 33 | Block Size Scaling（终止步骤，32 的 fallback） | 存在单维 BLOCK 参数（任意命名：`BLOCK`/`BLOCK_SIZE`/`XBLOCK`） | 优化点 32 未被采纳（失败或不适用），且 BLOCK 值可静态解析 | `KB:ops/triton/optimizations/operator_optimization/block_size_scaling.md` |
 
 
 
@@ -134,4 +134,3 @@
 | CV 融合-Tiling | `KB:ops/triton/optimizations/operator_optimization/cv_fusion_tiling.md` | CV 融合算子 On-Chip 容量估算、候选验证、Autotune 自动化搜索 |
 | IR分析优化 | `KB:ops/triton/guides/ir/ir_analysis_workflow.md` | IR分析优化 |
 | Histogram-like / Small-output-table 优化 | `KB:ops/triton/optimizations/operator_optimization/histogram_like_table_reduction.md` | 小输出表规约类算子专用优化经验 |
-

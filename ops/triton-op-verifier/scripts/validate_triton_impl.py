@@ -11,14 +11,32 @@
 
 """Triton 实现退化检测脚本 — 通过 AST 静态分析检查生成代码是否退化为 PyTorch 原生实现。
 
-检测四种退化类型：
+检测九种退化类型：
   Type 1: 无 @triton.jit kernel，全部使用 PyTorch
   Type 2: 有 @triton.jit kernel 定义但 forward() 未调用
   Type 3: forward() 调用了 kernel 但仍有部分计算使用 torch 接口
          （**含跨函数**：从 forward() 出发沿模块内函数调用做可达性分析，
            堵住"把计算挪到 forward 外的辅助函数里"的绕过路径）
   Type 4: 只有占位 kernel —— 被调用的 kernel 只做 load/store 搬运、无任何计算，
-          纯粹为了让 AST 检测到"有 kernel 被调用"
+          纯粹为了让 AST 检测到"有 kernel 被调用"。
+          2026-10 加固：以下形态同样判占位——
+            a) 函数体没有任何 tl.store / tl.atomic_* 写出（空 kernel / 纯 return stub）；
+            b) tl.store 的值是常量（tl.store(ptr, 0.0)，只写 0 凑合规）；
+            c) tl.store 的值是内联 tl.load(...)（tl.store(y, tl.load(x)) 纯拷贝）。
+  Type 6: 外包外部/参考实现 —— import 非白名单模块（kernelbench_* / src.* /
+          reference / baseline 等）、通过动态加载机制执行未知代码、
+          篡改搜索路径、用 __file__ 定位兄弟文件、读取外部文件、
+          调用外部符号（含 X()(...) 双调用）或非 super 的 .forward() 调用
+  Type 7: 影子定义 —— 模块顶层同名类/函数重复定义（前一个喂检测器、
+          后一个真正生效）
+  Type 8: 返回值不来自 kernel —— forward() 返回的张量在数据流上不依赖任何
+          被 kernel tl.store/atomic 写入的 buffer（kernel 算了也白算）
+  Type 9: benchmark 钩子劫持 —— 在实现文件里重定义 get_input_groups 等
+          输入生成钩子：读外部文件 / 用固定种子自行生成输入 / 返回空列表
+  Type 10: 诱饵 kernel —— 定义了 @triton.jit kernel 但从生效的 forward()
+          出发（含 wrapper、kernel 体内调用的 kernel 辅助函数）完全不可达。
+          单文件生成实现中不可达 kernel 没有合法用途，纯粹用来撑门面
+          （实测样本 02/07 的诱饵 kernel 内含未定义名，证明从未编译过）
 
 用法:
     python validate_triton_impl.py <file_path> [--json]
@@ -319,16 +337,76 @@ def _get_subscript_value_name(node):
     return None
 
 
+def _kernel_names_in_subscript(node, kernel_names, var_bindings=None):
+    """从 kernel[grid](...) 的 Subscript 里收集所有 kernel 名（支持条件分发）。
+
+    实测写法：(kern_a if cond else kern_b)[grid](...)、(f() or kern)[grid](...)
+    ——Subscript.value 不是 Name 而是 BoolOp/IfExp，_get_subscript_value_name
+    解析不出来。这里walk 整个下标表达式，收集所有落在 kernel_names 里的 Name。
+    var_bindings：函数内 ``kern = kern_a if cond else kern_b`` 一类变量绑定的
+    解析表（{变量名: {kernel 名}}），由 _collect_var_kernel_bindings 提供。
+    """
+    if not isinstance(node, ast.Subscript):
+        return set()
+    names = set()
+    for n in ast.walk(node.value):
+        if isinstance(n, ast.Name):
+            if n.id in kernel_names:
+                names.add(n.id)
+            elif var_bindings and n.id in var_bindings:
+                names |= var_bindings[n.id]
+    return names
+
+
+def _collect_var_kernel_bindings(fnode, kernel_names):
+    """函数内把 kernel 绑到变量的赋值：kern = a if c else b / kern = a。
+
+    实测写法（56_BlockSparseAttnBwd）：
+        kern = _bsa_table_q_kernel if is_q_axis else _bsa_table_k_kernel
+        kern[grid](...)
+    不动点传播以支持 kern2 = kern 的转赋。
+    """
+    bindings = {}
+    for _ in range(4):
+        changed = False
+        for node in ast.walk(fnode):
+            if not isinstance(node, ast.Assign):
+                continue
+            ks = set()
+            for n in ast.walk(node.value):
+                if isinstance(n, ast.Name) and n.id in kernel_names:
+                    ks.add(n.id)
+            for n in ast.walk(node.value):
+                if isinstance(n, ast.Name) and n.id in bindings:
+                    ks |= bindings[n.id]
+            if not ks:
+                continue
+            for tgt in node.targets:
+                for nm in _lhs_root_names(tgt):
+                    if bindings.get(nm) != ks:
+                        bindings[nm] = bindings.get(nm, set()) | ks
+                        changed = True
+        if not changed:
+            break
+    return bindings
+
+
 # ---------------------------------------------------------------------------
 # 核心检查
 # ---------------------------------------------------------------------------
 
 def _kernel_uses_tl_api(func_node) -> bool:
-    """判断 kernel 函数体内是否出现 tl.* 属性访问。"""
-    for child in ast.walk(func_node):
-        if isinstance(child, ast.Attribute):
-            if isinstance(child.value, ast.Name) and child.value.id == "tl":
-                return True
+    """判断 kernel 函数体内是否出现 tl.* 属性访问。
+
+    只统计**函数体语句**，不看参数注解：作弊样本会把 ``BLOCK_C: tl.constexpr``
+    写进参数注解，让函数体只有 ``return`` 的 stub kernel 也被误判为"使用了 tl API"
+    （实测样本 04_ChunkGatedDeltaRule_copy5_b4994fe5）。
+    """
+    for stmt in func_node.body:
+        for child in ast.walk(stmt):
+            if isinstance(child, ast.Attribute):
+                if isinstance(child.value, ast.Name) and child.value.id == "tl":
+                    return True
     return False
 
 
@@ -1103,21 +1181,69 @@ def _check_host_sync_risk(code, forward_node=None, kernel_names=None):
 
 
 def _find_forward_in_class(class_node):
-    """从 ModelNew 类节点中找到 forward 方法。"""
+    """从 ModelNew 类节点中找到 forward 方法节点。
+
+    类体内同名方法同样按 Python 语义取**后定义**——只取第一个的话，
+    "第一个 forward 干净、第二个 forward 作弊"的写法会逃逸
+    （类成员重复定义本身由 _find_shadow_definitions 拦截）。
+    """
+    forward = None
     for item in class_node.body:
         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name == "forward":
-            return item
-    return None
+            forward = item
+    return forward
 
 
 def find_model_new_forward(tree):
-    """找到 ModelNew 类的 forward 方法节点。"""
+    """找到 ModelNew 类的 forward 方法节点。
+
+    Python 语义：同名类重复定义时**后定义的生效**。实测作弊样本
+    05_ChunkGatedDeltaRule_copy5_f7499766 定义了两个 ModelNew ——
+    第一个（含 kernel 启动、引用了未定义名字的死代码）喂给按遍历顺序
+    取第一个的检测器，第二个（纯 PyTorch + 委托参考实现）才是运行时
+    真正生效的。因此这里必须按"最后定义"返回；
+    重复定义本身由 _check_no_shadow_definitions 单独拦截。
+    """
+    forward = None
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == "ModelNew":
-            forward = _find_forward_in_class(node)
-            if forward is not None:
-                return forward
-    return None
+            f = _find_forward_in_class(node)
+            if f is not None:
+                forward = f
+    return forward
+
+
+def _find_shadow_definitions(tree):
+    """找出被重复定义的类/函数名（影子定义）。
+
+    返回 {名字: [line1, line2, ...]}，仅保留定义次数 > 1 的名字。
+
+    检查范围：
+      - 模块**顶层直接**重复定义：后定义静默覆盖先定义，是让"被检的代码"
+        与"生效的代码"分离的典型手法（样本 05 双 ModelNew）；
+      - **类体内**同名方法重复定义：同一类里写两个 forward，第一个干净
+        第二个作弊——`_find_forward_in_class` 只取一个就会漏审。
+
+    不检查条件分支里的同名定义（``if cond: def f... else: def f...``）：
+    按条件选择实现是合法写法，这类定义由 find_model_new_forward 的
+    last-wins 语义兜底（至少保证分析的是最后定义的那份）。
+    """
+    defs = {}
+    for node in tree.body:
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            defs.setdefault(node.name, []).append(node.lineno)
+    # 类体内同名方法（含 ModelNew 里写两个 forward 的写法）
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        methods = {}
+        for item in node.body:
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                methods.setdefault(item.name, []).append(item.lineno)
+        for mname, lines in methods.items():
+            if len(lines) > 1:
+                defs.setdefault(f"{node.name}.{mname}", []).extend(lines)
+    return {name: lines for name, lines in defs.items() if len(lines) > 1}
 
 
 def _call_invokes_kernel(call_node, kernel_names) -> bool:
@@ -1555,7 +1681,8 @@ def collect_reachable_funcs(tree, forward_node, kernel_names):
     module_funcs = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name not in kernel_names:
-            module_funcs.setdefault(node.name, node)
+            # 同名函数后定义的生效（Python 语义），与 find_model_new_forward 一致
+            module_funcs[node.name] = node
 
     seen = set()
     out = []
@@ -1588,6 +1715,13 @@ _TL_NON_COMPUTE = {
     "load", "store", "arange", "program_id", "num_programs", "cdiv",
     "constexpr", "multiple_of", "max_contiguous", "static_assert",
     "make_block_ptr", "advance", "zeros", "full", "device_print",
+    # dtype 常量只是类型标注，不是计算（tl.int32 / tl.float32 / ...）。
+    # 不排除的话，stub kernel 里一句 tl.program_id(0).to(tl.int32)
+    # 就会被误判为"使用了计算类 API"而绕过占位判定（实测样本 07）。
+    "int8", "int16", "int32", "int64",
+    "uint8", "uint16", "uint32", "uint64",
+    "float16", "float32", "float64", "bfloat16", "float8e4nv", "float8e5",
+    "bool", "void",
 }
 
 
@@ -1607,39 +1741,88 @@ def _tl_calls(func_node, attr):
     return calls
 
 
-def kernel_is_placeholder(func_node) -> bool:
-    """判断 kernel 是否是"占位 kernel"：把 load 进来的值原样 store 出去，无任何变换。
+def kernel_is_placeholder(func_node, kernel_map=None) -> bool:
+    """判断 kernel 是否是"占位 kernel"：不产生任何真实计算结果。
 
-    判据（两条同时满足才判占位，避免误伤只用 Python 运算符做计算的 kernel）：
-      1. 没有使用任何**计算类** tl.* / libdevice.* API；
-      2. 每一处 tl.store 的值参数都是一个变量名，且该变量的唯一赋值就是 tl.load(...)。
+    判据（满足其一即判占位）：
+      A. 有效函数体没有任何 tl.store / tl.atomic_* 写出 —— kernel 不产生任何结果，
+         无论 load/计算多少都是死代码（空 kernel、``pass``/``return`` stub）。
+         任何真实 kernel 都必须把结果写回全局内存。
+      B. 没有使用任何**计算类** tl.* / libdevice.* API，且每一处 tl.store 的
+         值参数都属于以下"无变换"形态之一：
+           - 常量（``tl.store(ptr, 0.0)`` —— 只写 0 凑合规，
+             实测样本 01/07 用这种写法绕过原检查）；
+           - 内联 ``tl.load(...)``（``tl.store(y, tl.load(x))`` —— 纯拷贝，
+             实测样本 06 用这种写法绕过"值必须是 load 变量"的原判据）；
+           - 变量名，且该变量的全部赋值来源都是 tl.load(...)（原判据）。
+    只用 Python 运算符（a * b + c）做计算的 kernel 不受影响：其 store 值是
+    BinOp，三种形态都不命中。
+
+    有效函数体 = kernel 自身 + 其体内（传递）调用的其它 @triton.jit 辅助
+    函数（实测 16_iou_v2：启动的 kernel 是一行调用，load/store/计算全在
+    tile 辅助函数里——只看 kernel 自身会把合法的包装层误判为无写出）。
     """
+    bodies = list(func_node.body)
+    if kernel_map:
+        seen = {func_node.name}
+        stack = [func_node]
+        while stack:
+            fn = stack.pop()
+            for ch in ast.walk(fn):
+                if isinstance(ch, ast.Call):
+                    leaf = _call_leaf_name(ch)
+                    if leaf in kernel_map and leaf not in seen:
+                        seen.add(leaf)
+                        helper = kernel_map[leaf]
+                        bodies.extend(helper.body)
+                        stack.append(helper)
+
     used = set()
-    for child in ast.walk(func_node):
-        if isinstance(child, ast.Attribute) and isinstance(child.value, ast.Name):
-            if child.value.id in ("tl", "libdevice"):
-                used.add(child.attr)
+    for stmt in bodies:
+        for child in ast.walk(stmt):
+            if isinstance(child, ast.Attribute) and isinstance(child.value, ast.Name):
+                if child.value.id in ("tl", "libdevice"):
+                    used.add(child.attr)
     if used - _TL_NON_COMPUTE:
         return False
 
+    # 判据 A：无任何写出（store / atomic 都没有）
+    stores = []
+    for stmt in bodies:
+        for child in ast.walk(stmt):
+            if isinstance(child, ast.Call) and _is_tl_attr(child.func, "store"):
+                stores.append(child)
+    has_atomic_write = any(
+        attr.startswith("atomic_") for attr in used
+    )
+    if not stores and not has_atomic_write:
+        return True
+
     # 收集「变量 -> 是否直接由 tl.load 赋值」
     load_vars, other_vars = set(), set()
-    for child in ast.walk(func_node):
-        if isinstance(child, ast.Assign) and len(child.targets) == 1 and isinstance(child.targets[0], ast.Name):
-            name = child.targets[0].id
-            v = child.value
-            is_load = isinstance(v, ast.Call) and _is_tl_attr(v.func, "load")
-            (load_vars if is_load else other_vars).add(name)
+    for stmt in bodies:
+        for child in ast.walk(stmt):
+            if isinstance(child, ast.Assign) and len(child.targets) == 1 and isinstance(child.targets[0], ast.Name):
+                name = child.targets[0].id
+                v = child.value
+                is_load = isinstance(v, ast.Call) and _is_tl_attr(v.func, "load")
+                (load_vars if is_load else other_vars).add(name)
 
-    stores = _tl_calls(func_node, "store")
-    if not stores:
-        return False
+    # 判据 B：每一处 store 的值都是"无变换"形态
     for st in stores:
         if len(st.args) < 2:
             return False
         val = st.args[1]
-        if not (isinstance(val, ast.Name) and val.id in load_vars and val.id not in other_vars):
-            return False
+        # 常量写出：tl.store(ptr, 0.0)
+        if isinstance(val, ast.Constant):
+            continue
+        # 内联拷贝：tl.store(y_ptr + off, tl.load(x_ptr + off, ...))
+        if isinstance(val, ast.Call) and _is_tl_attr(val.func, "load"):
+            continue
+        # 变量拷贝：val 的全部赋值来源都是 tl.load
+        if isinstance(val, ast.Name) and val.id in load_vars and val.id not in other_vars:
+            continue
+        return False
     return True
 
 
@@ -1825,6 +2008,939 @@ def check_forbidden_module_wide_ops(tree):
 
 
 # ---------------------------------------------------------------------------
+# Type 6: 外包外部/参考实现检测
+# ---------------------------------------------------------------------------
+
+# 生成实现允许 import 的模块顶层名。生成代码是单文件 Triton 实现，
+# 除数值/张量库与少量标准库外不需要任何外部依赖；
+# import 其它模块（尤其是 benchmark 参考实现 kernelbench_* / src.* 任务包）
+# 等同于把计算外包给现成实现。
+ALLOWED_IMPORT_ROOTS = {
+    "torch", "torch_npu", "triton",
+    "math", "cmath", "numbers",
+    "typing", "dataclasses", "functools", "itertools", "collections",
+    "enum", "abc", "warnings", "os", "sys", "numpy",
+    "__future__",
+}
+
+# 标准库工具模块一律放行（struct/zlib/json 等不承载算子计算；
+# 真正的参考实现外包走 kernelbench_* / src.* 任务包等**非标准库**模块）。
+# 动态导入模块虽属标准库，但是动态加载机制，在子规则 2 单独拦截，不在此列。
+try:
+    _STDLIB_MODULE_NAMES = set(sys.stdlib_module_names)  # Python 3.10+
+except AttributeError:  # pragma: no cover
+    _STDLIB_MODULE_NAMES = set()
+_ALLOWED_IMPORT_ROOTS_EFFECTIVE = ALLOWED_IMPORT_ROOTS | _STDLIB_MODULE_NAMES
+
+# 模块名命中下列子串一律视为参考实现外包（与白名单叠加的硬规则）。
+_FORBIDDEN_IMPORT_NAME_PATTERNS = ("kernelbench", "reference", "baseline", "golden")
+
+# 动态导入/执行机制：单文件生成实现没有任何合法理由使用。
+# 实测样本 06/07 用动态加载 API 从文件现场加载参考实现，
+# 完全绕开 import 语句审计。
+_FORBIDDEN_DYNAMIC_BUILTIN_CALLS = {"__import__", "exec", "eval", "compile", "open"}
+_FORBIDDEN_DYNAMIC_LEAF_CALLS = {
+    "import_module", "spec_from_file_location", "module_from_spec", "exec_module",
+}
+
+
+def _root_name_of(expr):
+    """取表达式的根标识符：a.b.c() -> a；X()(...) -> X；a[0](...) -> a。"""
+    cur = expr
+    while True:
+        if isinstance(cur, ast.Name):
+            return cur.id
+        if isinstance(cur, ast.Attribute):
+            cur = cur.value
+        elif isinstance(cur, ast.Call):
+            cur = cur.func
+        elif isinstance(cur, ast.Subscript):
+            cur = cur.value
+        else:
+            return None
+
+
+def _name_roots(expr):
+    """表达式内出现的所有 Name 标识符。"""
+    return {n.id for n in ast.walk(expr) if isinstance(n, ast.Name)}
+
+
+def _target_names(tgt):
+    """赋值目标内的所有 Name 标识符（含 Tuple 解包 / Subscript 根）。"""
+    return {n.id for n in ast.walk(tgt) if isinstance(n, ast.Name)}
+
+
+def _matches_forbidden_import(mod_name):
+    low = mod_name.lower()
+    return any(p in low for p in _FORBIDDEN_IMPORT_NAME_PATTERNS)
+
+
+def _check_external_delegation(tree):
+    """检测把计算外包给外部/参考实现的行为。
+
+    四条子规则（命中其一即违规）：
+      1. import 非白名单模块，或模块名命中 kernelbench/reference/baseline/golden；
+      2. 使用动态加载/执行机制：动态导入模块、内置动态导入与执行内置函数、
+         读取外部文件、篡改模块搜索路径、
+         引用 __file__ 定位兄弟文件（实测样本 02/03/06/07 均用
+         os.path.dirname(__file__) 拼参考实现路径）；
+      3. 调用外部符号：由非白名单 import / 动态加载绑定的名字（含赋值传播），
+         覆盖 RefModel()、ref(...)、mod.Model()、RefModel()(...) 双调用；
+      4. 非 super 的 .forward() 调用：ref_model.forward(...) 即借别的
+         nn.Module 完成前向（实测样本 01/02）。
+
+    返回违规列表 [{"line": N, "call": str, "reason": str}, ...]。
+    """
+    violations = []
+    foreign = {}  # 绑定名 -> 来源描述
+
+    # --- 子规则 1: import 审计 ---
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root = alias.name.split(".")[0]
+                bound = alias.asname or root
+                if root == "importlib":
+                    violations.append({
+                        "line": node.lineno,
+                        "call": f"import {alias.name}",
+                        "reason": (
+                            "动态导入机制：生成实现没有任何合法理由使用，"
+                            "出现即意味着在现场加载外部实现（如参考 Model）规避静态审计。"
+                        ),
+                    })
+                    foreign[bound] = f"import {alias.name}"
+                elif root not in _ALLOWED_IMPORT_ROOTS_EFFECTIVE or _matches_forbidden_import(alias.name):
+                    violations.append({
+                        "line": node.lineno,
+                        "call": f"import {alias.name}",
+                        "reason": (
+                            f"import 了非白名单模块 {alias.name}。生成实现只允许 import "
+                            "torch/triton/math 等数值与标准库；导入 benchmark 参考实现"
+                            "（kernelbench_* / src.* 任务包 / reference / baseline）"
+                            "等同于把计算外包给现成实现。"
+                        ),
+                    })
+                    foreign[bound] = f"import {alias.name}"
+        elif isinstance(node, ast.ImportFrom):
+            if node.level and node.level > 0:
+                violations.append({
+                    "line": node.lineno,
+                    "call": f"from .{'.' * (node.level - 1)}{node.module or ''} import ...",
+                    "reason": (
+                        "相对导入：单文件生成实现没有包结构，相对导入只可能是在"
+                        "加载同目录的参考实现/辅助文件。"
+                    ),
+                })
+                for alias in node.names:
+                    foreign[alias.asname or alias.name] = "相对导入"
+                continue
+            mod = node.module or ""
+            root = mod.split(".")[0]
+            if root == "__future__":
+                continue
+            if root not in _ALLOWED_IMPORT_ROOTS_EFFECTIVE or _matches_forbidden_import(mod):
+                violations.append({
+                    "line": node.lineno,
+                    "call": f"from {mod} import ...",
+                    "reason": (
+                        f"从非白名单模块 {mod} 导入符号。生成实现只允许 import "
+                        "torch/triton/math 等数值与标准库；导入 benchmark 参考实现"
+                        "（kernelbench_* / src.* 任务包 / reference / baseline）"
+                        "等同于把计算外包给现成实现。"
+                    ),
+                })
+                for alias in node.names:
+                    foreign[alias.asname or alias.name] = f"from {mod} import"
+
+    # --- 子规则 2: 动态导入/执行机制 + 搜索路径篡改 + __file__ + 读文件 ---
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            f = node.func
+            if isinstance(f, ast.Name) and f.id in _FORBIDDEN_DYNAMIC_BUILTIN_CALLS:
+                violations.append({
+                    "line": node.lineno,
+                    "call": f"{f.id}(...)",
+                    "reason": (
+                        f"{f.id}() 属于动态执行/外部文件读取机制，单文件生成实现"
+                        "没有合法用途；出现即意味着在加载外部代码或外部数据"
+                        "（参考实现、预计算答案、私有输入集）。"
+                    ),
+                })
+            elif isinstance(f, ast.Attribute):
+                leaf = f.attr
+                root = _root_name_of(f.value)
+                if root == "importlib" or leaf in _FORBIDDEN_DYNAMIC_LEAF_CALLS:
+                    violations.append({
+                        "line": node.lineno,
+                        "call": f"{_expr_to_str(f)}(...)",
+                        "reason": (
+                            f"{leaf} 属于动态导入机制：生成实现没有合法理由使用，"
+                            "出现即意味着在现场加载外部实现规避静态审计。"
+                        ),
+                    })
+                q = _expr_to_str(f.value)
+                if q.startswith("sys.path") and leaf in ("insert", "append", "extend", "remove", "pop"):
+                    violations.append({
+                        "line": node.lineno,
+                        "call": f"{q}.{leaf}(...)",
+                        "reason": (
+                            "篡改模块搜索路径：唯一用途是让解释器找到"
+                            "实现文件之外的模块（参考实现/私有数据文件所在目录）。"
+                        ),
+                    })
+        elif isinstance(node, ast.Name) and node.id == "__file__" and isinstance(node.ctx, ast.Load):
+            violations.append({
+                "line": node.lineno,
+                "call": "__file__",
+                "reason": (
+                    "引用 __file__ 定位实现文件旁边的其它文件——生成实现必须是"
+                    "自包含单文件，出现 __file__ 即意味着在读取/加载兄弟文件"
+                    "（参考实现或私有输入数据）。"
+                ),
+            })
+
+    # --- 子规则 3: 外部符号传播与调用 ---
+    # 赋值传播：x = <根在外部集合里的表达式> -> x 也是外部对象
+    # （ref_model = Model()、mod = importlib.util.module_from_spec(spec) 等）
+    ext = set(foreign) | {"importlib"}
+    for _ in range(4):  # 不动点：4 轮足够覆盖常见链长
+        changed = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and _root_name_of(node.value) in ext:
+                for tgt in node.targets:
+                    for nm in _target_names(tgt):
+                        if nm not in ext:
+                            ext.add(nm)
+                            changed = True
+        if not changed:
+            break
+    ext.discard("importlib")  # 动态导入名已在子规则 2 拦截
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        root = _root_name_of(f)
+        if root in ext:
+            violations.append({
+                "line": node.lineno,
+                "call": f"{root}...(...)",
+                "reason": (
+                    f"调用外部符号 {root}（来源：{foreign.get(root, '动态加载/传播')}）。"
+                    "借外部模块的现成实现完成计算属于作弊；"
+                    "所有核心计算必须在本文件的 @triton.jit kernel 内完成。"
+                ),
+            })
+            continue
+        # --- 子规则 4: 非 super 的 .forward() 调用 ---
+        if isinstance(f, ast.Attribute) and f.attr == "forward":
+            if _root_name_of(f.value) != "super":
+                violations.append({
+                    "line": node.lineno,
+                    "call": f"{_expr_to_str(f.value)}.forward(...)",
+                    "reason": (
+                        "调用其它对象的 .forward() 即借外部 nn.Module 完成前向计算。"
+                        "ModelNew.forward() 必须自己启动 @triton.jit kernel 完成计算。"
+                    ),
+                })
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Type 9: benchmark 输入钩子劫持检测
+# ---------------------------------------------------------------------------
+
+_BENCHMARK_HOOK_NAMES = {"get_input_groups", "get_inputs"}
+
+_HOOK_RNG_CALLS = {
+    "manual_seed", "Generator", "randn", "rand", "randint",
+    "randn_like", "rand_like",
+}
+
+
+def _check_hook_hijack(tree):
+    """检测实现文件重定义 benchmark 输入生成钩子（get_input_groups/get_inputs）。
+
+    背景：benchmark 的输入必须由任务文件的 get_input_groups() 生成。实现文件
+    自带钩子会劫持输入来源——实测样本 02 从私有 JSON 读 case 并用固定种子
+    重新生成全部输入张量（连 raw_gate 语义都换掉），样本 04 返回空列表
+    让验证"零用例通过"。
+
+    判据（命中其一即违规）：
+      a) 钩子或其可达辅助函数里读外部文件（open / json.load[s]）；
+      b) 钩子里用固定种子 RNG 自行生成输入张量
+         （torch.manual_seed / torch.Generator / torch.randn 等）；
+      c) 钩子直接返回空列表/空 tuple（验证没有任何用例可跑）。
+    """
+    violations = []
+    module_funcs = {}
+    for n in tree.body:
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            module_funcs[n.name] = n
+    for hook in sorted(_BENCHMARK_HOOK_NAMES):
+        fn = module_funcs.get(hook)
+        if fn is None:
+            continue
+        reachable = _reachable_funcs(module_funcs, [hook])
+        nodes = [fn] + [module_funcs[name] for name in reachable if name in module_funcs]
+        # c) 空返回
+        for child in ast.walk(fn):
+            if (isinstance(child, ast.Return)
+                    and isinstance(child.value, (ast.List, ast.Tuple))
+                    and not child.value.elts):
+                violations.append({
+                    "line": child.lineno,
+                    "call": f"{hook}() 返回空列表",
+                    "reason": (
+                        f"{hook}() 返回空序列：验证/测速将没有任何用例可跑，"
+                        "等于 vacuous pass。输入必须由任务文件的钩子生成，"
+                        "实现文件不得重定义。"
+                    ),
+                })
+        # a)/b)
+        for fnode in nodes:
+            for child in ast.walk(fnode):
+                if not isinstance(child, ast.Call):
+                    continue
+                root = _root_name_of(child.func)
+                leaf = _call_leaf_name(child)
+                if leaf == "open" or (root == "json" and leaf in ("load", "loads")):
+                    violations.append({
+                        "line": child.lineno,
+                        "call": f"{hook}() -> {leaf}(...)",
+                        "reason": (
+                            f"{hook}() 读取外部文件生成输入，劫持 benchmark 输入来源。"
+                            "输入必须由任务文件的钩子生成，实现文件不得重定义。"
+                        ),
+                    })
+                elif root == "torch" and leaf in _HOOK_RNG_CALLS:
+                    violations.append({
+                        "line": child.lineno,
+                        "call": f"{hook}() -> torch.{leaf}(...)",
+                        "reason": (
+                            f"{hook}() 用固定种子 RNG 自行生成输入张量，"
+                            "劫持 benchmark 输入来源（可换成对实现更有利的分布）。"
+                            "输入必须由任务文件的钩子生成，实现文件不得重定义。"
+                        ),
+                    })
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Type 8: 返回值必须来自 kernel 写出（数据流检查）
+# ---------------------------------------------------------------------------
+
+# 共享底层存储的 layout 方法：kernel 写进 x.view(...) 等价于写进 x。
+# .contiguous()/.to()/.float() 可能拷出新对象，不在此列。
+_STORAGE_SHARING_METHODS = {
+    "view", "view_as", "reshape", "flatten", "unflatten",
+    "transpose", "permute", "t", "squeeze", "unsqueeze", "expand", "expand_as",
+}
+
+
+def _lhs_root_names(tgt):
+    """赋值目标的"持有名"：Name 自身；Tuple/List 逐元素；Subscript/Attribute 取根名。
+
+    （不含下标里的索引变量——buf[i] 被写不等于 i 被写。）
+    """
+    if isinstance(tgt, ast.Name):
+        return {tgt.id}
+    if isinstance(tgt, (ast.Tuple, ast.List)):
+        out = set()
+        for e in tgt.elts:
+            out |= _lhs_root_names(e)
+        return out
+    if isinstance(tgt, (ast.Attribute, ast.Subscript)):
+        r = _root_name_of(tgt)
+        return {r} if r else set()
+    if isinstance(tgt, ast.Starred):
+        return _lhs_root_names(tgt.value)
+    return set()
+
+
+def _kernel_write_params(func_node):
+    """kernel 中被 tl.store / tl.atomic_* 写入的指针参数名集合 + 全部参数名（按位次）。
+
+    实测中 kernel 很少直接 tl.store(out_ptr + ...)，而是先算局部别名
+    （out_base = out_ptr + b * stride / o_ptrs = out_ptr + offs）再经别名写出。
+    因此先做**指针别名不动点传播**：局部变量 = 含参数的表达式 -> 该局部变量
+    视为这些参数的写出通道。
+    """
+    arg_nodes = func_node.args.posonlyargs + func_node.args.args + func_node.args.kwonlyargs
+    params = [a.arg for a in arg_nodes]
+    pset = set(params)
+
+    alias_of = {}  # 局部变量名 -> 其表达式（传递地）引用的参数名集合
+    for _ in range(6):  # 不动点：6 轮足够覆盖常见别名链长
+        changed = False
+        for node in ast.walk(func_node):
+            if not isinstance(node, ast.Assign):
+                continue
+            roots = set()
+            for n in ast.walk(node.value):
+                if isinstance(n, ast.Name):
+                    if n.id in pset:
+                        roots.add(n.id)
+                    elif n.id in alias_of:
+                        roots |= alias_of[n.id]
+            if not roots:
+                continue
+            for tgt in node.targets:
+                for nm in _lhs_root_names(tgt):
+                    if nm in pset:
+                        continue
+                    merged = alias_of.get(nm, set()) | roots
+                    if merged != alias_of.get(nm):
+                        alias_of[nm] = merged
+                        changed = True
+        if not changed:
+            break
+
+    written = set()
+    for child in ast.walk(func_node):
+        if not (isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute)):
+            continue
+        f = child.func
+        if not (isinstance(f.value, ast.Name) and f.value.id == "tl"):
+            continue
+        if f.attr != "store" and not f.attr.startswith("atomic_"):
+            continue
+        if not child.args:
+            continue
+        for n in ast.walk(child.args[0]):
+            if isinstance(n, ast.Name):
+                if n.id in pset:
+                    written.add(n.id)
+                elif n.id in alias_of:
+                    written |= alias_of[n.id]
+    return written, params, alias_of
+
+
+def _compute_kernel_write_info(kernels):
+    """{kernel 名: (被写参数集合, 参数位次列表)}，支持 kernel 调用 kernel 辅助函数。
+
+    kernel 体内调用其它 @triton.jit 辅助函数时（16_iou_v2 的 tile 包装层
+    写法），辅助函数里的 tl.store 写出沿调用点实参映射回调用方的参数。
+    不动点迭代以支持多级包装。
+    """
+    info = {}
+    for name, node in kernels.items():
+        w, p, alias = _kernel_write_params(node)
+        info[name] = [set(w), p, alias]
+    for _ in range(6):
+        changed = False
+        for name, node in kernels.items():
+            wset, params, alias_of = info[name]
+            for ch in ast.walk(node):
+                if not isinstance(ch, ast.Call):
+                    continue
+                leaf = _call_leaf_name(ch)
+                if leaf not in kernels or leaf == name:
+                    continue
+                c_w, c_params, _ = info[leaf]
+                for i, arg in enumerate(ch.args):
+                    if i >= len(c_params) or c_params[i] not in c_w:
+                        continue
+                    for r in _name_roots(arg):
+                        targets = set()
+                        if r in params:
+                            targets.add(r)
+                        elif r in alias_of:
+                            targets |= alias_of[r]
+                        for t in targets:
+                            if t not in wset:
+                                wset.add(t)
+                                changed = True
+                for kw in ch.keywords:
+                    if kw.arg in c_w:
+                        for r in _name_roots(kw.value):
+                            targets = set()
+                            if r in params:
+                                targets.add(r)
+                            elif r in alias_of:
+                                targets |= alias_of[r]
+                            for t in targets:
+                                if t not in wset:
+                                    wset.add(t)
+                                    changed = True
+        if not changed:
+            break
+    return {name: (w, p) for name, (w, p, _a) in info.items()}
+
+
+def _mark_written_roots(arg_expr, out):
+    """kernel 启动实参 => 被写入的 host 侧变量名（就地写入语义）。"""
+    if isinstance(arg_expr, ast.Name):
+        out.add(arg_expr.id)
+    elif isinstance(arg_expr, (ast.Attribute, ast.Subscript)):
+        root = _root_name_of(arg_expr)
+        if root:
+            out.add(root)
+    elif isinstance(arg_expr, ast.Call):
+        # kernel 写进 x.view(...) 等价于写进 x（共享存储）；
+        # x.contiguous()/.to() 可能拷出新对象，kernel 写不到原 x，不算
+        f = arg_expr.func
+        if isinstance(f, ast.Attribute) and f.attr in _STORAGE_SHARING_METHODS:
+            root = _root_name_of(f.value)
+            if root:
+                out.add(root)
+
+
+def _func_positional_params(fnode):
+    """函数的按位次参数名列表（posonly + args + kwonly）。"""
+    return [a.arg for a in (
+        fnode.args.posonlyargs + fnode.args.args + fnode.args.kwonlyargs)]
+
+
+def _resolve_starred_args(fnode, star_name, launch_lineno):
+    """把 kernel[grid](*args) 里的 *args 解析回元组/列表字面量的元素。
+
+    实测样本（35_QuantMatmulReduceSum）的写法是
+        args = (x1r, x2t, s1c, s2c, out, B, M, N, ...)
+        _qmmrs_nz_kernel[grid](*args)
+    取该函数内 launch 行之前最后一次对该名字的元组/列表赋值。
+    找不到返回 None（放弃映射，不误报）。
+    """
+    best = None
+    for node in ast.walk(fnode):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == star_name for t in node.targets):
+            continue
+        if isinstance(node.value, (ast.Tuple, ast.List)) and node.lineno < launch_lineno:
+            if best is None or node.lineno > best.lineno:
+                best = node
+    return list(best.value.elts) if best is not None else None
+
+
+def _compute_kernel_written(tree, kernel_names):
+    """不动点计算每个 host 函数内"被 kernel 写入"的变量集合。
+
+    返回 (written, returns_written)：
+      written[fname]         —— 函数 fname 内被 kernel 写入的变量名集合
+      returns_written[fname] —— fname 的某个 return 是否携带被写入的变量
+
+    传播规则：
+      1. kernel[grid](..., out, ...) 中处于 tl.store/atomic 参数位次的实参被写；
+      2. t.copy_(s) 且 s 已写 -> t 已写；
+      3. 调用模块内函数 g，g 内部写了第 i 个参数 -> 调用点第 i 个实参被写；
+      4. LHS = <含已写变量的表达式> 或 <returns_written 的函数调用> -> LHS 已写。
+    """
+    kernels = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name in kernel_names:
+            kernels[node.name] = node
+    write_info = _compute_kernel_write_info(kernels)
+
+    # host 侧函数表（不含 kernel；同名后定义生效，与 Python 语义一致）
+    funcs = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and node.name not in kernel_names:
+            funcs[node.name] = node
+
+    written = {name: set() for name in funcs}
+    returns_written = {name: False for name in funcs}
+
+    for _ in range(12):  # 不动点：12 轮足够覆盖常见调用链
+        changed = False
+        for fname, fnode in funcs.items():
+            w = written[fname]
+            var_bindings = _collect_var_kernel_bindings(fnode, kernel_names)
+            for node in ast.walk(fnode):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Subscript):
+                    # 规则 1：kernel 启动（含 (a if c else b)[grid](...) 条件分发、
+                    # kern = a if c else b 变量绑定，候选 kernel 的写出位次取并集）
+                    pos_args = list(node.args)
+                    starred = any(isinstance(a, ast.Starred) for a in pos_args)
+                    for kname in _kernel_names_in_subscript(node.func, kernel_names, var_bindings):
+                        if kname not in write_info:
+                            continue
+                        wparams, kparams = write_info[kname]
+                        # kernel[grid](*args)：把 Starred 解析回元组字面量
+                        cur_args = pos_args
+                        if starred:
+                            expanded = []
+                            for a in pos_args:
+                                if isinstance(a, ast.Starred) and isinstance(a.value, ast.Name):
+                                    elts = _resolve_starred_args(fnode, a.value.id, node.lineno)
+                                    if elts is None:
+                                        expanded = None
+                                        break
+                                    expanded.extend(elts)
+                                else:
+                                    expanded.append(a)
+                            cur_args = expanded if expanded is not None else []
+                        for i, arg in enumerate(cur_args):
+                            if i < len(kparams) and kparams[i] in wparams:
+                                before = len(w)
+                                _mark_written_roots(arg, w)
+                                changed = changed or len(w) != before
+                        for kw in node.keywords:
+                            if kw.arg in wparams:
+                                before = len(w)
+                                _mark_written_roots(kw.value, w)
+                                changed = changed or len(w) != before
+                    continue
+                if isinstance(node, ast.Call):
+                    f = node.func
+                    # 规则 2：copy_ 传播
+                    if isinstance(f, ast.Attribute) and f.attr == "copy_" and node.args:
+                        if _name_roots(node.args[0]) & w:
+                            r = _root_name_of(f.value)
+                            if r and r not in w:
+                                w.add(r)
+                                changed = True
+                    # 规则 3：跨函数参数写入映射
+                    leaf = _call_leaf_name(node)
+                    if leaf in funcs and leaf != fname:
+                        gparams = _func_positional_params(funcs[leaf])
+                        if gparams and gparams[0] == "self":
+                            gparams = gparams[1:]
+                        gw = written[leaf]
+                        for i, arg in enumerate(node.args):
+                            if i < len(gparams) and gparams[i] in gw:
+                                before = len(w)
+                                _mark_written_roots(arg, w)
+                                changed = changed or len(w) != before
+                # 规则 4：赋值传播
+                if isinstance(node, ast.Assign):
+                    rhs = node.value
+                    hit = bool(_name_roots(rhs) & w)
+                    if not hit and isinstance(rhs, ast.Call):
+                        leaf = _call_leaf_name(rhs)
+                        if leaf in funcs and returns_written[leaf]:
+                            hit = True
+                    if hit:
+                        for tgt in node.targets:
+                            for nm in _target_names(tgt):
+                                if nm not in w:
+                                    w.add(nm)
+                                    changed = True
+                    # 规则 4b：共享存储的反向传播——outf = out.reshape(...)
+                    # 且 outf 已被 kernel 写 -> out 也被写（view 与源共享存储）。
+                    # 只认 _STORAGE_SHARING_METHODS；.contiguous()/.to() 可能
+                    # 拷出新对象，不做反向传播（样本 01 靠这个区分 Of 与 output）。
+                    if isinstance(rhs, ast.Call) and isinstance(rhs.func, ast.Attribute) \
+                            and rhs.func.attr in _STORAGE_SHARING_METHODS:
+                        src = _root_name_of(rhs.func.value)
+                        if src and src not in w:
+                            lhs_names = set()
+                            for tgt in node.targets:
+                                lhs_names |= _target_names(tgt)
+                            if lhs_names & w:
+                                w.add(src)
+                                changed = True
+                elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                    if _name_roots(node.value) & w and isinstance(node.target, ast.Name) \
+                            and node.target.id not in w:
+                        w.add(node.target.id)
+                        changed = True
+            # returns_written：本函数的 return 是否携带已写变量
+            for node in ast.walk(fnode):
+                if isinstance(node, ast.Return) and node.value is not None:
+                    if _name_roots(node.value) & w and not returns_written[fname]:
+                        returns_written[fname] = True
+                        changed = True
+        if not changed:
+            break
+    return written, returns_written
+
+
+def _const_placeholder_tensors(forward_node):
+    """forward 中由 torch.empty/zeros/ones/full 分配的**零元素**占位张量名。
+
+    认两种写法：形状参数全是字面常量（torch.empty(0, ...)），或形状元组里
+    含常量 0（torch.empty(0, H, P, N)——任一维为 0 即零元素张量，其余维度
+    是什么都无所谓）。用于放行 FA 类算子返回值里的 API 兼容空张量
+    （reserved / softmax_lse）。
+    形状全由变量构成且不含 0 的分配（torch.zeros(B, T, ...)）不在此列——
+    把变量形状的常量填充 buffer 当输出返回正是作弊形态（样本 04）。
+    """
+    def _zero_numel_shape(e):
+        if isinstance(e, ast.Constant):
+            return e.value == 0
+        if isinstance(e, (ast.Tuple, ast.List)):
+            return any(_zero_numel_shape(x) for x in e.elts)
+        return False
+
+    def _all_const(e):
+        if isinstance(e, ast.Constant):
+            return True
+        if isinstance(e, (ast.Tuple, ast.List)):
+            return all(_all_const(x) for x in e.elts)
+        return False
+
+    def _is_placeholder_call(v):
+        if not isinstance(v, ast.Call):
+            return False
+        resolved = _resolve_call_name(v)
+        if not resolved or resolved[0] != "torch" \
+                or resolved[1] not in ("empty", "zeros", "ones", "full"):
+            return False
+        return bool(v.args) and (_all_const(v.args[0]) or _zero_numel_shape(v.args[0]))
+
+    names = set()
+    for node in ast.walk(forward_node):
+        if not isinstance(node, ast.Assign):
+            continue
+        v = node.value
+        is_ph = _is_placeholder_call(v)
+        if not is_ph and isinstance(v, ast.IfExp):
+            # dz = torch.empty_like(z) if has_z else torch.empty(0, ...)
+            is_ph = _is_placeholder_call(v.body) or _is_placeholder_call(v.orelse)
+        if is_ph:
+            for tgt in node.targets:
+                names |= _lhs_root_names(tgt)
+    return names
+
+
+def _meta_like_names(forward_node, fwd_params):
+    """forward 中的标量/元信息变量名（形状 int、device、dtype、bool 开关等）。
+
+    种子：常数、对入参的元信息访问（.shape/.size()/.stride()/.device/.dtype/
+    .numel()/.dim() 等）、int/float/bool/str/len 强转；传播：这些名字的
+    算术/比较/解包赋值。用于放行早退分支（if B == 0: return value.view(
+    batch_size, ...)）和零维占位张量里的形状变量——它们是元信息不是数据。
+    """
+    meta = set()
+    for _ in range(8):  # 不动点
+        changed = False
+        for node in ast.walk(forward_node):
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            value = node.value
+            if value is None:
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            hit = False
+            if isinstance(value, ast.Constant):
+                hit = True
+            elif isinstance(value, ast.Attribute):
+                # x.shape / x.device / x.dtype（x 为入参或元信息根）
+                r = _root_name_of(value)
+                if r in fwd_params or r in meta:
+                    hit = True
+            elif isinstance(value, ast.Call):
+                f = value.func
+                if isinstance(f, ast.Name) and f.id in ("int", "float", "bool", "str", "len"):
+                    hit = True
+                elif isinstance(f, ast.Attribute) and f.attr in (
+                        "size", "numel", "dim", "stride", "shape", "element_size",
+                        "is_contiguous", "get_device"):
+                    r = _root_name_of(f.value)
+                    if r in fwd_params or r in meta:
+                        hit = True
+                else:
+                    # triton.cdiv / next_power_of_2 / min / max 等作用于元信息的调用
+                    r = _root_name_of(f)
+                    if r in ("triton", "math", "builtins"):
+                        hit = True
+                    elif isinstance(f, ast.Name) and f.id in ("min", "max", "abs", "round"):
+                        hit = True
+            elif isinstance(value, ast.Subscript):
+                # x.shape[0] / q_st[1]（q_st 已是元信息）
+                r = _root_name_of(value)
+                if r in meta:
+                    hit = True
+                elif r in fwd_params and isinstance(value.value, ast.Attribute) \
+                        and value.value.attr in ("shape",):
+                    hit = True
+            elif isinstance(value, (ast.BoolOp, ast.Compare, ast.UnaryOp)):
+                # 比较/布尔/取负的结果是 bool/int 标量，与张量还是元信息无关
+                roots = _name_roots(value)
+                if roots <= (meta | fwd_params | {"True", "False"}) or not roots:
+                    hit = True
+            elif isinstance(value, (ast.BinOp, ast.IfExp)):
+                # 算术/三元表达式只传播元信息——操作数含入参张量时结果是张量，
+                # 不能标成元信息（否则 host 侧 x * 2 后 return 会逃逸）
+                roots = _name_roots(value)
+                if roots and roots <= meta:
+                    hit = True
+                elif not roots:
+                    hit = True
+            if hit:
+                for tgt in targets:
+                    for nm in _lhs_root_names(tgt):
+                        if nm not in meta:
+                            meta.add(nm)
+                            changed = True
+        if not changed:
+            break
+    return meta
+
+
+def _check_output_from_kernel(tree, forward_node, kernel_names):
+    """数据流检查：forward() 返回的每个张量必须（传递地）来自被 kernel 写入的 buffer。
+
+    这是"外包参考实现"类作弊的语义兜底：无论作弊者把真实计算藏在 import、
+    helper 还是 host torch 调用里，只要 forward() 返回的张量在数据流上不依赖
+    任何被 kernel tl.store/atomic 写入的 buffer，kernel 就是纯摆设。
+
+    放行规则（避免误伤）：
+      - 返回元素为常量/None（无变量根）——跳过；
+      - 返回元素至少一个变量根 ∈ 被 kernel 写入集合——放行；
+      - 返回元素是（或包含）对模块内 helper 的调用，且 helper 的返回值
+        携带 kernel 写出（return _lstm_forward(...) 形态）——放行；
+      - 返回元素的全部变量根都是 forward 入参（如 use_initial_state=False 时
+        直接回传 initial_state）——放行；
+      - 返回元素的未知根全是常数形状占位张量（torch.empty(0) 等 API 兼容位），
+        且同一条 return 里已有 kernel 写出的主输出——放行；
+      - 其余（根变量既不是 kernel 写出、也不是入参，如 ref 调用的结果、
+        host torch 计算结果、变量形状的 torch.zeros 常量填充）——违规。
+
+    已知盲区（由 Type 4/6/10 兜底）：返回 f(q) 且 q 同时被占位 kernel 写过
+    （实测样本 06 的 _pkernel 往输入 q 里拷贝自身）。
+    """
+    if forward_node is None:
+        return []
+    written, returns_written = _compute_kernel_written(tree, kernel_names)
+    fwd_written = written.get(forward_node.name, set())
+    fwd_params = set(_func_positional_params(forward_node)) - {"self"}
+    const_placeholders = _const_placeholder_tensors(forward_node)
+    meta_like = _meta_like_names(forward_node, fwd_params)
+
+    # 模块名不是数据根：torch.empty_like(x) 里的 torch 不该参与判定
+    module_roots = {"torch", "triton", "tl", "math", "np", "numpy", "os", "sys"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                module_roots.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                module_roots.add(alias.asname or alias.name)
+
+    def _elt_has_kernel_output(elt):
+        if _name_roots(elt) & fwd_written:
+            return True
+        for n in ast.walk(elt):
+            if isinstance(n, ast.Call):
+                leaf = _call_leaf_name(n)
+                if leaf and returns_written.get(leaf):
+                    return True
+        return False
+
+    violations = []
+    for node in ast.walk(forward_node):
+        if not (isinstance(node, ast.Return) and node.value is not None):
+            continue
+        elts = node.value.elts if isinstance(node.value, ast.Tuple) else [node.value]
+        has_kernel_main = any(_elt_has_kernel_output(e) for e in elts)
+        for elt in elts:
+            roots = _name_roots(elt) - {"self"} - module_roots
+            if not roots:
+                continue  # 常量 / None / 内联 torch.empty(0) 等纯模块调用
+            if _elt_has_kernel_output(elt):
+                continue
+            unknown = roots - fwd_params
+            if not unknown:
+                continue  # 全部来自入参（如回传 initial_state / 早退分支回传 value 的变形）
+            if unknown <= meta_like:
+                # 未知根全是形状 int/device/bool 等元信息，且张量主体来自入参或
+                # kernel（roots 里已有 param/written），如早退分支
+                # return value.transpose(...).view(batch_size, ...)
+                if roots & (fwd_params | fwd_written):
+                    continue
+                # 纯元信息元素只有在其同一条 return 已有 kernel 主输出时才放行
+                if has_kernel_main:
+                    continue
+            if has_kernel_main and unknown <= const_placeholders:
+                continue  # API 兼容的空占位张量（reserved / softmax_lse）
+            violations.append({
+                "line": getattr(elt, "lineno", node.lineno),
+                "call": f"return 元素 ({', '.join(sorted(unknown))})",
+                "reason": (
+                    "forward() 的返回值在数据流上不依赖任何被 kernel 写入的 "
+                    "buffer——kernel 的计算结果没有进入返回值，真实结果来自 "
+                    "kernel 之外的路径（参考实现外包 / host 侧 torch 计算 / "
+                    "常量填充）。forward() 必须返回由 @triton.jit kernel "
+                    "写出的张量。"
+                ),
+            })
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Type 10: 诱饵 kernel 检测（定义了但从生效的 forward 不可达）
+# ---------------------------------------------------------------------------
+
+def _reachable_kernels(tree, forward_node, kernel_names, wrapper_names):
+    """从生效的 forward() 出发可达的 kernel 集合。
+
+    可达路径：
+      - forward() 及其**整条 host 侧调用链**（wrapper 调 wrapper 也算）里的
+        kernel[grid](...) 启动，包括 `(kern_a if cond else kern_b)[grid](...)`
+        条件分发写法；
+      - kernel 体内以普通调用形式使用其它 @triton.jit 函数（Triton 的
+        kernel 辅助函数惯用法），沿 kernel→kernel 调用链传播。
+    """
+    if forward_node is None:
+        return set()
+    # host 侧：forward + 全部可达辅助函数里的 kernel 启动
+    host_funcs = [forward_node] + [
+        fnode for _, fnode in collect_reachable_funcs(tree, forward_node, kernel_names)]
+    stack = []
+    for fnode in host_funcs:
+        bindings = _collect_var_kernel_bindings(fnode, kernel_names)
+        for node in ast.walk(fnode):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Subscript):
+                stack.extend(_kernel_names_in_subscript(node.func, kernel_names, bindings))
+
+    # kernel -> kernel 调用链（kernel 辅助函数）
+    funcs = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            funcs[node.name] = node
+    reachable = set()
+    while stack:
+        name = stack.pop()
+        if name in reachable or name not in kernel_names:
+            continue
+        reachable.add(name)
+        knode = funcs.get(name)
+        if knode is None:
+            continue
+        for node in ast.walk(knode):
+            if isinstance(node, ast.Call):
+                leaf = _call_leaf_name(node)
+                if leaf in kernel_names and leaf not in reachable:
+                    stack.append(leaf)
+    return reachable
+
+
+def _check_no_decoy_kernels_filled(result, tree, forward_node, kernel_names, wrapper_names):
+    """填充 no_decoy_kernels 检查（Type 10）；返回 passed。
+
+    单文件生成实现中，任何 @triton.jit kernel 都应服务于 forward 的计算路径。
+    定义了却完全不可达的 kernel 只有两种可能：迭代残留（应删除），或故意
+    放的诱饵——让文件"看起来很 Triton"，骗过人工审查与只看"是否存在像样
+    kernel"的静态检查（实测样本 02/07：诱饵 kernel 内含未定义名
+    b_off_none / v_cont，证明从未真正编译运行）。
+    """
+    reachable = _reachable_kernels(tree, forward_node, kernel_names, wrapper_names)
+    decoys = sorted(kernel_names - reachable)
+    check = result["checks"]["no_decoy_kernels"]
+    check["decoys"] = decoys
+
+    if not decoys:
+        check["passed"] = True
+        return True
+
+    check["error"] = (
+        f"发现 {len(decoys)} 个从 forward() 不可达的 kernel（疑似诱饵）: {decoys}"
+    )
+    result["regression_type"] = 10
+    result["suggestion"] = (
+        f"kernel {decoys} 已定义但从生效的 forward() 出发（含 wrapper 与 "
+        "kernel 体内的辅助函数调用）完全不可达。单文件生成实现中不可达 kernel "
+        "没有合法用途：要么是迭代残留（请删除），要么是用来撑门面的诱饵。"
+        "保留任何 kernel 都必须让它真正参与 forward 的计算路径。"
+    )
+    return False
+
+
+# ---------------------------------------------------------------------------
 # 主验证逻辑
 # ---------------------------------------------------------------------------
 
@@ -1834,13 +2950,18 @@ def _empty_result(filepath):
         "filepath": filepath,
         "checks": {
             "triton_kernel_exists": {"passed": False, "kernels": [], "error": None},
+            "no_shadow_definitions": {"passed": False, "duplicates": {}, "error": None},
             "kernel_called_from_forward": {"passed": False, "called": [], "error": None},
             "no_forbidden_module_wide_ops": {"passed": False, "violations": [], "error": None},
             "kernel_not_placeholder": {"passed": False, "placeholders": [], "error": None},
+            "no_decoy_kernels": {"passed": False, "decoys": [], "error": None},
+            "no_external_delegation": {"passed": False, "violations": [], "error": None},
+            "no_hook_hijack": {"passed": False, "violations": [], "error": None},
             "no_dynamic_attr_evasion": {"passed": False, "violations": [], "error": None},
             "no_host_math_fallback": {"passed": False, "violations": [], "error": None},
             "no_host_sync_risk": {"passed": False, "violations": [], "error": None},
             "no_forbidden_torch_ops": {"passed": False, "violations": [], "error": None},
+            "output_from_kernel": {"passed": False, "violations": [], "error": None},
         },
         "regression_type": None,
         "suggestion": "",
@@ -1989,7 +3110,7 @@ def _check_kernel_not_placeholder(result, tree, kernel_names, called_names):
     placeholders = []
     for name in called:
         node = kernels.get(name)
-        if node is not None and kernel_is_placeholder(node):
+        if node is not None and kernel_is_placeholder(node, kernel_map=kernels):
             placeholders.append(name)
     result["checks"]["kernel_not_placeholder"]["placeholders"] = placeholders
 
@@ -2094,6 +3215,110 @@ def _check_no_host_sync_risk(result, code, forward_node, kernel_names):
     return False
 
 
+def _check_no_shadow_definitions_filled(result, tree):
+    """填充 no_shadow_definitions 检查（Type 7）；返回 passed。"""
+    duplicates = _find_shadow_definitions(tree)
+    result["checks"]["no_shadow_definitions"]["duplicates"] = duplicates
+
+    if not duplicates:
+        result["checks"]["no_shadow_definitions"]["passed"] = True
+        return True
+
+    details = "; ".join(
+        f"{name} 定义于第 {', '.join(str(line) for line in lines)} 行"
+        for name, lines in sorted(duplicates.items())
+    )
+    result["checks"]["no_shadow_definitions"]["error"] = (
+        f"模块顶层存在 {len(duplicates)} 个重复定义: {details}"
+    )
+    result["regression_type"] = 7
+    result["suggestion"] = (
+        f"检测到影子定义: {details}。同名类/函数重复定义时 Python 只有后定义的生效——"
+        "这是让'被检测的代码'（前一个，含 kernel 启动）与'生效的代码'"
+        "（后一个，纯 PyTorch / 委托参考实现）分离的典型作弊手法。"
+        "每个类/函数只保留一个定义。"
+    )
+    return False
+
+
+def _check_no_external_delegation_filled(result, tree):
+    """填充 no_external_delegation 检查（Type 6）；返回 passed。"""
+    violations = _check_external_delegation(tree)
+    result["checks"]["no_external_delegation"]["violations"] = violations
+
+    if not violations:
+        result["checks"]["no_external_delegation"]["passed"] = True
+        return True
+
+    result["checks"]["no_external_delegation"]["error"] = (
+        f"检测到 {len(violations)} 处外部/参考实现外包（动态导入、非白名单 import、"
+        "外部符号调用、非 super 的 .forward() 调用）"
+    )
+    violation_details = "; ".join(
+        f"第{v['line']}行 {v['call']}" for v in violations[:5]
+    )
+    result["regression_type"] = 6
+    result["suggestion"] = (
+        f"生成实现把计算外包给外部/参考实现: {violation_details}。"
+        "实现必须是自包含单文件：只允许 import torch/triton/math 等白名单模块，"
+        "禁止通过动态加载机制执行未知代码，禁止篡改搜索路径或 "
+        "用 __file__ 定位兄弟文件，禁止调用参考实现的 Model/forward。"
+        "所有核心计算必须在本文件的 @triton.jit kernel 内完成。"
+    )
+    return False
+
+
+def _check_no_hook_hijack_filled(result, tree):
+    """填充 no_hook_hijack 检查（Type 9）；返回 passed。"""
+    violations = _check_hook_hijack(tree)
+    result["checks"]["no_hook_hijack"]["violations"] = violations
+
+    if not violations:
+        result["checks"]["no_hook_hijack"]["passed"] = True
+        return True
+
+    result["checks"]["no_hook_hijack"]["error"] = (
+        f"检测到 {len(violations)} 处 benchmark 输入钩子劫持"
+    )
+    violation_details = "; ".join(
+        f"第{v['line']}行 {v['call']}" for v in violations[:5]
+    )
+    result["regression_type"] = 9
+    result["suggestion"] = (
+        f"实现文件重定义了 benchmark 输入钩子: {violation_details}。"
+        "输入必须由任务文件的 get_input_groups()/get_inputs() 生成；"
+        "实现文件不得自行读外部文件、用固定种子 RNG 重新生成输入，"
+        "也不得返回空用例列表。请从实现文件中删除这些钩子。"
+    )
+    return False
+
+
+def _check_output_from_kernel_filled(result, tree, forward_node, kernel_names):
+    """填充 output_from_kernel 检查（Type 8）；返回 passed。"""
+    violations = _check_output_from_kernel(tree, forward_node, kernel_names)
+    result["checks"]["output_from_kernel"]["violations"] = violations
+
+    if not violations:
+        result["checks"]["output_from_kernel"]["passed"] = True
+        return True
+
+    result["checks"]["output_from_kernel"]["error"] = (
+        f"forward() 有 {len(violations)} 个返回元素在数据流上不依赖任何 "
+        "被 kernel 写入的 buffer"
+    )
+    violation_details = "; ".join(
+        f"第{v['line']}行 {v['call']}" for v in violations[:5]
+    )
+    result["regression_type"] = 8
+    result["suggestion"] = (
+        f"kernel 的计算结果没有进入返回值: {violation_details}。"
+        "forward() 必须返回由 @triton.jit kernel 通过 tl.store/atomic 写出的张量"
+        "（或其 view/reshape 等共享存储的变换）。"
+        "参考实现外包、host 侧 torch 计算、返回常量填充的 buffer 都会被此检查拦截。"
+    )
+    return False
+
+
 def validate(code, filepath="<unknown>"):
     """对生成代码执行完整的退化检查。
 
@@ -2117,6 +3342,12 @@ def validate(code, filepath="<unknown>"):
     if not ok:
         return result
 
+    # 影子定义检查（Type 7）必须先于 forward 分析：重复定义会让
+    # "被检测的代码"与"生效的代码"分离（find_model_new_forward 已按
+    # Python 语义取后定义，但重复定义本身就是作弊信号，直接判失败）。
+    if not _check_no_shadow_definitions_filled(result, tree):
+        return result
+
     ok, forward_node, wrapper_names = _check_forward_calls_kernel(result, tree, kernel_names)
     if not ok:
         return result
@@ -2128,6 +3359,20 @@ def validate(code, filepath="<unknown>"):
 
     if not _check_kernel_not_placeholder(result, tree, kernel_names,
                                          result["checks"]["kernel_called_from_forward"].get("called")):
+        return result
+
+    # 诱饵 kernel 检查（Type 10）：定义了但从生效 forward 不可达的 kernel
+    # 是"被检代码 ≠ 生效代码"的帮凶，紧接占位检查之后拦截。
+    if not _check_no_decoy_kernels_filled(result, tree, forward_node, kernel_names, wrapper_names):
+        return result
+
+    # 外部/参考实现外包检查（Type 6）：作弊样本的主路径——import 参考实现、
+    # 动态加载、调用外部 Model/forward。早于 forward 级检查暴露。
+    if not _check_no_external_delegation_filled(result, tree):
+        return result
+
+    # benchmark 输入钩子劫持检查（Type 9）。
+    if not _check_no_hook_hijack_filled(result, tree):
         return result
 
     # 动态属性规避检查：必须早于其它 PyTorch 入口检查——被 getattr 混淆过的
@@ -2146,6 +3391,12 @@ def validate(code, filepath="<unknown>"):
         return result
 
     if not _check_no_forbidden_ops(result, forward_node, kernel_names, wrapper_names, tree):
+        return result
+
+    # 数据流检查（Type 8）放在最后：它是语义兜底——无论真实计算被藏在
+    # import、helper 还是 host torch 调用里，只要返回值不来自 kernel 写出
+    # 就判失败。放在最后保证它看到的是全部前置检查都"合规"的代码。
+    if not _check_output_from_kernel_filled(result, tree, forward_node, kernel_names):
         return result
 
     result["valid"] = True
@@ -2180,16 +3431,23 @@ def _emit_pass(result):
     )
     logger.info("  - forward() 调用: %s", ", ".join(called))
     logger.info("  - forward() 中无禁止的 PyTorch 计算操作")
+    logger.info("  - 无外部/参考实现外包（import 白名单、无动态导入、无外部符号调用）")
+    logger.info("  - 无 benchmark 输入钩子劫持")
     logger.info("  - 无 host 侧三角函数/超越函数调用")
     logger.info("  - 无 host 侧 D2H 同步/数据依赖标量风险")
+    logger.info("  - 无诱饵 kernel（所有 kernel 均可达）")
+    logger.info("  - forward() 返回值均来自 kernel 写出的 buffer")
 
 
 # _emit_fail 中需要逐条展开违规详情的检查项（同时决定展开顺序）
 _VIOLATION_DETAIL_CHECKS = (
     "no_forbidden_module_wide_ops",
+    "no_external_delegation",
+    "no_hook_hijack",
     "no_host_math_fallback",
     "no_host_sync_risk",
     "no_forbidden_torch_ops",
+    "output_from_kernel",
 )
 
 
@@ -2199,7 +3457,12 @@ def _emit_fail(result):
         1: "完全无 Triton kernel（纯 PyTorch）",
         2: "有 Triton kernel 但 forward() 未调用",
         3: "部分计算使用 PyTorch（需全部移入 Triton kernel；含 forward 可达的辅助函数）",
-        4: "只有占位 kernel（只做 load/store 搬运，为通过检测而伪造 Triton 调用）",
+        4: "只有占位 kernel（无写出 / 写常量 / 纯 load-store 搬运，为通过检测而伪造 Triton 调用）",
+        6: "外包外部/参考实现（非白名单 import、动态导入、调用参考 Model/forward）",
+        7: "影子定义（同名类/函数重复定义，被检代码与生效代码分离）",
+        8: "forward() 返回值不来自 kernel 写出（kernel 结果未进入返回值）",
+        9: "benchmark 输入钩子劫持（重定义 get_input_groups/get_inputs）",
+        10: "诱饵 kernel（定义了但从生效的 forward() 不可达）",
     }
     logger.info("[FAIL] 检测到 PyTorch 退化 — Type %s: %s", rtype, type_desc.get(rtype, "未知"))
 

@@ -21,6 +21,7 @@
     python verify.py --op_name <算子名> [--verify_dir <验证目录>] [--timeout <超时秒数>]
                      [--fresh-cache [--keep-cache]]
 """
+
 import argparse
 import gc
 import importlib
@@ -49,12 +50,14 @@ except ImportError:
 ERROR_MSG_LIMIT = 2000
 
 REQUIRED_MATCHED_RATIO = 0.9
+# golden 优先落在 CPU；CPU 跑不起来时回退到 NPU
+GOLDEN_DEVICE_CPU = "cpu"
 
 # allclose 判定阈值 (atol, rtol)：|actual - golden| <= atol + rtol * |golden|
 ALLCLOSE_TOLS_STR = {
-    "float32": (1e-3, 2**(-13)),  # 2**(-13)=1.220703125e-4
-    "float16": (9e-2, 2**(-10)),  # 2**(-10)=9.765625e-4
-    "bfloat16": (1e-1, 2**(-7)),  # 2**(-7)=7.8125e-3
+    "float32": (1e-3, 2 ** (-13)),  # 2**(-13)=1.220703125e-4
+    "float16": (9e-2, 2 ** (-10)),  # 2**(-10)=9.765625e-4
+    "bfloat16": (1e-1, 2 ** (-7)),  # 2**(-7)=7.8125e-3
 }
 ALLCLOSE_DEFAULT_TOLS = ALLCLOSE_TOLS_STR["float32"]
 
@@ -85,6 +88,7 @@ except ImportError:  # pragma: no cover - 探针缺失时禁用该检查
 @dataclass
 class CaseContext:
     """单个测试用例在整体序列中的定位（1-based）。"""
+
     case_idx: int
     total_cases: int
 
@@ -92,6 +96,7 @@ class CaseContext:
 @dataclass
 class _CompareCtx:
     """compare() 分流到各类判定时共享的输出/输入元信息（仅用于日志与 metrics）。"""
+
     data_type: object
     input_type: object
     input_dtype: object
@@ -101,14 +106,17 @@ class _CompareCtx:
 
 @dataclass
 class ModelPair:
-    """framework / impl 模型成对。"""
+    """framework / impl 模型成对，并记录 golden 实际所在的 device。"""
+
     framework: object
     impl: object
+    golden_device: object = None
 
 
 @dataclass
 class InputSpec:
     """compare() 的输入侧描述：输入类型与最高精度 dtype（由 _infer_input_type 推断）。"""
+
     input_type: object = None
     input_dtype: object = None
 
@@ -116,6 +124,7 @@ class InputSpec:
 @dataclass
 class VerifyOptions:
     """verify_implementations 的可选开关，聚合成一个对象避免参数个数膨胀。"""
+
     triton_impl_name: str = "triton_ascend_impl"
     output_path: object = None
     non_compute: bool = False
@@ -128,12 +137,14 @@ class VerifyOptions:
 
 # 确保同目录下的 _log_utils 可被导入（脚本可能从其他工作目录调用）
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _log_utils import setup_logger as _setup_logger_shared  # noqa: E402	 
+from _log_utils import setup_logger as _setup_logger_shared  # noqa: E402
 from _common_utils import describe_input as _describe_input_shared  # noqa: E402
 from _common_utils import move_to_device as _move_to_device  # noqa: E402
 from _common_utils import collect_environment as _collect_environment  # noqa: E402
 from _common_utils import detect_cache_override as _detect_cache_override  # noqa: E402
 from npu_preflight import load_preflight_options, run_preflight, write_preflight_result  # noqa: E402
+from eco_limits import REQUIRED_MATCHED_RATIO as ECO_MATCHED_RATIO  # noqa: E402
+from eco_limits import ULP_FACTOR, eco_supports, elementwise_limit, get_eco_tols  # noqa: E402
 
 logger = logging.getLogger("triton_op_verifier.verify")
 
@@ -161,10 +172,13 @@ def cleanup_npu_memory():
     try:
         import torch
         import torch_npu  # noqa: F401
+
         torch.npu.empty_cache()
     except Exception as e:
         # 例外：非 NPU 环境或 torch_npu 不可用时清理无意义，仅记录调试信息，不影响主流程
-        logger.debug("跳过 NPU 显存清理（环境不支持 torch_npu）: %s: %s", type(e).__name__, e)
+        logger.debug(
+            "跳过 NPU 显存清理（环境不支持 torch_npu）: %s: %s", type(e).__name__, e
+        )
     gc.collect()
 
 
@@ -192,34 +206,40 @@ def get_limits(data_type):
 
     # 字符串映射（用于 HiFloat32 或其他自定义类型）
     str_to_limits = {
-        "float16": (2**(-11), 2**(-16), 2**(-10)),
-        "bfloat16": (2**(-8), 2**(-16), 2**(-7)),
-        "float32": (2**(-14), 2**(-30), 2**(-13)),
-        "hifloat32": (2**(-12), 2**(-28), 2**(-11)),
-        "float8_e4m3": (2**(-4), 2**(-6), 2**(-3)),
-        "float8_e5m2": (2**(-3), 2**(-5), 2**(-2)),
-        "fp8_e4m3": (2**(-4), 2**(-6), 2**(-3)),
-        "fp8_e5m2": (2**(-3), 2**(-5), 2**(-2)),
+        "float16": (2 ** (-11), 2 ** (-16), 2 ** (-10)),
+        "bfloat16": (2 ** (-8), 2 ** (-16), 2 ** (-7)),
+        "float32": (2 ** (-14), 2 ** (-30), 2 ** (-13)),
+        "hifloat32": (2 ** (-12), 2 ** (-28), 2 ** (-11)),
+        "float8_e4m3": (2 ** (-4), 2 ** (-6), 2 ** (-3)),
+        "float8_e5m2": (2 ** (-3), 2 ** (-5), 2 ** (-2)),
+        "fp8_e4m3": (2 ** (-4), 2 ** (-6), 2 ** (-3)),
+        "fp8_e5m2": (2 ** (-3), 2 ** (-5), 2 ** (-2)),
     }
     if isinstance(data_type, str):
-        return str_to_limits.get(data_type.lower(), (2**(-14), 2**(-30), 2**(-13)))
+        return str_to_limits.get(
+            data_type.lower(), (2 ** (-14), 2 ** (-30), 2 ** (-13))
+        )
 
     # torch.dtype 映射
     dtype_limits_map = {
-        torch.float16: (2**(-11), 2**(-16), 2**(-10)),
-        torch.bfloat16: (2**(-8), 2**(-16), 2**(-7)),
-        torch.float32: (2**(-14), 2**(-30), 2**(-13)),
+        torch.float16: (2 ** (-11), 2 ** (-16), 2 ** (-10)),
+        torch.bfloat16: (2 ** (-8), 2 ** (-16), 2 ** (-7)),
+        torch.float32: (2 ** (-14), 2 ** (-30), 2 ** (-13)),
     }
 
-    float8_e4m3 = getattr(torch, 'float8_e4m3fn', None) or getattr(torch, 'float8_e4m3', None)
+    float8_e4m3 = getattr(torch, "float8_e4m3fn", None) or getattr(
+        torch, "float8_e4m3", None
+    )
     if float8_e4m3 is not None:
-        dtype_limits_map[float8_e4m3] = (2**(-4), 2**(-6), 2**(-3))
+        dtype_limits_map[float8_e4m3] = (2 ** (-4), 2 ** (-6), 2 ** (-3))
 
-    float8_e5m2 = getattr(torch, 'float8_e5m2fn', None) or getattr(torch, 'float8_e5m2', None)
+    float8_e5m2 = getattr(torch, "float8_e5m2fn", None) or getattr(
+        torch, "float8_e5m2", None
+    )
     if float8_e5m2 is not None:
-        dtype_limits_map[float8_e5m2] = (2**(-3), 2**(-5), 2**(-2))
+        dtype_limits_map[float8_e5m2] = (2 ** (-3), 2 ** (-5), 2 ** (-2))
 
-    return dtype_limits_map.get(data_type, (2**(-14), 2**(-30), 2**(-13)))
+    return dtype_limits_map.get(data_type, (2 ** (-14), 2 ** (-30), 2 ** (-13)))
 
 
 def get_allclose_tols(data_type):
@@ -252,6 +272,7 @@ def get_allclose_tols(data_type):
 def _is_integer_dtype(dtype):
     """判断 torch.dtype 是否为整数类型（不含 bool / 不含浮点 / 不含复数）。"""
     import torch
+
     if dtype == torch.bool:
         return False
     return (not dtype.is_floating_point) and (not dtype.is_complex)
@@ -263,6 +284,7 @@ def _build_dtype_rank():
     顺序：fp64 > fp32 > fp16 > bf16 > fp8 > int64 > int32 > int16 > int8 > bool
     """
     import torch
+
     rank = {
         torch.float64: 100,
         torch.float32: 90,
@@ -295,6 +317,7 @@ def _dtype_rank(dtype):
 def _is_int_like_dtype(dtype):
     """判断 dtype 属于"整型类"输入（含 bool；不含浮点/复数）。"""
     import torch
+
     if dtype is None:
         return False
     if dtype == torch.bool:
@@ -305,6 +328,7 @@ def _is_int_like_dtype(dtype):
 def _is_tensor_list(x):
     """判断 x 是否为非空、且元素全为 torch.Tensor 的 list/tuple。"""
     import torch
+
     if not isinstance(x, (list, tuple)) or len(x) == 0:
         return False
     return all(isinstance(e, torch.Tensor) for e in x)
@@ -321,6 +345,7 @@ def _infer_input_type(inputs):
     bool 输入归到 "int" 类（按规则：bool 输出单独处理；bool 输入与 int 同等对待）。
     """
     import torch
+
     tensors = [x for x in inputs if isinstance(x, torch.Tensor)]
     source = None
     candidate_dtypes = []
@@ -356,14 +381,13 @@ def resolve_input_provider(torch_module):
     elif hasattr(torch_module, "get_inputs"):
         return [torch_module.get_inputs()], 1
     else:
-        raise AttributeError(
-            f"模块必须提供 get_inputs() 或 get_input_groups() 方法"
-        )
+        raise AttributeError("模块必须提供 get_inputs() 或 get_input_groups() 方法")
 
 
 def _view_as_int_dtype(dt):
     """把浮点 / fp8 dtype 映射到等宽整型 dtype，用于 view-as-int 比特比较；不支持返回 None。"""
     import torch
+
     if dt in (torch.float64, torch.complex64):
         return torch.int64
     if dt in (torch.float32,):
@@ -380,10 +404,15 @@ def _view_as_int_dtype(dt):
 def _binary_exact_is_equal(fw, impl):
     """非计算类底层比特相等判定（复数 / 浮点 view-as-int，整型直接比较）。"""
     import torch
+
     if fw.dtype.is_complex:
         fw_real_bits = torch.view_as_real(fw)
         impl_real_bits = torch.view_as_real(impl)
-        view_dt = _view_as_int_dtype(torch.float32) if fw.dtype == torch.complex64 else torch.int64
+        view_dt = (
+            _view_as_int_dtype(torch.float32)
+            if fw.dtype == torch.complex64
+            else torch.int64
+        )
         return torch.equal(fw_real_bits.view(view_dt), impl_real_bits.view(view_dt))
     if fw.dtype.is_floating_point:
         view_dt = _view_as_int_dtype(fw.dtype)
@@ -396,6 +425,7 @@ def _binary_exact_is_equal(fw, impl):
 def _binary_exact_detail(fw, impl):
     """构造非计算类比对失败的违例计数与前 N 个位置详情，返回 (violation_count, detail)。"""
     import torch
+
     if fw.dtype.is_floating_point and not fw.dtype.is_complex:
         view_dt = _view_as_int_dtype(fw.dtype)
         fw_bits = fw.view(view_dt).flatten()
@@ -447,7 +477,9 @@ def _compare_binary_exact(fw_out, impl_out, data_type):
     if isinstance(impl, torch.Tensor):
         impl = impl.detach().cpu()
     else:
-        raise AssertionError(f"非计算类实现输出必须是 Tensor，实际为 {type(impl).__name__}")
+        raise AssertionError(
+            f"非计算类实现输出必须是 Tensor，实际为 {type(impl).__name__}"
+        )
 
     if fw.shape != impl.shape:
         raise AssertionError(
@@ -478,6 +510,7 @@ def _compare_binary_exact(fw_out, impl_out, data_type):
 def _check_nan_inf(fw_flat, impl_flat, size):
     """校验 NaN / Inf 的位置与符号一致；不一致抛 AssertionError。"""
     import torch
+
     fw_nan_mask = torch.isnan(fw_flat)
     impl_nan_mask = torch.isnan(impl_flat)
     if not torch.equal(fw_nan_mask, impl_nan_mask):
@@ -508,6 +541,7 @@ def _check_nan_inf(fw_flat, impl_flat, size):
 def _compare_bool_output(fw_finite, impl_finite, ctx):
     """bool 输出：torch.equal 严格相等。"""
     import torch
+
     logger.info(
         f"  [评测模式] 模式=bool_output（bool 输出），"
         f"输入 dtype={ctx.input_dtype}（{ctx.input_type}），输出 dtype={ctx.data_type}；"
@@ -541,6 +575,7 @@ def _compare_bool_output(fw_finite, impl_finite, ctx):
 def _compare_quant_fp_to_int(fw_finite, impl_finite, ctx):
     """量化类（fp 输入 → int 输出）：要求 |actual - golden| <= 1。"""
     import torch
+
     logger.info(
         f"  [评测模式] 模式=quant_fp_to_int（量化类 fp→int），"
         f"输入 dtype={ctx.input_dtype}（{ctx.input_type}），输出 dtype={ctx.data_type}；"
@@ -581,6 +616,7 @@ def _compare_quant_fp_to_int(fw_finite, impl_finite, ctx):
 def _compare_integer_compute(fw_finite, impl_finite, ctx):
     """整数计算类：要求严格相等（|actual - golden| == 0）。"""
     import torch
+
     logger.info(
         f"  [评测模式] 模式=integer_compute（整数计算类），"
         f"输入 dtype={ctx.input_dtype}（{ctx.input_type}），输出 dtype={ctx.data_type}；"
@@ -619,9 +655,40 @@ def _compare_integer_compute(fw_finite, impl_finite, ctx):
 
 
 def _compare_float_output(fw_finite, impl_finite, ctx):
-    """浮点计算类：dtype-aware 三项判定（委托 _check_accuracy_npu_benchmark）。"""
+    """浮点计算类：以生态开源精度标准为第一标准。
+
+    该 dtype 不在生态标准阈值表覆盖范围内时（数据格式不符合其适用要求），
+    回退到 NPU Benchmark 的三项判定，保证任何 dtype 都有明确判据。
+    """
     if impl_finite.dtype != fw_finite.dtype:
         impl_finite = impl_finite.to(fw_finite.dtype)
+    if eco_supports(ctx.data_type):
+        _log_eco_mode(ctx)
+        _check_accuracy_eco(fw_finite, impl_finite, ctx.data_type)
+        return
+    logger.info(
+        f"  [评测模式] 生态标准阈值表未覆盖 dtype={ctx.data_type}，"
+        f"回退 NPU Benchmark 三项判定"
+    )
+    _compare_float_output_npu_benchmark(fw_finite, impl_finite, ctx)
+
+
+def _log_eco_mode(ctx):
+    """打印生态标准的判定口径，便于上游立即看到用了哪套阈值。"""
+    rtol, atol, lim_const = get_eco_tols(ctx.data_type)
+    logger.info(
+        f"  [评测模式] 模式=eco_open_source（生态开源精度标准，第一标准），"
+        f"输入 dtype={ctx.input_dtype}（{ctx.input_type}），输出 dtype={ctx.data_type}；"
+        f"误差要求=两项 AND："
+        f"(1)matched_ratio>={ECO_MATCHED_RATIO} "
+        f"[逐元素 |diff|<=atol+rtol*|golden|, atol={atol:.3e}, rtol={rtol:.3e}]，"
+        f"(2)逐元素 |diff|<=max(常数{lim_const:.3e}, {ULP_FACTOR:.0f}*ULP(|golden|))"
+        f"（finite={ctx.finite_count}/{ctx.size}）"
+    )
+
+
+def _compare_float_output_npu_benchmark(fw_finite, impl_finite, ctx):
+    """回退路径：NPU Benchmark 的 dtype-aware 三项判定。"""
     sv_thr_pre, sv_err_pre, rel_thr_pre = get_limits(ctx.data_type)
     atol_pre, rtol_pre = get_allclose_tols(ctx.data_type)
     logger.info(
@@ -660,6 +727,7 @@ def compare(fw_out, impl_out, data_type, input_spec=None, non_compute=False):
         | float     | 任意              | 浮点计算类     | 三项判定（按输出 dtype）|
     """
     import torch
+
     if input_spec is None:
         input_spec = InputSpec()
     input_type = input_spec.input_type
@@ -760,7 +828,9 @@ def _compute_accuracy_state(golden, actual, data_type):
     # #1 allclose：逐元素判定，要求 100% 通过
     allclose_bound = atol + rtol * abs_golden
     allclose_mask = abs_diff <= allclose_bound
-    allclose_violation_count = int((~allclose_mask).sum().item()) if total_finite > 0 else 0
+    allclose_violation_count = (
+        int((~allclose_mask).sum().item()) if total_finite > 0 else 0
+    )
     allclose_ok = allclose_violation_count == 0
 
     # MERE：对所有 finite 元素计算相对误差再取均值（分母统一 |golden| + 1e-7 防除零）
@@ -776,19 +846,32 @@ def _compute_accuracy_state(golden, actual, data_type):
     is_pass = allclose_ok and ratio_ok and mere_ok
 
     metrics = {
-        "matched_ratio": matched_ratio, "max_abs_diff": max_abs_diff, "MERE": mere,
-        "rel_threshold": rel_thr, "small_value_threshold": sv_thr, "small_value_error": sv_err,
-        "atol": atol, "rtol": rtol, "max_error_cap_violation_count": allclose_violation_count,
-        "required_matched_ratio": REQUIRED_MATCHED_RATIO, "total_finite": total_finite,
-        "matched_count": matched_count, "small_count": int(small_mask.sum().item()),
+        "matched_ratio": matched_ratio,
+        "max_abs_diff": max_abs_diff,
+        "MERE": mere,
+        "rel_threshold": rel_thr,
+        "small_value_threshold": sv_thr,
+        "small_value_error": sv_err,
+        "atol": atol,
+        "rtol": rtol,
+        "max_error_cap_violation_count": allclose_violation_count,
+        "required_matched_ratio": REQUIRED_MATCHED_RATIO,
+        "total_finite": total_finite,
+        "matched_count": matched_count,
+        "small_count": int(small_mask.sum().item()),
         "normal_count": normal_count,
         "checks": {
-            "max_error_cap": allclose_ok, "required_matched_ratio": ratio_ok, "MERE": mere_ok,
+            "max_error_cap": allclose_ok,
+            "required_matched_ratio": ratio_ok,
+            "MERE": mere_ok,
         },
     }
     arrays = {
-        "abs_diff": abs_diff, "rel_err": rel_err, "small_mask": small_mask,
-        "matched_mask": matched_mask, "allclose_mask": allclose_mask,
+        "abs_diff": abs_diff,
+        "rel_err": rel_err,
+        "small_mask": small_mask,
+        "matched_mask": matched_mask,
+        "allclose_mask": allclose_mask,
         "allclose_bound": allclose_bound,
     }
     return is_pass, metrics, arrays
@@ -797,6 +880,7 @@ def _compute_accuracy_state(golden, actual, data_type):
 def _format_allclose_detail(golden, actual, arrays):
     """构造 #1 max_error_cap 违例的前 N 个位置详情。"""
     import torch
+
     abs_diff = arrays["abs_diff"]
     allclose_bound = arrays["allclose_bound"]
     indices = torch.where(~arrays["allclose_mask"])[0]
@@ -815,6 +899,7 @@ def _format_allclose_detail(golden, actual, arrays):
 def _format_matched_detail(golden, actual, arrays, metrics):
     """构造 #2 matched_ratio 未通过的前 N 个位置详情（区分小值域 / 正常域）。"""
     import torch
+
     abs_diff = arrays["abs_diff"]
     rel_err = arrays["rel_err"]
     small_mask = arrays["small_mask"]
@@ -862,6 +947,82 @@ def _format_accuracy_error(golden, actual, data_type, metrics, arrays):
     if not checks["required_matched_ratio"]:
         error_msg += _format_matched_detail(golden, actual, arrays, metrics)
     return error_msg
+
+
+def _eco_metrics(golden, actual, data_type):
+    """按生态开源精度标准计算指标：逐元素混合容差通过率 + 逐元素绝对上限越限数。"""
+    import torch
+
+    rtol, atol, lim_const = get_eco_tols(data_type)
+    golden_f = golden.to(torch.float64)
+    actual_f = actual.to(torch.float64)
+    abs_diff = (actual_f - golden_f).abs()
+    abs_golden = golden_f.abs()
+    mixed_bound = atol + rtol * abs_golden
+    matched_mask = abs_diff <= mixed_bound
+    total = matched_mask.numel()
+    matched_ratio = float(matched_mask.sum()) / total if total else 1.0
+    limit = elementwise_limit(abs_golden, data_type)
+    over_mask = abs_diff > limit
+    over_count = int(over_mask.sum())
+    ratio_ok = matched_ratio >= ECO_MATCHED_RATIO
+    metrics = {
+        "standard": "eco-open-source",
+        "out_dtype": str(data_type),
+        "atol": atol,
+        "rtol": rtol,
+        "max_abs_error_limit": lim_const,
+        "ulp_factor": ULP_FACTOR,
+        "matched_ratio": matched_ratio,
+        "required_matched_ratio": ECO_MATCHED_RATIO,
+        "max_abs_error": float(abs_diff.max()) if total else 0.0,
+        "max_abs_golden": float(abs_golden.max()) if total else 0.0,
+        "max_abs_error_violation_count": over_count,
+        "total_finite": total,
+        "checks": {"matched_ratio": ratio_ok, "max_abs_error": over_count == 0},
+    }
+    return (
+        (ratio_ok and over_count == 0),
+        metrics,
+        {"abs_diff": abs_diff, "limit": limit, "matched_mask": matched_mask},
+    )
+
+
+def _format_eco_error(golden, actual, metrics, arrays):
+    """构造生态标准的报错信息，含前若干个越限位置。"""
+    import torch
+
+    checks = metrics.get("checks", {})
+    msg = (
+        f"验证失败[生态开源精度标准] dtype={metrics.get('out_dtype')}: "
+        f"matched_ratio={metrics.get('matched_ratio'):.6f} "
+        f"(req>={metrics.get('required_matched_ratio')}, ok={checks.get('matched_ratio')}), "
+        f"max_abs_error={metrics.get('max_abs_error'):.6e} "
+        f"(逐元素上限=max(常数{metrics.get('max_abs_error_limit'):.3e}, 32*ULP, atol+rtol*|golden|), "
+        f"越限={metrics.get('max_abs_error_violation_count')}"
+        f"/{metrics.get('total_finite')}, ok={checks.get('max_abs_error')})\n"
+    )
+    over = torch.where(arrays.get("abs_diff") > arrays.get("limit"))[0]
+    show = min(10, len(over))
+    if show:
+        msg += f"前 {show} 个越限位置:\n"
+    for i in range(show):
+        idx = int(over[i])
+        msg += (
+            f"  位置[{idx}]: framework={float(golden[idx]):.6e}, "
+            f"impl={float(actual[idx]):.6e}, "
+            f"|diff|={float(arrays.get('abs_diff')[idx]):.6e} "
+            f"(允许<={float(arrays.get('limit')[idx]):.6e})\n"
+        )
+    return msg
+
+
+def _check_accuracy_eco(golden, actual, data_type):
+    """生态开源精度标准判定：两项 AND，任一不过抛 AccuracyError。"""
+    is_pass, metrics, arrays = _eco_metrics(golden, actual, data_type)
+    if is_pass:
+        return
+    raise AccuracyError(_format_eco_error(golden, actual, metrics, arrays), metrics)
 
 
 def _check_accuracy_npu_benchmark(golden, actual, data_type):
@@ -914,15 +1075,20 @@ def _arm_hidden_state_probe(torch_py_path):
     try:
         scan = _scan_reference(torch_py_path)
     except Exception as e:
-        logger.warning("  [隐藏状态探针] AST 预筛失败，跳过: %s: %s", type(e).__name__, e)
+        logger.warning(
+            "  [隐藏状态探针] AST 预筛失败，跳过: %s: %s", type(e).__name__, e
+        )
         return
     if scan.get("tier") in ("RNG", "DET"):
         _HIDDEN_STATE_PROBE_ARMED = True
-        logger.info("  [隐藏状态探针] 已武装 (tier=%s, hits=%s)",
-                    scan["tier"], scan.get("hits"))
+        logger.info(
+            "  [隐藏状态探针] 已武装 (tier=%s, hits=%s)", scan["tier"], scan.get("hits")
+        )
 
 
-def _run_hidden_state_probe(models: ModelPair, case_ctx: CaseContext, sample_inputs=None):
+def _run_hidden_state_probe(
+    models: ModelPair, case_ctx: CaseContext, sample_inputs=None
+):
     """执行隐藏状态对齐检查。P1 不一致 → 抛 HiddenStateMismatch；P2/P3 只记日志。
 
     该检查抓的是「参考实现的输出依赖不由输入张量决定的内部状态（随机初始化权重、
@@ -932,32 +1098,43 @@ def _run_hidden_state_probe(models: ModelPair, case_ctx: CaseContext, sample_inp
     """
     try:
         diag = _hidden_state_probe(
-            models.framework, models.impl,
+            models.framework,
+            models.impl,
             sample_inputs=sample_inputs,
             options=_ProbeOptions(
-                warmup=True,               # 物化懒构造的权重；内部吞异常，不阻断
-                check_determinism=False,   # P3 每侧额外 2 次 forward，默认关闭控开销
+                warmup=True,  # 物化懒构造的权重；内部吞异常，不阻断
+                check_determinism=False,  # P3 每侧额外 2 次 forward，默认关闭控开销
             ),
         )
     except HiddenStateMismatch as e:
         raise HiddenStateMismatch(
-            f"[用例 {case_ctx.case_idx}/{case_ctx.total_cases}] {str(e)}") from e
+            f"[用例 {case_ctx.case_idx}/{case_ctx.total_cases}] {str(e)}"
+        ) from e
     except Exception as e:  # 探针自身异常不得阻断验证
-        logger.warning("  [隐藏状态探针] 跳过（探针内部异常）: %s: %s", type(e).__name__, e)
+        logger.warning(
+            "  [隐藏状态探针] 跳过（探针内部异常）: %s: %s", type(e).__name__, e
+        )
         return
 
     status = diag.get("status")
     if status == "SKIP":
         logger.info("  [隐藏状态探针] SKIP — 参考实现不持有隐藏状态")
         return
-    logger.info("  [隐藏状态探针] %s — framework=%d impl=%d compared=%d matched=%d",
-                status, diag.get("fw_state", 0), diag.get("im_state", 0),
-                diag.get("compared", 0), diag.get("matched", 0))
+    logger.info(
+        "  [隐藏状态探针] %s — framework=%d impl=%d compared=%d matched=%d",
+        status,
+        diag.get("fw_state", 0),
+        diag.get("im_state", 0),
+        diag.get("compared", 0),
+        diag.get("matched", 0),
+    )
     for w in diag.get("warnings", []):
         logger.warning("  [隐藏状态探针] %s", w)
 
 
-def run_single_case(models: ModelPair, inputs, device, case_ctx: CaseContext, non_compute=False):
+def run_single_case(
+    models: ModelPair, inputs, device, case_ctx: CaseContext, non_compute=False
+):
     """验证单组输入。失败时抛出 AssertionError / AccuracyError。"""
     import torch
 
@@ -968,8 +1145,9 @@ def run_single_case(models: ModelPair, inputs, device, case_ctx: CaseContext, no
     # 推断输入类型（"float" / "int" / "no_tensor"）→ 决定输出整型时走整数计算 vs 量化
     input_type, input_dtype = _infer_input_type(inputs)
 
+    golden_device = models.golden_device or device
     inputs_for_impl = [_move_to_device(x, device) for x in inputs]
-    inputs_for_framework = [_move_to_device(x, device) for x in inputs]
+    inputs_for_framework = [_move_to_device(x, golden_device) for x in inputs]
 
     # 隐藏状态对齐检查：仅第 1 个用例执行一次。
     # 必须放在正式 forward **之前** —— 生成实现编译失败时（CompilationError）
@@ -994,13 +1172,17 @@ def run_single_case(models: ModelPair, inputs, device, case_ctx: CaseContext, no
             f"framework={len(framework_output)}, impl={len(impl_output)}"
         )
 
-    logger.info("  [输出概览] 共 %d 个输出，non_compute=%s", len(framework_output), non_compute)
+    logger.info(
+        "  [输出概览] 共 %d 个输出，non_compute=%s", len(framework_output), non_compute
+    )
 
     for i, (fw_out, impl_out) in enumerate(zip(framework_output, impl_output)):
         if fw_out is None and impl_out is None:
             # 可选输出契约：参考实现按开关（output_final_state / has_q 等）返回 None，
             # 实现侧同样返回 None —— 语义一致，跳过该输出的比对。
-            logger.info("  [输出 %d] framework/impl 均为 None（可选输出未启用），跳过比对", i)
+            logger.info(
+                "  [输出 %d] framework/impl 均为 None（可选输出未启用），跳过比对", i
+            )
             continue
         if fw_out is None or impl_out is None:
             raise AssertionError(
@@ -1010,14 +1192,20 @@ def run_single_case(models: ModelPair, inputs, device, case_ctx: CaseContext, no
         if isinstance(fw_out, torch.Tensor) and isinstance(impl_out, torch.Tensor):
             try:
                 data_type = fw_out.dtype
-                logger.info("  [输出 %d] shape=%s, dtype=%s", i, list(fw_out.shape), data_type)
+                logger.info(
+                    "  [输出 %d] shape=%s, dtype=%s", i, list(fw_out.shape), data_type
+                )
                 compare(
-                    fw_out, impl_out, data_type,
+                    fw_out,
+                    impl_out,
+                    data_type,
                     InputSpec(input_type, input_dtype),
                     non_compute=non_compute,
                 )
             except AccuracyError as e:
-                raise AccuracyError(f"[用例 {case_idx}/{total_cases}] {str(e)}", e.metrics) from e
+                raise AccuracyError(
+                    f"[用例 {case_idx}/{total_cases}] {str(e)}", e.metrics
+                ) from e
             except AssertionError as e:
                 raise AssertionError(f"[用例 {case_idx}/{total_cases}] {str(e)}") from e
 
@@ -1036,21 +1224,28 @@ def _load_verify_modules(op_name, verify_dir, triton_impl_name):
     }
 
 
-def _instantiate_models(framework_cls, impl_cls, get_init_inputs, device):
-    """同种子分别实例化 framework 与 impl 模型。"""
+def _instantiate_models(
+    framework_cls, impl_cls, get_init_inputs, device, golden_device=None
+):
+    """同种子分别实例化 framework 与 impl 模型。
+
+    golden_device 为 None 时与 impl 同 device；给定时 framework 放到该 device。
+    两者的构造顺序与消耗的随机数完全一致，因此权重逐位相同（除非参考实现按 device 采样）。
+    """
     import torch
+
     init_params = get_init_inputs()
     torch.manual_seed(0)
     torch.npu.manual_seed(0)
-    framework_model = framework_cls(*init_params).to(device)
+    framework_model = framework_cls(*init_params).to(golden_device or device)
     torch.manual_seed(0)
     torch.npu.manual_seed(0)
     impl_model = impl_cls(*init_params).to(device)
     return framework_model, impl_model
 
 
-def _try_run_case(modules, case_ctx: CaseContext, inputs, device, non_compute=False):
-    """执行单个 case：成功返回 (True, None)；失败返回 (False, failure_dict)。"""
+def _attempt_case(modules, case_ctx, inputs, device, golden_device, non_compute):
+    """在指定 golden_device 上跑一遍；成功返回 None，失败把异常抛给调用方。"""
     framework_model = None
     impl_model = None
     try:
@@ -1059,17 +1254,55 @@ def _try_run_case(modules, case_ctx: CaseContext, inputs, device, non_compute=Fa
             modules["impl_cls"],
             modules["get_init_inputs"],
             device,
+            golden_device=golden_device,
         )
         run_single_case(
-            ModelPair(framework_model, impl_model), inputs, device,
-            case_ctx, non_compute=non_compute,
+            ModelPair(framework_model, impl_model, golden_device),
+            inputs,
+            device,
+            case_ctx,
+            non_compute=non_compute,
         )
+    finally:
+        del framework_model
+        del impl_model
+        cleanup_npu_memory()
+
+
+def _try_run_case(modules, case_ctx: CaseContext, inputs, device, non_compute=False):
+    """执行单个 case：成功返回 (True, None)；失败返回 (False, failure_dict)。
+
+    golden 优先跑 CPU；CPU 跑不起来（参考实现调 npu:: 专有算子、CPU 不支持该 dtype 等）
+    时回退到 NPU。只有回退后仍失败才判该用例失败。精度判定本身不受 golden 落点影响。
+    """
+    try:
+        try:
+            _attempt_case(
+                modules, case_ctx, inputs, device, GOLDEN_DEVICE_CPU, non_compute
+            )
+            return True, None
+        except AccuracyError:
+            raise
+        except AssertionError:
+            raise
+        except Exception as cpu_err:
+            logger.info(
+                "  [用例 %d/%d] golden 落 CPU 时执行失败，回退 golden 到 NPU 重试: %s: %s",
+                case_ctx.case_idx,
+                case_ctx.total_cases,
+                type(cpu_err).__name__,
+                str(cpu_err)[:160],
+            )
+        _attempt_case(modules, case_ctx, inputs, device, device, non_compute)
         return True, None
     except Exception as e:
         err_detail = traceback.format_exc()
         logger.error(
             "  [用例 %d/%d] 失败: %s: %s",
-            case_ctx.case_idx, case_ctx.total_cases, type(e).__name__, e,
+            case_ctx.case_idx,
+            case_ctx.total_cases,
+            type(e).__name__,
+            e,
         )
         failure = {
             "case_idx": case_ctx.case_idx,
@@ -1080,10 +1313,6 @@ def _try_run_case(modules, case_ctx: CaseContext, inputs, device, non_compute=Fa
         if isinstance(e, AccuracyError):
             failure["metrics"] = e.metrics
         return False, failure
-    finally:
-        del framework_model
-        del impl_model
-        cleanup_npu_memory()
 
 
 def _write_verify_result(output_path, result):
@@ -1142,8 +1371,11 @@ def _run_all_cases(modules, input_groups, total_cases, device, non_compute):
     passed_cases = 0
     for case_idx, inputs in enumerate(input_groups, start=1):
         ok, failure = _try_run_case(
-            modules, CaseContext(case_idx=case_idx, total_cases=total_cases),
-            inputs, device, non_compute=non_compute,
+            modules,
+            CaseContext(case_idx=case_idx, total_cases=total_cases),
+            inputs,
+            device,
+            non_compute=non_compute,
         )
         if ok:
             passed_cases += 1
@@ -1205,7 +1437,9 @@ def verify_implementations(op_name, verify_dir, options=None):
     # 环境指纹在跑 case 之前采集一次，避免任何早退路径下结果文件缺字段。
     environment = _collect_env_from(options)
 
-    passed_cases, failures = _run_all_cases(modules, input_groups, total_cases, device, non_compute)
+    passed_cases, failures = _run_all_cases(
+        modules, input_groups, total_cases, device, non_compute
+    )
 
     # 既有 5 个字段的名称、含义、顺序保持不变，environment 只作为新增的尾部字段，
     # 以保证 benchmark.py 的 L1 verify 闸门等下游读取逻辑完全不受影响。
@@ -1256,10 +1490,14 @@ def _keep_fresh_cache_dir(cache_dir):
 def _build_subprocess_cmd(args, verify_dir):
     """拼出子进程模式的命令行；--fresh-cache 只用于让子进程标记结果 JSON。"""
     cmd = [
-        sys.executable, os.path.abspath(__file__),
-        "--op_name", args.op_name,
-        "--verify_dir", verify_dir,
-        "--triton_impl_name", args.triton_impl_name,
+        sys.executable,
+        os.path.abspath(__file__),
+        "--op_name",
+        args.op_name,
+        "--verify_dir",
+        verify_dir,
+        "--triton_impl_name",
+        args.triton_impl_name,
         "--subprocess",
     ]
     if args.output:
@@ -1352,32 +1590,39 @@ def _build_arg_parser():
     parser = argparse.ArgumentParser(description="算子验证脚本")
     parser.add_argument("--op_name", required=True, help="算子名称")
     parser.add_argument(
-        "--verify_dir", default=".",
+        "--verify_dir",
+        default=".",
         help="验证目录，包含 {op_name}_torch.py 和 {op_name}_triton_ascend_impl.py（默认当前目录）",
     )
     parser.add_argument("--timeout", type=int, default=900, help="超时秒数（默认 900）")
     parser.add_argument(
-        "--triton_impl_name", default="triton_ascend_impl",
+        "--triton_impl_name",
+        default="triton_ascend_impl",
         help="Triton 实现模块名（不含 op_name 前缀，默认 triton_ascend_impl）",
     )
     parser.add_argument(
-        "--output", default=None,
+        "--output",
+        default=None,
         help="验证结果 JSON 输出路径（默认 {verify_dir}/verify_result.json）",
     )
     parser.add_argument(
-        "--non-compute", action="store_true",
+        "--non-compute",
+        action="store_true",
         help="非计算类算子（搬移 / Cast 等），所有 case 走二进制完全一致判定",
     )
     parser.add_argument(
-        "--fresh-cache", action="store_true",
+        "--fresh-cache",
+        action="store_true",
         help="本次运行使用独立临时 TRITON_CACHE_DIR，不使用也不修改全局 Triton 缓存",
     )
     parser.add_argument(
-        "--keep-cache", action="store_true",
+        "--keep-cache",
+        action="store_true",
         help="与 --fresh-cache 配合：无论成败都保留临时缓存目录并打印路径",
     )
     parser.add_argument(
-        "--subprocess", action="store_true",
+        "--subprocess",
+        action="store_true",
         help=argparse.SUPPRESS,  # 内部参数：子进程模式，直接执行验证
     )
     return parser

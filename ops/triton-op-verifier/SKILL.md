@@ -19,11 +19,52 @@ argument-hint: >
 
 ## 精度判定规则
 
-> 本节是 verify.py 精度判定的**唯一权威说明**。所有阈值、决策矩阵、前置检查只在此处定义；下游章节（Step 2/3）只引用、不重复。
+> 本节是精度判定的**唯一权威说明**。所有阈值、路由、前置检查只在此处定义；
+> 下游章节（Step 2/3）只引用、不重复。
 
-verify.py 按"`--non-compute` 开关 + 输入 dtype + 输出 dtype"分流到 **5 类判定路径**。
+verify.py 同时挂着两套精度标准：**生态算子开源精度标准**为第一标准，
+**NPU Benchmark 标准**为 fallback。本节先讲两者的路由关系，再分别详解。
 
-### 1. 输入类型推断（KernelBench / NPUKernelBench 统一）
+### 0.1 路由：先看数据格式，再选标准
+
+| 输出情况 | 走哪套标准 | 判据 |
+|---|---|---|
+| 浮点输出，dtype 在生态阈值表内 | **生态开源标准（第一标准）** | 两项 AND，见 §一 |
+| 浮点输出，dtype 不在生态阈值表内 | NPU Benchmark（fallback） | 三项 AND，见 §二 |
+| 整型输出，输入为 float | NPU Benchmark（fallback） | 量化计算类 `\|diff\| <= 1` |
+| 整型输出，输入为 int / 无 tensor | NPU Benchmark（fallback） | 整数计算类 `\|diff\| == 0` |
+| bool 输出 | NPU Benchmark（fallback） | `torch.equal` 严格相等 |
+| `--non-compute` 开关打开 | NPU Benchmark（fallback） | 二进制完全一致 |
+
+路由的依据是**数据格式**：生态标准第 0 节声明它只讨论浮点计算类，
+整型计算类与搬移类不在其范围内，因此这些输出继续用原判据。
+浮点输出中 dtype 不在生态阈值表内的（表见 §1.3），同样回退，
+避免拿 float32 的默认阈值去套一个未定义的类型。
+
+日志里会打印实际走了哪条：
+
+- `[评测模式] 模式=eco_open_source（生态开源精度标准，第一标准），...`
+- `[评测模式] 生态标准阈值表未覆盖 dtype=...，回退 NPU Benchmark 三项判定`
+- `[评测模式] 模式=float_compute（浮点计算类）...` / `模式=non_compute（非计算类）...`
+
+### 0.2 golden 的落点：CPU 优先，跑不起来回退 NPU
+
+golden（参考实现 `Model`）**优先跑在 CPU 上**，待评测实现 `ModelNew` 始终跑在 NPU 上。
+CPU 上执行失败时（参考实现调用 `npu::` 专有算子、CPU 后端不支持该 dtype 等），
+自动把 golden 回退到 NPU 重试，日志打印
+`[用例 i/n] golden 落 CPU 时执行失败，回退 golden 到 NPU 重试: ...`。
+
+只有**执行期异常**才触发回退。`AccuracyError` 与 `AssertionError`（精度判定、形状不一致、
+NaN/Inf 位置不一致）是判定结论，直接上报不重试，避免把真实失败重跑一遍掩盖掉。
+精度判定本身不受 golden 落点影响：比对前两侧都会搬到 CPU。
+
+> **副作用**：golden 落 CPU 后，隐藏状态探针（§三）会拿 CPU 侧权重对拍 NPU 侧权重。
+> 参考实现若用 `torch.manual_seed(hash(key))` 惰性造权重且 `key` 里含 `x.device`，
+> 两侧 seed 不同、权重完全无关，探针会给出 `HiddenStateMismatch` 硬失败。
+> 这类算子的误差本来就不能归因为 kernel 精度，硬失败是正确的暴露方式，
+> 但相对 golden 落 NPU 的旧行为，是从「通过」变为「明确失败」。
+
+### 0.3 输入类型推断（路由到整数计算类 / 量化计算类时用）
 
 从实际传入对象推断（不依赖 task 文件结构化 spec）：
 
@@ -36,7 +77,7 @@ verify.py 按"`--non-compute` 开关 + 输入 dtype + 输出 dtype"分流到 **5
 
 精度从高到低排列：float64 > float32 > float16 > bfloat16 > float8_e4m3 / float8_e5m2 > int64 > int32 > int16 > int8 / uint8 > bool
 
-**`input_type` 二分类**（用于 §2 决策矩阵分流）：
+**`input_type` 二分类**（用于 §0.1 路由与 §2.1 决策矩阵分流）：
 
 - `input_type = float`：输入最高精度 dtype 属于浮点族（float64/32/16、bfloat16、float8_e4m3/e5m2、复数 complex64/128）
 - `input_type = int`：输入最高精度 dtype 属于整型族（int64/32/16/8、uint8、bool）
@@ -44,9 +85,78 @@ verify.py 按"`--non-compute` 开关 + 输入 dtype + 输出 dtype"分流到 **5
 
 > **关于 bool 的两处特殊性**（避免混淆）：
 > - bool 作**输入**：归入 `int`，与 int 系输入等同；分流时只看输出 dtype（如输出 fp 走浮点判定）
-> - bool 作**输出**：不进入 input_type 分流，直接走 §2 "bool 输出"路径（`torch.equal` 严格相等）
+> - bool 作**输出**：不进入 input_type 分流，直接走 §2.1 "bool 输出"路径（`torch.equal` 严格相等）
 
-### 2. 五类判定决策矩阵
+
+---
+
+## 一、生态算子开源精度标准（第一标准）
+
+### 1.1 适用范围
+
+只覆盖**浮点计算类**输出。标准第 0 节明确整型计算类与搬移类需按各自业务场景单独制定，
+不在其讨论范围内，因此这些输出由 §二 的 fallback 承接。
+
+### 1.2 两项判定（AND，全部满足才算通过）
+
+采用**混合容差**（Mixed Tolerance），逐元素判定：
+
+```
+元素通过：|actual - golden| <= atol + rtol * |golden|
+```
+
+1. **`matched_ratio`**：通过元素数 / 总元素数 `>= 0.99`
+2. **逐元素绝对上限**：每个元素满足
+
+```
+|actual - golden| <= max(max_abs_error_limit, 32 * ULP(|golden|), atol + rtol * |golden|)
+```
+
+### 1.3 阈值表（`scripts/eco_limits.py` 是唯一权威来源）
+
+| 数据类型 | rtol | atol | max_abs_error_limit |
+|---|---|---|---|
+| `float16` | 2⁻⁹ ≈ 1.95e-3 | 2⁻⁹ ≈ 1.95e-3 | 1e-1 |
+| `bfloat16` | 2⁻⁶ ≈ 1.56e-2 | 2⁻⁶ ≈ 1.56e-2 | 1e-0 |
+| `float32` | 2⁻¹⁰ ≈ 9.77e-4 | 2⁻¹⁶ ≈ 1.53e-5 | 1e-2 |
+| `hifloat32` | 2⁻⁹ ≈ 1.95e-3 | 2⁻¹⁰ ≈ 9.77e-4 | 1e-1 |
+| `float8_e4m3` | 2⁻² = 0.25 | 2⁻⁴ = 0.0625 | 1e-0 |
+| `float8_e5m2` | 2⁻¹ = 0.5 | 2⁻³ = 0.125 | 1e-1 |
+
+`required_matched_ratio = 0.99`。表内没有的 dtype **不套默认值**，直接回退 §二。
+
+### 1.4 绝对上限的 ULP 按逐元素取
+
+`ULP` 按**逐元素**取 —— 每个元素依自身量级定限值，比整张量共用一个限值更贴近原意。
+（标准原文写作「1e-2 **or** 32 * ULP」，二选一未定义，本仓补充 32*ULP 项。）
+
+绝对上限公式已并入 §1.2 第 1 项的混合容差项 `atol + rtol*|golden|`，因此两项判据
+**不再语义独立**：由于混合容差斜率（对 float32 为 `rtol = 2⁻¹⁰`）恒大于 `32*ULP`
+的斜率（`32*2⁻²³ = 2⁻¹⁸`，相差 2⁸ 倍），对 float32 等尾数位较多的 dtype，绝对上限
+实际由 `max_abs_error_limit` 与混合容差二者取大决定，`32*ULP` 不对判定形成额外约束；
+仅在尾数位较少的 dtype（float16 / bfloat16 / hifloat32 / float8 类）下 `32*ULP`
+才可能成为制约项。相应地，第 2 项 `over_count == 0` 的实际语义为
+「**大幅值区间不允许出现任何混合容差失败元素**」——比第 1 项的
+`matched_ratio >= 0.99`（允许 1% 失败）更硬。
+
+### 1.5 已知局限
+
+- golden 是参考实现在 CPU 上的**同精度**执行，不是标准 2.3 字面要求的「更高精度实现」。
+  参考实现内部若硬编码 `.float()` 或 `torch.float32`，其计算精度由实现本身决定，
+  与 golden 落在哪个 device 无关。
+- 标准第 1 节的用例生成规则（全组合覆盖、维度取 2ᵏ 与 2ᵏ−1、
+  空 / 标量 / 边界 / INF-NAN 特殊场景）由用例集自身负责，本脚本不校验。
+- 标准第 3 节的压测（单用例执行 50 次）与 4.5.2 的置信区间复检未实现，
+  每个用例只执行一次，分辨不了偶发失败与真实精度失败。
+
+---
+
+## 二、NPU Benchmark 精度标准（fallback）
+
+承接生态标准覆盖不到的数据格式：整型输出、bool 输出、非计算类，
+以及 dtype 不在生态阈值表内的浮点输出。
+
+### 2.1 五类判定决策矩阵
 
 | 类别 | 输入 type | 输出 dtype | `--non-compute` | 误差要求 |
 |---|---|---|---|---|
@@ -54,20 +164,22 @@ verify.py 按"`--non-compute` 开关 + 输入 dtype + 输出 dtype"分流到 **5
 | **bool 输出** | 任意 | bool | 否 | `torch.equal` 严格相等 |
 | **整数计算类** | int / no_tensor | int | 否 | `\|actual − golden\| == 0` |
 | **量化计算类 fp→int** | float | int | 否 | `\|actual − golden\| <= 1` |
-| **浮点计算类** | 任意 | float | 否 | 三项 AND（见 §4） |
+| **浮点计算类** | 任意 | float | 否 | 优先生态标准（§一）；dtype 未覆盖时三项 AND（见 §2.3）|
 
-### 3. 比对前置检查（按顺序，任一失败即判 fail）
 
-0. **隐藏状态对齐检查**（仅第 1 个用例执行一次，详见 §6）
+### 2.2 比对前置检查（按顺序，任一失败即判 fail）
+
+0. **隐藏状态对齐检查**（仅第 1 个用例执行一次，详见 §三）
 1. 形状必须一致
 2. NaN 位置必须完全一致（mask 按位相等）
 3. Inf 位置和符号必须完全一致
 4. `bool` dtype：要求 `torch.equal` 完全相等，不进入精度判定
 5. 仅在 `finite_mask`（双方都 finite）上做精度计算；dtype 不一致时 impl 会被 cast 到 golden 的 dtype
 
-### 4. 浮点计算类：三项 AND 整体判定
 
-#### 4.1 元素级 matched 定义（分桶）
+### 2.3 浮点计算类：三项 AND 整体判定
+
+#### 2.3.1 元素级 matched 定义（分桶）
 
 对每个 finite 元素 `i`，按 `|golden[i]|` 落入的类别分别判定：
 
@@ -79,13 +191,13 @@ verify.py 按"`--non-compute` 开关 + 输入 dtype + 输出 dtype"分流到 **5
 > 计算前两侧统一升 float32，避免低精度 dtype 自身误差污染。
 > 分母 `+1e-7` 仅为保险——正常域里 `|golden| >= sv_thr ≫ 1e-7`。
 
-#### 4.2 三项通过条件（AND，全部满足才算通过）
+#### 2.3.2 三项通过条件（AND，全部满足才算通过）
 
 1. **`max_error_cap`**：所有 finite 元素满足 `|diff| <= atol + rtol * |golden|`（dtype-aware，要求 100% 通过）
 2. **`required_matched_ratio`**：`sum(matched) / total_finite >= 0.9`
 3. **`MERE`**：对所有 finite 元素计算 `rel_err = |diff| / (|golden| + 1e-7)` 再取均值，要求 `MERE < rel_threshold`。当 `total_finite == 0` 时本项自动通过。
 
-#### 4.3 阈值表
+#### 2.3.3 阈值表
 
 **matched_mask 与 MERE 阈值**（沿用 NPU Benchmark 标准）：
 
@@ -108,16 +220,10 @@ verify.py 按"`--non-compute` 开关 + 输入 dtype + 输出 dtype"分流到 **5
 | `float32` | 1e-3 | 2⁻¹³ ≈ 1.22e-4 |
 | 其他 dtype（fallback） | 1e-3 | 2⁻¹³ |
 
-### 5. 运行时诊断输出
 
-verify.py 在每个 case 会向日志输出：
+---
 
-- `[输入类型判定] 来源=...，候选 dtypes=...，最高精度=...，input_type=...`
-- `[评测模式] 模式=...，输入 dtype=...，输出 dtype=...，误差要求=...`
-
-便于上游 agent 立即看到当前 case 落入了哪一类、用了哪些阈值。
-
-### 6. 隐藏状态对齐检查（`scripts/hidden_state_probe.py`）
+## 三、隐藏状态对齐检查（`scripts/hidden_state_probe.py`）
 
 抓「参考实现 `Model` 的输出依赖不由输入张量决定的内部状态（随机初始化权重 / buffer /
 跨调用缓存），而生成实现没有逐位复刻」这一类失败。它与 kernel 实现无关，单独修 kernel
@@ -597,6 +703,7 @@ benchmark.py 启动时按 `--triton_impl_name` 推导对应的 verify_result 文
 | `scripts/validate_triton_impl.py` | 退化预检查（AST 静态分析） |
 | `scripts/verify.py` | 验证正确性 |
 | `scripts/benchmark.py` | 测试性能 |
+| `scripts/eco_limits.py` | 生态开源精度标准阈值表（`verify.py` §一 唯一权威来源） |
 
 **CLI 参数**：
 - `validate_triton_impl.py`: `<file_path>`, `[--json]`
