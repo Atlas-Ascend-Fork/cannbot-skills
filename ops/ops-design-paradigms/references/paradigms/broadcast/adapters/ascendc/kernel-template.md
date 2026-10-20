@@ -519,8 +519,6 @@ __aicore__ inline void WaitFlag(int32_t eventID);
 - eventID 6、7 不可用（可能与内部冲突）
 - 通过 `FetchEventID()` 获取，在 `Init()` 或 `Process()` 开头统一获取
 
-**PipeBarrier**：阻塞相同流水线。编译器通常自动处理同流水线内的顺序，一般不需手动调用。Kernel 退出前必须调 `PipeBarrier<PIPE_ALL>()` 排空所有流水线。
-
 **调用模式代码示例**：
 
 ```cpp
