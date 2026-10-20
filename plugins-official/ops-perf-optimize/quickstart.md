@@ -31,7 +31,7 @@
 ### Claude Code Marketplace
 
 ```bash
-/plugin marketplace add https://gitcode.com/opencann/skills-dev.git
+/plugin marketplace add https://gitcode.com/cann/cannbot-skills.git
 /plugin install ops-perf-optimize@cannbot
 ```
 
@@ -41,16 +41,16 @@
 
 ```bash
 # Claude Code
-bash /path/to/skills-dev/plugins-official/ops-perf-optimize/init.sh project claude
+bash /path/to/cannbot-skills/plugins-official/ops-perf-optimize/init.sh project claude
 
 # Codex
-bash /path/to/skills-dev/plugins-official/ops-perf-optimize/init.sh project codex
+bash /path/to/cannbot-skills/plugins-official/ops-perf-optimize/init.sh project codex
 
 # OpenCode
-bash /path/to/skills-dev/plugins-official/ops-perf-optimize/init.sh project opencode
+bash /path/to/cannbot-skills/plugins-official/ops-perf-optimize/init.sh project opencode
 
 # CodeArts
-bash /path/to/skills-dev/plugins-official/ops-perf-optimize/init.sh project codearts
+bash /path/to/cannbot-skills/plugins-official/ops-perf-optimize/init.sh project codearts
 ```
 
 安装器会注册主 Agent、五个阶段代理（基线评估、前处理、诊断分析、实施验证、后处理）、依赖 Skills 和确定性工作流工具，并保留不属于本插件管理的用户配置。命令可以幂等重跑，用于刷新插件或复查安装。
