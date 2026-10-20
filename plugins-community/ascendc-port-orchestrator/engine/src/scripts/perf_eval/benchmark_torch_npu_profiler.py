@@ -15,8 +15,8 @@
   benchmark_torch_npu_profiler.py \
       --op-name <op> \
       --cases <op>_perf_cases.jsonl \
-      --candidate-fn 'candidate_fn:torch_npu.npu_apply_adam_w_v2' \
-      --baseline-fn 'baseline_fn:torch_npu.npu_apply_adam_w_v2' \
+      --candidate-call 'torch_npu:npu_apply_adam_w_v2' \
+      --baseline-call 'torch_npu:npu_apply_adam_w_v2' \
       --trace-root /tmp/profiler_trace \
       --report-md <op>_torch_npu_profiler_report.md
 
