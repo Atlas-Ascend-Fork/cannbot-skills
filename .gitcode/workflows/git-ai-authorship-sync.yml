@@ -1,0 +1,66 @@
+# git-ai AI 归因迁移流水线（master push 触发，MR 合入后执行）
+#
+# 作用：MR 合入 master 后（squash / 常规 / 直推），归因 note 的导入与迁移
+#       由 git-ai-authorship-sync-action.yml 完成（经 workflow_call 调用），
+#       本文件负责镜像解析与编排。
+#
+# 镜像动态解析（两文件结构）：
+#   stage1 JOB_image（revise-img）→ 不传 comment/token → 默认映射
+#   （cann/.gitcode@master 公开仓匿名克隆，零凭据依赖）→ outputs.git_ai
+#   （默认映射已含 cannbot-skills 的 git_ai 条目：gcc15:x86:lv6）
+#   stage2 经 workflow_call 传 image_version——push 上下文不能直接跨 stage
+#   引用 job output，必须经 workflow_call input 中转。
+#   失败模式：若默认映射 git_ai 条目被移除 → 空 tag → InvalidImageName；
+#   诊断入口：Resolve_image job 的 revise_image 步骤映射打印。
+#
+# 依赖 Secrets：
+#   - GIT_AI_RECORD_TOKEN：本仓写权限 token（action 内推回 refs/notes/ai）
+#
+# 触发：push 到 master（含 MR 合入、普通推送）
+
+name: git-ai-authorship-sync
+
+concurrency:
+  max: 1
+  exceed-action: QUEUE
+  enable: true
+
+on:
+  push:
+    branches: [ master ]
+
+env:
+  repo_name: ${{ atomgit.event.repository.name}}
+
+stages:
+  stage1:
+    name: ResolveImage
+    jobs:
+      JOB_image:
+        name: Resolve_image
+        steps:
+          - name: revise_image
+            identifier: revise_image
+            uses: cann/.gitcode/actions/revise-img@master
+            with:
+              repo_name: ${{ env.repo_name }}
+              target_branch: master
+              # 不传 comment/token：push 上下文无评论 → 默认映射
+              # （cann/.gitcode@master 公开仓匿名克隆）；默认映射已含 git_ai 条目
+        runs-on: ['self-hosted', 'arch=x64', 'spec=small']
+        container:
+          image: swr.cn-north-4.myhuaweicloud.com/ci_cann/ubuntu20.04.05_x86:k8s_v1.1006
+    pre:
+    - type: auto
+    fail-fast: true
+  stage2:
+    name: AuthorshipSync
+    jobs:
+      JOB_git_ai:
+        name: git_ai_notes_migrate
+        uses: .gitcode/workflows/git-ai-authorship-sync-action.yml
+        with:
+          image_version: ${{ jobs.JOB_image.outputs.git_ai }}
+    pre:
+    - type: auto
+    fail-fast: true

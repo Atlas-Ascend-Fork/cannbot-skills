@@ -1,0 +1,191 @@
+# git-ai AI 归因检测流水线（只读·信息展示，不拦截合入）
+#
+# 作用：PR 流水线中检测 MR 源提交是否携带 git-ai AI 归因 note（refs/notes/ai），
+#       检测结果仅作评审参考信息，不作为合入门禁。
+#       真正的归因迁移由合入后 master push 触发的 git-ai-authorship-sync.yml 完成。
+#
+# 检测顺序（fork 贡献场景源 note 在贡献者 fork 上，须二级检查）：
+#   1) 主线 refs/notes/ai（同仓分支 MR 的归因在此）
+#   2) 贡献者 fork 的 refs/notes/ai（经 GitCode API 识别 fork 仓库；
+#      公有 fork 匿名可达 / 私有 fork 用 token）
+#
+# 认证（零 secret 运行，anon-first）：
+#   公开仓数据源全部匿名可达（隐藏 ref / API / 公有 fork notes）；
+#   GIT_AI_RECORD_TOKEN 为可选兜底：仅贡献者 fork 为私有仓时用于 notes 读取
+#   （oauth2 注入），未配置不影响公开仓与公有 fork 的检测。
+#
+# 镜像动态解析：
+#   image_version 经 workflow_call 传入，容器使用 ${{ inputs.image_version }}。
+#   默认映射（cann/.gitcode@master）已含 cannbot-skills 的 git_ai 条目
+#   （gcc15:x86:lv6 → ubuntu24.04_x86:lv6_v2.1010），普通 compile 评论即可解析。
+#
+# 前提（仓库配置）：
+#   Secret GIT_AI_RECORD_TOKEN：GitCode PAT（与 sync 流水线共用同一 secret）
+#
+# 触发：由 cannbot-skills_actions.yml（PR 流水线）通过 workflow_call 调用
+
+name: git-ai-attribution-check
+
+on:
+  workflow_call:
+    inputs:
+      image_version:
+        required: true
+        type: string
+      pr_number:
+        required: true
+        type: string
+
+stages:
+  stage1:
+    name: AttributionCheck
+    jobs:
+      JOB_git_ai:
+        name: git_ai_attribution_check
+        steps:
+          - name: Checkout
+            identifier: process_checkout
+            uses: checkout
+          - name: check_attribution
+            identifier: check_attribution
+            run: |
+              # token 可选（anon-first）：公开仓全部数据源匿名可达；
+              # 私有仓匿名不可达，配置 GIT_AI_RECORD_TOKEN 后走认证链兜底
+              TOKEN="${{ secrets.GIT_AI_RECORD_TOKEN }}"
+              PR="${{ inputs.pr_number }}"
+              export GIT_TERMINAL_PROMPT=0
+              AUTH=""
+              API_AUTH=()
+              if [ -n "${TOKEN}" ]; then
+                AUTH=$(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')
+                API_AUTH=(-H "Authorization: Bearer ${TOKEN}")
+              fi
+
+              # 1. 取 MR head 提交（隐藏 ref：匿名优先，失败回退 token）
+              if ! git fetch origin "refs/merge-requests/${PR}/head" 2>/dev/null; then
+                if [ -z "${AUTH}" ]; then
+                  echo "WARN: 隐藏 ref 匿名不可达且未配置 GIT_AI_RECORD_TOKEN，跳过归因检测（信息性检查，不影响流水线）"
+                  exit 0
+                fi
+                git -c "http.https://gitcode.com/.extraheader=AUTHORIZATION: basic ${AUTH}" \
+                  fetch origin "refs/merge-requests/${PR}/head"
+              fi
+              HEAD_SHA=$(git rev-parse FETCH_HEAD)
+
+              # 2. 确定 PR 提交列表（API 直接获取，绕开浅克隆祖先链不完整问题）
+              #    git log base..head 在 depth=1 下无法正确排除 base 侧提交
+              COMMITS=$(curl -fsSL --max-time 30 "${API_AUTH[@]}" \
+                "https://gitcode.com/api/v5/repos/cann/cannbot-skills/pulls/${PR}/commits?per_page=50" \
+                | python3 -c "import json,sys; [print(c['sha']) for c in reversed(json.load(sys.stdin))]" \
+                2>/dev/null || echo "")
+              if [ -n "${COMMITS}" ]; then
+                TOTAL=$(echo "${COMMITS}" | wc -l)
+                echo "[归因检测] 遍历 PR !${PR} 的 ${TOTAL} 个提交："
+              else
+                COMMITS="${HEAD_SHA}"
+                echo "[归因检测] 检查 PR !${PR} head 提交（API 提交列表不可得）："
+              fi
+
+              # 3. 拉取主线归因 notes（匿名优先，失败回退 token；皆败视为暂无）
+              if ! git fetch origin "+refs/notes/ai:refs/notes/ai" 2>/dev/null; then
+                if [ -n "${AUTH}" ]; then
+                  git -c "http.https://gitcode.com/.extraheader=AUTHORIZATION: basic ${AUTH}" \
+                    fetch origin "+refs/notes/ai:refs/notes/ai" 2>/dev/null \
+                    || echo "INFO: 主线暂无 refs/notes/ai"
+                else
+                  echo "INFO: 主线暂无 refs/notes/ai"
+                fi
+              fi
+
+              # 4. 拉取 fork notes（如有 fork，一次性 fetch 供全部提交使用）
+              FORK_URL=$(curl -fsSL --max-time 30 "${API_AUTH[@]}" \
+                "https://gitcode.com/api/v5/repos/cann/cannbot-skills/pulls/${PR}" \
+                | python3 -c "import json,sys; d=json.load(sys.stdin); h=(d.get('head',{}).get('repo') or {}).get('html_url',''); b=(d.get('base',{}).get('repo') or {}).get('html_url',''); print(h if h and h!=b else '')" \
+                2>/dev/null || echo "")
+              if [ -n "${FORK_URL}" ]; then
+                FORK_FETCH_URL="${FORK_URL}"
+                if ! git ls-remote "${FORK_URL}" refs/notes/ai >/dev/null 2>&1 && [ -n "${TOKEN}" ]; then
+                  FORK_FETCH_URL="https://oauth2:${TOKEN}@${FORK_URL#https://}"
+                fi
+                git fetch "${FORK_FETCH_URL}" "+refs/notes/ai:refs/notes/ai-fork" 2>/dev/null || true
+              fi
+
+              # 4.5 写入 note 展示辅助脚本：剥离 tool/model 字段后重序列化
+              #     （具体工具/模型不记录不展示；AI/human 判定读完整 note 不受影响；
+              #      heredoc 必须位于块基缩进，python 内容与 PYEOF 终止符逐列对齐）
+              cat > /tmp/strip_tm.py <<'PYEOF'
+              import os, sys, json
+              c = os.environ.get("NOTE_CONTENT", "")
+              h, sep, b = c.partition("---\n")
+              try:
+                  d = json.loads(b)
+                  for sec in ("sessions", "prompts"):
+                      for rec in d.get(sec, {}).values():
+                          aid = rec.get("agent_id")
+                          if isinstance(aid, dict):
+                              aid.pop("tool", None)
+                              aid.pop("model", None)
+                  out = h + sep + json.dumps(d, indent=2, ensure_ascii=False)
+              except Exception:
+                  out = c
+              sys.stdout.write(out)
+              PYEOF
+
+              # 5. 遍历检查每个提交
+              AI_COUNT=0; HUMAN_COUNT=0; NO_NOTE=0; PASS_FLAG=0; SHOWN=0
+              for SHA in ${COMMITS}; do
+                SHORT_MSG=$(git log --oneline -1 "${SHA}" 2>/dev/null)
+                NOTE_CONTENT=""
+
+                if git notes --ref=ai show "${SHA}" >/dev/null 2>&1; then
+                  NOTE_CONTENT=$(git notes --ref=ai show "${SHA}")
+                  NOTE_LOC="主线"
+                elif [ -n "${FORK_URL}" ] && git notes --ref=ai-fork show "${SHA}" >/dev/null 2>&1; then
+                  NOTE_CONTENT=$(git notes --ref=ai-fork show "${SHA}")
+                  NOTE_LOC="fork"
+                fi
+
+                if [ -z "${NOTE_CONTENT}" ]; then
+                  NO_NOTE=$((NO_NOTE+1))
+                  if [ ${SHOWN} -lt 10 ]; then
+                    echo "  [${SHORT_MSG}] 无归因"
+                  fi
+                  continue
+                fi
+
+                PASS_FLAG=1
+                SHOWN=$((SHOWN+1))
+
+                # 判断归因类型（AI=sessions / human=humans）
+                if echo "${NOTE_CONTENT}" | grep -q '"sessions"'; then
+                  AI_COUNT=$((AI_COUNT+1))
+                  ATTR_TYPE="AI"
+                elif echo "${NOTE_CONTENT}" | grep -q '"humans"'; then
+                  HUMAN_COUNT=$((HUMAN_COUNT+1))
+                  ATTR_TYPE="human"
+                else
+                  AI_COUNT=$((AI_COUNT+1))
+                  ATTR_TYPE="归因"
+                fi
+
+                if [ ${SHOWN} -le 10 ]; then
+                  echo "  [${SHORT_MSG}] ${ATTR_TYPE} 归因 ✓（${NOTE_LOC}）"
+                  # 完整 note（attestation 头 + JSON），tool/model 字段已剥离
+                  NOTE_CONTENT="${NOTE_CONTENT}" python3 /tmp/strip_tm.py | head -20
+                  echo ""
+                elif [ ${SHOWN} -eq 11 ]; then
+                  echo "  ...（后续提交仅计数，不逐条展示）"
+                fi
+              done
+
+              # 6. 汇总 + 判定
+              echo "汇总：${AI_COUNT} AI / ${HUMAN_COUNT} human / ${NO_NOTE} 无归因"
+              if [ ${PASS_FLAG} -eq 1 ]; then
+                echo "[归因检测] PASS：PR 包含归因数据（合入后由 sync 流水线自动导入迁移并最小化）"
+              else
+                echo "[归因检测] INFO：PR 内无任何归因数据（贡献者未使用 git-ai）；不影响合入"
+                echo "          建议参考 docs/CONTRIBUTING.md 安装 git-ai（安装后 AI/人工改动均有行级归因）"
+              fi
+        runs-on: ['self-hosted', 'arch=x64', 'spec=small']
+        container:
+          image: swr.cn-north-4.myhuaweicloud.com/ci_cann/${{ inputs.image_version }}

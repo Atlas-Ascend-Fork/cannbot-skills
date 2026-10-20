@@ -4,6 +4,7 @@
 [![install-helper](https://img.shields.io/badge/install--helper-npm-red?style=flat-square)](https://www.npmjs.com/package/@cannbot-ai/install-helper)
 [![Agent Skills Spec](https://img.shields.io/badge/Agent%20Skills-Specification-blue?style=flat-square)](https://agentskills.io)
 ![Platform](https://img.shields.io/badge/Platform-Ascend%20NPU-orange?style=flat-square)
+[![git-ai](https://img.shields.io/badge/git--ai-AI%20attribution-8A5CF6?style=flat-square)](https://github.com/git-ai-project/git-ai)
 
 📖 [安装指南](docs/installation-guide.md) · 📋 [功能清单](docs/feature-list.md) · 🏗️ [架构设计](docs/architecture-design.md) · 🔥 [CHANGELOG](CHANGELOG.md) · 💬 [使用样例](docs/skills-usage.md)
 
@@ -185,6 +186,7 @@ cannbot-skills/
 
 ## 💬 相关信息
 - [贡献指南](docs/CONTRIBUTING.md) — 贡献流程、准入门槛、评审规则
+- [AI 归因标记](docs/CONTRIBUTING.md#ai-辅助贡献的归因标记推荐) — 标记 AI 生成的代码行，安装 git-ai 自动生效
 - [治理模型](docs/GOVERNANCE.md) — 成文法+判例法、角色职责
 - [开发规范](docs/STANDARDS.md) — 命名规范、结构规范、分类体系
 - [测试框架](tests/README.md) — 自动化测试验证 Skills 和 Agents 的正确性

@@ -14,6 +14,9 @@ node_modules/
 .env
 .env.*
 
+# git-ai prompt 分析临时文件
+prompts.db
+
 # IDE 配置
 .idea/
 .vscode/

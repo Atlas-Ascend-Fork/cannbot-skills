@@ -1,0 +1,266 @@
+# git-ai AI 归因迁移 action（由 git-ai-authorship-sync.yml 经 workflow_call 调用）
+#
+# 作用：MR 合入 master 后（squash / 常规 / 直推），从源提交或贡献者 fork 上的
+#       git-ai authorship note（refs/notes/ai）迁移，经标识符最小化后推回远端。
+#       迁移参数全部自推导（squash commit message 含 "!N merge xxx into master"）。
+#
+# 数据最小化（本方案仅用于 AI 渗透率调查，不做过程审计与追溯）：
+#   不记录具体工具/模型——tool → "AI"（非空通用标记），model → ""（空值，零信息）
+#   tool 必须非空且键齐全：git-ai 读取路径（blame/stats）对空 tool 或键缺失的
+#   note 会触发恢复改写为 human（AI 归因丢失）
+#   保留：行级归属（attestation 头）、id（不透明）、human 标记、human_author
+#   流程：migrate（--skip-push，本地化）→ minimize（幂等清洗）→ push（显式推回）
+#
+# fork notes 获取采用三级降级策略（面向 fork 贡献场景）：
+#   1) 公有 fork → 匿名 fetch，零凭据零假设
+#   2) 匿名不可达但 CI token 可读 → 注入 oauth2:<token>@
+#   3) 均不可达（他人私有 fork）→ 跳过并在日志给出幂等补迁移指引
+#
+# 镜像经 workflow_call input 传入（push 上下文不能直接跨 stage 引用 job output，
+# 必须经 workflow_call 中转）。
+#
+# 依赖 Secrets（由调用方上下文透传）：
+#   - GIT_AI_RECORD_TOKEN：本仓写权限 token（推回 refs/notes/ai；缺失时 WARN +
+#     --skip-push 降级，可事后幂等补迁移）
+
+name: git-ai-authorship-sync-action
+
+on:
+  workflow_call:
+    inputs:
+      image_version:
+        required: true
+        type: string
+
+stages:
+  stage1:
+    name: AuthorshipSync
+    jobs:
+      JOB_migrate:
+        name: git_ai_notes_migrate
+        steps:
+          - name: Checkout
+            identifier: process_checkout
+            uses: checkout
+            with:
+              allow-unsafe-pr-checkout: true
+          - name: install_git_ai
+            identifier: install_git_ai
+            run: |
+              set -euo pipefail
+              cd ${{ steps.process_checkout.outputs.path }}
+
+              # 1. 二进制获取：CI 镜像内置（探测顺序：PATH → /home/jenkins/opensource 递归 → 常规路径）
+              #    排除 .sha256 等附属文件；sort 保证多候选时选择确定；
+              #    禁止 $(ls glob | head) 写法（glob 不匹配时 ls 以 2 退出会静默杀死脚本）
+              BIN_SRC="$(command -v git-ai 2>/dev/null || true)"
+              if [ -z "${BIN_SRC}" ]; then
+                BIN_SRC="$(find /home/jenkins/opensource -maxdepth 3 -name 'git-ai*' -type f ! -name '*.sha256' 2>/dev/null | sort | head -1 || true)"
+              fi
+              if [ -z "${BIN_SRC}" ] && [ -e /usr/local/bin/git-ai ]; then BIN_SRC=/usr/local/bin/git-ai; fi
+              if [ -z "${BIN_SRC}" ] && [ -e /usr/bin/git-ai ]; then BIN_SRC=/usr/bin/git-ai; fi
+              if [ -n "${BIN_SRC}" ]; then
+                echo "image binary: ${BIN_SRC}"
+                cp -f "${BIN_SRC}" /usr/local/bin/git-ai
+                chmod +x /usr/local/bin/git-ai
+              else
+                echo "ERROR: 镜像内未找到 git-ai，/home/jenkins/opensource 实际内容："
+                ls -la /home/jenkins/opensource/ 2>/dev/null | head -10 || echo "（目录不存在）"
+                echo "       请确认容器镜像 ubuntu24.04_x86:lv6_v2.1010 已内置 git-ai"
+                exit 1
+              fi
+              # 落盘为 /usr/local/bin/git-ai 真实文件（argv[0] 分发要求：
+              # daemon 拉起经 /proc/self/exe 解析穿透软链，名字不对会走 git 代理模式，
+              # 报 "git: 'bg' is not a git command"）
+              GIT_AI_VER=$(git-ai --version) || { echo "ERROR: git-ai 不可执行"; exit 1; }
+              echo "git-ai ${GIT_AI_VER} OK"
+
+              # 2. git 版本断言（< 2.36 时 diff 参数 exit 129）
+              CUR=$(git --version | awk '{print $3}')
+              [ "$(printf '%s\n%s\n' "2.36.0" "${CUR}" | sort -V | head -1)" = "2.36.0" ] \
+                || { echo "ERROR: git ${CUR} < 2.36"; exit 1; }
+              echo "git ${CUR} OK"
+
+              # 3. daemon 预热：ci 命令会 ensure_daemon_running（仅 2s 超时），
+              #    CI 环境首次拉起 daemon 可能超过 2s 导致命令直接失败
+              git-ai bg start --retry-secs 30 || echo "WARN: daemon 启动失败，迁移命令将无法执行"
+
+              # 4. 配置 notes 推送凭据（GitCode PAT 任意用户名均可，token 即身份）
+              TOKEN="${{ secrets.GIT_AI_RECORD_TOKEN }}"
+              if [ -n "$TOKEN" ]; then
+                git remote set-url origin "https://oauth2:${TOKEN}@gitcode.com/cann/cannbot-skills.git"
+              else
+                echo "WARN: 未配置 GIT_AI_RECORD_TOKEN，迁移结果将无法推回远端"
+              fi
+          - name: migrate_authorship
+            identifier: migrate
+            run: |
+              set -uo pipefail
+              cd ${{ steps.process_checkout.outputs.path }}
+
+              # checkout 默认 --depth=1 浅克隆：迁移需要父提交/merge-base/MR 历史，必须补全
+              TOKEN="${{ secrets.GIT_AI_RECORD_TOKEN }}"
+              git fetch --unshallow origin 2>&1 | head -1 || true
+
+              NEW_HEAD=$(git rev-parse HEAD)
+
+              # 从 squash 合入的 commit message 提取 MR 号：'!N merge xxx into master'
+              MR_ID=$(git log -1 --format=%B "${NEW_HEAD}" \
+                | grep -oE '![0-9]+ merge' | head -1 | tr -d '! ' | grep -oE '[0-9]+' || true)
+
+              if [ -n "${MR_ID}" ]; then
+                echo "detected squash merge of MR !${MR_ID}"
+                # 识别 fork 贡献场景：源 note 在 fork 的 refs/notes/ai 上，需导入
+                FORK_URL=""
+                API="https://gitcode.com/api/v5/repos/cann/cannbot-skills"
+                API_AUTH=()
+                [ -n "$TOKEN" ] && API_AUTH=(-H "Authorization: Bearer $TOKEN")
+                FORK_URL=$(curl -fsSL --max-time 30 "${API_AUTH[@]}" "${API}/pulls/${MR_ID}" \
+                    | python3 -c "import json,sys; d=json.load(sys.stdin); h=(d.get('head',{}).get('repo') or {}).get('html_url',''); b=(d.get('base',{}).get('repo') or {}).get('html_url',''); print(h if h and h!=b else '')" \
+                    2>/dev/null || echo "")
+                FORK_ARGS=""
+                if [ -n "${FORK_URL}" ]; then
+                  # 三级降级（凭据缺失时快速失败，不挂起）：
+                  #   1) 公有 fork → 匿名 fetch；2) CI token 可读 → 注入 token；
+                  #   3) 均不可达 → 跳过（归因保留在 fork，可事后幂等补迁移）
+                  export GIT_TERMINAL_PROMPT=0
+                  if git ls-remote "${FORK_URL}" refs/notes/ai >/dev/null 2>&1; then
+                    echo "fork MR detected (public fork), importing notes from: ${FORK_URL}"
+                    FORK_ARGS="--fork-clone-url ${FORK_URL}"
+                  elif [ -n "$TOKEN" ] && git ls-remote "https://oauth2:${TOKEN}@${FORK_URL#https://}" refs/notes/ai >/dev/null 2>&1; then
+                    echo "fork MR detected (private fork readable by CI token), importing notes"
+                    FORK_ARGS="--fork-clone-url https://oauth2:${TOKEN}@${FORK_URL#https://}"
+                  else
+                    echo "WARN: fork notes 不可达（私有 fork 且 CI token 无权限），本次跳过导入"
+                    echo "      归因仍保留在贡献者 fork 上，可事后补迁移（命令幂等）："
+                    echo "      git-ai ci local merge --merge-commit-sha ${NEW_HEAD} --head-sha <src> --base-ref master --base-sha <base> --fork-clone-url <fork>"
+                  fi
+                fi
+                git fetch origin "refs/merge-requests/${MR_ID}/head"
+                SRC_HEAD=$(git rev-parse FETCH_HEAD)
+                BASE_SHA=$(git rev-parse "${NEW_HEAD}^")
+                echo "merge=${NEW_HEAD} src=${SRC_HEAD} base=${BASE_SHA}"
+                # 始终 --skip-push：推送统一由后续 minimize + push 步骤接管
+                # （迁移结果先落本地 refs/notes/ai，经标识符最小化后再推回主线）
+                # shellcheck disable=SC2086
+                git-ai ci local merge \
+                  --merge-commit-sha "${NEW_HEAD}" \
+                  --head-ref "refs/merge-requests/${MR_ID}/head" \
+                  --head-sha "${SRC_HEAD}" \
+                  --base-ref master \
+                  --base-sha "${BASE_SHA}" ${FORK_ARGS} --skip-push \
+                  || echo "git-ai merge migration finished (nothing to migrate is OK)"
+              else
+                echo "direct push (no MR squash), running sync"
+                PREV="${{ atomgit.event.before }}"
+                [ -z "${PREV}" ] && PREV=$(git rev-parse "${NEW_HEAD}^")
+                git-ai ci local sync \
+                  --previous-head-sha "${PREV}" \
+                  --head-sha "${NEW_HEAD}" \
+                  --base-ref master --skip-push || echo "git-ai sync finished (skip is OK)"
+              fi
+
+              # 写入 MR 源提交列表，供 minimize 步骤打印过滤（仅 MR 相关的转换才输出详情）
+              # 用 API 获取（浅克隆下 git log base..head 祖先链不可靠）
+              if [ -n "${MR_ID}" ]; then
+                curl -fsSL --max-time 30 "${API_AUTH[@]}" \
+                  "https://gitcode.com/api/v5/repos/cann/cannbot-skills/pulls/${MR_ID}/commits?per_page=50" \
+                  | python3 -c "import json,sys; [print(c['sha']) for c in reversed(json.load(sys.stdin))]" \
+                  > .git/mr_commits.txt 2>/dev/null
+                echo "${NEW_HEAD}" >> .git/mr_commits.txt
+              else
+                echo "${NEW_HEAD}" > .git/mr_commits.txt
+              fi
+          - name: minimize_agent_identifiers
+            identifier: minimize
+            run: |
+              set -uo pipefail
+              cd ${{ steps.process_checkout.outputs.path }}
+
+              # git notes add 需要作者身份（CI 容器无全局配置）
+              git config user.name "git-ai-sync"
+              git config user.email "git-ai-sync@ci"
+
+              # 数据最小化：不记录具体工具/模型（tool→AI 通用标记，model→空）
+              # 键缺失/null 顺带修复为可解析值（读取路径要求键齐全 + tool 非空）
+              # 保留：行级归属（attestation 头，"---" 之前逐字节不动）、id、
+              #       human 标记（语义保留清单）、human_author
+              # 日志不打印旧值（避免 CI 日志暴露真实工具/模型）
+              # 幂等：已最小化的 note 零改写；全量遍历 refs/notes/ai（含存量清洗）
+              python3 - <<'PYEOF'
+              import subprocess, json, os
+
+              PRESERVE = {"human", "regular-user", "unknown", "mock_ai", "mock_known_human"}
+
+              # 读取 MR 源提交列表（migrate 步骤写入），仅 MR 相关的转换打印详情
+              mr_commits = set()
+              if os.path.exists(".git/mr_commits.txt"):
+                  with open(".git/mr_commits.txt") as f:
+                      mr_commits = {l.strip() for l in f if l.strip()}
+
+              def git_out(*args):
+                  return subprocess.run(["git", *args], capture_output=True, text=True).stdout
+
+              notes = [l.split()[1] for l in git_out("notes", "--ref=ai", "list").splitlines() if l.strip()]
+              changed = 0
+              for sha in notes:
+                  content = git_out("notes", "--ref=ai", "show", sha)
+                  if "---" not in content:
+                      continue
+                  header, _, body = content.partition("---\n")
+                  try:
+                      data = json.loads(body)
+                  except Exception:
+                      continue
+                  dirty = False
+                  for sec in ("sessions", "prompts"):
+                      for rec in data.get(sec, {}).values():
+                          aid = rec.get("agent_id")
+                          if not aid:
+                              continue
+                          # 键缺失/null 修复（可解析性）
+                          if aid.get("tool") is None:
+                              aid["tool"] = "AI"
+                              dirty = True
+                          if aid.get("model") is None:
+                              aid["model"] = ""
+                              dirty = True
+                          # 不记录具体工具/模型：tool→AI（非空通用标记），model→""
+                          if aid["tool"] not in PRESERVE and aid["tool"] != "AI":
+                              aid["tool"] = "AI"
+                              dirty = True
+                          if aid["model"] not in ("human", ""):
+                              aid["model"] = ""
+                              dirty = True
+                  if dirty:
+                      new_content = header + "---\n" + json.dumps(data, indent=2, ensure_ascii=False)
+                      subprocess.run(["git", "notes", "--ref=ai", "add", "-f", "-F", "-", sha],
+                                     input=new_content, text=True, check=True)
+                      changed += 1
+                      # 仅 MR 相关的转换打印详情（存量清洗静默执行，计数仍可见）
+                      # 不打印旧值——避免 CI 日志暴露真实工具/模型
+                      if sha in mr_commits:
+                          print("[%s] 最小化: tool→AI, model→空" % sha[:8])
+                          print("  存储内容：")
+                          for line in new_content.splitlines()[:8]:
+                              print("    " + line)
+                          if len(new_content.splitlines()) > 8:
+                              print("    ...")
+              print("minimize_agent_identifiers: %d/%d note(s) rewritten" % (changed, len(notes)))
+              PYEOF
+          - name: push_authorship
+            identifier: push_notes
+            run: |
+              set -uo pipefail
+              cd ${{ steps.process_checkout.outputs.path }}
+              TOKEN="${{ secrets.GIT_AI_RECORD_TOKEN }}"
+              if [ -n "$TOKEN" ]; then
+                git push origin refs/notes/ai:refs/notes/ai 2>&1 | tail -2 \
+                  || echo "WARN: notes 推送失败（详见上方输出）"
+              else
+                echo "WARN: 未配置 GIT_AI_RECORD_TOKEN —— 脱敏后的归因仅计算不推送"
+                echo "      补救：配置 secret 后重跑（minimize 幂等，安全）"
+              fi
+        runs-on: ['self-hosted', 'arch=x64', 'spec=small']
+        container:
+          image: swr.cn-north-4.myhuaweicloud.com/ci_cann/${{ inputs.image_version }}

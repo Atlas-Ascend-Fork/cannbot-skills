@@ -14,6 +14,38 @@
 2. 签署 [CLA 协议](https://gitcode.com/cann/community)
 3. 了解本项目的[治理模型](GOVERNANCE.md)和[开发规范](STANDARDS.md)
 
+### AI 辅助贡献的归因标记（推荐）
+
+安装 git-ai 后，AI 改动的行级归因自动记录；PR 合入主线后，任何人 `git-ai blame` 即可查询哪些行是 AI 写的。归因由后台 daemon 采集——正常提交即可（命令行 / IDE / 任意客户端），不依赖 git hooks；push 时归因 notes 由 daemon 自动同步。
+
+**一键安装与配置**（克隆本仓后执行一次；各平台详见 [git-ai 官方文档](https://github.com/git-ai-project/git-ai#install)）：
+
+```bash
+curl -sSL https://usegitai.com/install.sh | bash    # 安装（Linux/macOS；Windows 见官方文档）
+
+# 克隆本仓后配置 notes 同步
+git config --add remote.origin.fetch +refs/notes/ai:refs/notes/ai  # fetch 时带回归因 notes
+git config notes.displayRef refs/notes/ai                          # git log 内联显示归因
+```
+
+安装脚本末尾输出 `Installed git-ai <版本号>` 即安装成功；按提示**重新打开终端**后继续功能验证。
+
+**功能验证**（约 30 秒，两步通过即配置完成，此后全自动）：
+
+```bash
+# ① 让你的 AI 工具修改任意文件（保存即可，先不提交），然后：
+git-ai status
+#   ✓ 预期：AI 占比进度条 + checkpoint 明细（形如 `9 secs ago  +3  0  opencode glm-5.3`）
+
+# ② 正常提交后：
+git notes --ref=ai show HEAD
+#   ✓ 预期：文件名 + 行级归属头（`s_xxx::t_xxx 1-3`）+ `---` 后的 authorship JSON
+```
+
+**排障**：`git-ai` 命令不可用 → 重开终端（或执行 `~/.git-ai/bin/git-ai --version`）；① 提示 `No checkpoints recorded since last commit` → 执行 `git-ai install-hooks` 后重试；仍为空则重跑安装脚本。
+
+**前提**：git ≥ 2.36（`git --version` 检查，Ubuntu 20.04 需升级）｜**不安装**：不影响合入，AI 改动显示为 unknown
+
 ### 我能贡献什么
 
 | 贡献类型 | 说明 | 对应文档 |
