@@ -20,7 +20,7 @@ CANNBot 是 [CANN](https://hiascend.com/software/cann) 社区的 Infra 智能体
 
 **面向用户**：CANN / 昇腾 NPU 各领域开发者（算子开发、图模式、模型推理、Runtime 等），同时欢迎社区开发者共建 Skills 和 Agents。
 
-> 📣 **迁移公告**：本仓 `plugins-official/` 与 `plugins-community/` 插件正逐步迁移至应用仓 [cannbot](https://gitcode.com/cann/cannbot) 统一维护。已迁移：官方 `ops-direct-invoke`、`ops-registry-invoke`、`model-infer-optimize`，社区 `ascendc-port-orchestrator`、`collaborative-agent-kernel-evolution`、`tilelang2ascendc-ops-generator`。已迁移插件在本仓冻结，一段时间后删除；安装方式不变，`install.sh` / `install-helper` 会自动指向 cannbot 仓最新内容。
+> 📣 **迁移公告**：本仓 `plugins-official/` 与 `plugins-community/` 插件正逐步迁移至应用仓 [cannbot](https://gitcode.com/cann/cannbot) 统一维护。已迁移：官方 `ops-direct-invoke`、`ops-registry-invoke`、`model-infer-optimize`，社区 `collaborative-agent-kernel-evolution`、`tilelang2ascendc-ops-generator`。`ascendc-port-orchestrator` 的本仓副本已删除，其余已迁移插件在本仓冻结，一段时间后删除；安装方式不变，`install.sh` / `install-helper` 会自动指向 cannbot 仓最新内容。
 
 ## 🚀 快速开始
 

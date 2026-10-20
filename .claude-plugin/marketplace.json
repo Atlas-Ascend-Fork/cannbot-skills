@@ -788,29 +788,6 @@
       ]
     },
     {
-      "name": "ascendc-port-orchestrator-shared-skills",
-      "description": "AscendC 算子移植编排器复用的公共 Skills。安装时从 ops/ 的唯一 canonical 副本加载，避免在社区 Plugin 内重复维护快照。",
-      "source": "./ops",
-      "strict": false,
-      "version": "1.0.0",
-      "author": {
-        "name": "CANNBot"
-      },
-      "keywords": [
-        "ascendc",
-        "port",
-        "skills"
-      ],
-      "category": "skills",
-      "skills": [
-        "./ops-precision-standard",
-        "./ascendc-docs-search",
-        "./ascendc-simt-best-practices",
-        "./ascendc-api-best-practices",
-        "./ascendc-regbase-best-practice"
-      ]
-    },
-    {
       "name": "autoresearch",
       "source": "./plugins-community/autoresearch",
       "description": "AutoResearch 算子自动优化工作流，支持 Triton Ascend、AscendC、AscendC CATLASS、KernelVerifier 和远端 Ascend worker。",
@@ -827,27 +804,6 @@
       ],
       "category": "development",
       "dependencies": []
-    },
-    {
-      "name": "ascendc-port-orchestrator",
-      "source": "./plugins-community/ascendc-port-orchestrator",
-      "description": "社区版 AscendC 算子移植 Team：① 跨代际算子移植（当前 arch22→arch35）② 正向→反向生成。bundle-orch（编排器引擎 + aog-* 子 agent + OKF KB c>b>a + 安全网）。",
-      "version": "0.1.4",
-      "author": {
-        "name": "a5_ops contributors"
-      },
-      "keywords": [
-        "ascendc",
-        "kernel",
-        "port",
-        "cross-generation",
-        "operator"
-      ],
-      "category": "development",
-      "dependencies": [
-        "ascendc-port-orchestrator-shared-skills",
-        "cannbot-knowledge-consumer-skills"
-      ]
     },
     {
       "name": "shmem-ops-skills",

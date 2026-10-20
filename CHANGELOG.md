@@ -2,6 +2,10 @@
 
 > **记录规则**：单条不超过 **200 字**，按【领域】+ 问题 + 修复要点组织；技术细节、验证数据与发布过程放 PR 描述 / commit message，不写入日志。
 
+### 【2026-10-20】
+#### 变更 Changes
+- 【插件清理】删除 `plugins-community/ascendc-port-orchestrator` 插件及专属市场注册，移除 ST 测试白名单与覆盖率条目，保留公共 Skills。
+
 ### 【2026-10-13】
 #### 新特性 New Features
 - 【算子】新增 `ops-theoretical-performance-estimation`：从计算流估算 Ascend950 RegBase 纯 Vector 算子的理论时延、瓶颈与性能目标，提供通用引擎、10 个算子样例、微基准标定数据及离线回归测试。
