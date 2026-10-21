@@ -15,6 +15,7 @@ import ast
 import os
 import re
 from collections.abc import Iterator
+from typing import Optional
 
 try:
     import yaml
@@ -29,7 +30,7 @@ from ..ast_helpers import (
     _get_func_param_count,
     _get_jit_functions,
     _get_primary_jit_functions,
-    _has_loop_structure,
+    _has_loop_structure_with_helpers,
 )
 from ..core import (
     API_REPORT_FILE,
@@ -57,7 +58,9 @@ from ..utils import (
 ParsedImpl = tuple[str, ast.Module, set[str]]
 
 
-def _iter_parsed_impls(ctx: CheckContext, impl_files: list[str]) -> Iterator[ParsedImpl]:
+def _iter_parsed_impls(
+    ctx: CheckContext, impl_files: list[str]
+) -> Iterator[ParsedImpl]:
     for impl_file in impl_files:
         tree = ctx.parse_file(impl_file)
         if tree is not None:
@@ -70,7 +73,9 @@ def _jit_has_dynamic_shape(
     dynamic_aliases: set[str],
 ) -> bool:
     return _dynamic_tensor_annotation_status(
-        jit_funcs, aliases, dynamic_aliases,
+        jit_funcs,
+        aliases,
+        dynamic_aliases,
     )[1]
 
 
@@ -82,71 +87,94 @@ def _ol31_syntax_error(ctx: CheckContext, impl_files: list[str]) -> Finding | No
     return None
 
 
+_CANONICAL_DTYPE_NAMES = {
+    "fp32": "float32",
+    "fp16": "float16",
+    "bf16": "bfloat16",
+    "fp64": "float64",
+    "int8": "int8",
+    "int16": "int16",
+    "int32": "int32",
+    "int64": "int64",
+    "uint8": "uint8",
+    "uint16": "uint16",
+    "uint32": "uint32",
+    "uint64": "uint64",
+    "bool": "bool",
+}
+
+
 @register("OL30")
 def check_ol30(ctx: CheckContext) -> Finding:
     """SPEC.md front matter 的 supported_dtypes 必须在测试文件中覆盖。"""
     if not ctx.file_exists(SPEC_FILE):
-        return ctx.make_finding("OL30", "SKIP", f"{SPEC_FILE} 不存在")
+        return ctx.make_finding("OL30", "SKIP", f"{SPEC_FILE} does not exist")
     spec_meta = _load_doc_meta(ctx, SPEC_FILE)
     schema_errors = _validate_doc_schema("SPEC", spec_meta)
     if schema_errors:
-        return ctx.make_finding("OL30", "FAIL",
-            f"{SPEC_FILE} front matter schema 非法: {'; '.join(schema_errors)}",
-            file=SPEC_FILE)
+        return ctx.make_finding(
+            "OL30",
+            "FAIL",
+            f"{SPEC_FILE} front matter schema invalid: {'; '.join(schema_errors)}",
+            file=SPEC_FILE,
+        )
 
     test_file = f"test_{ctx.op_name}.py"
     test_source = ctx.read_file(test_file)
     if not test_source:
-        return ctx.make_finding("OL30", "SKIP", f"{test_file} 不存在")
+        return ctx.make_finding("OL30", "SKIP", f"{test_file} does not exist")
 
-    spec_dtypes = _extract_spec_dtypes_from_meta(spec_meta)
+    spec_dtypes, spec_unrecognized = _extract_spec_dtypes_from_meta(spec_meta)
+    if spec_unrecognized:
+        return ctx.make_finding(
+            "OL30",
+            "WARN",
+            f"{SPEC_FILE} front matter supported_dtypes contains unrecognized dtype: "
+            f"{', '.join(spec_unrecognized)}, please check the spelling",
+            file=SPEC_FILE,
+        )
     if not spec_dtypes:
-        return ctx.make_finding("OL30", "FAIL",
-            f"{SPEC_FILE} front matter 中未声明 supported_dtypes",
-            file=SPEC_FILE)
+        return ctx.make_finding(
+            "OL30",
+            "FAIL",
+            f"{SPEC_FILE} front matter does not declare supported_dtypes",
+            file=SPEC_FILE,
+        )
 
     test_dtypes = _extract_test_dtypes(test_source)
     missing = spec_dtypes - test_dtypes
     if missing:
-        canonical_names = {"fp32": "float32", "fp16": "float16", "bf16": "bfloat16"}
-        missing_names = sorted(canonical_names.get(d, d) for d in missing)
-        return ctx.make_finding("OL30", "FAIL",
-            f"{SPEC_FILE} 声明支持的 dtype ({', '.join(missing_names)}) "
-            "在测试文件中未覆盖；请补充对应 dtype 的测试用例",
-            file=test_file)
-    return ctx.make_finding("OL30", "PASS", "spec dtype 覆盖与 test 一致")
+        missing_names = sorted(_CANONICAL_DTYPE_NAMES.get(d, d) for d in missing)
+        return ctx.make_finding(
+            "OL30",
+            "FAIL",
+            f"{SPEC_FILE} declares supported dtype ({', '.join(missing_names)}) "
+            "not covered in the test file; please add test cases for the corresponding dtype",
+            file=test_file,
+        )
+    return ctx.make_finding(
+        "OL30", "PASS", "spec dtype coverage is consistent with test"
+    )
 
 
-@register("OL31")
-def check_ol31(ctx: CheckContext) -> Finding:
-    """DESIGN.md front matter dynamic_axes 与 impl 动态注解一致。
+def _ol31_dynamic_fail(ctx: CheckContext, files_without_dynamic: list[str]) -> Finding:
+    """声明了动态轴但 impl 注解未使用 DYNAMIC/DYN 的 FAIL finding。"""
+    return ctx.make_finding(
+        "OL31",
+        "FAIL",
+        f"{DESIGN_FILE} front matter declares dynamic axes, but the following impl files' "
+        f"Tensor annotations never use pypto.DYNAMIC/pypto.DYN: "
+        f"{', '.join(files_without_dynamic)}."
+        "dynamic axes must be explicitly marked in type annotations.",
+        file=files_without_dynamic[0],
+    )
 
-    覆盖范围：顶层集成 impl + modules/<op>_module*_impl.py。每个文件
-    单独评估，任一文件均未使用 pypto.DYNAMIC literal 时返回 FAIL。
-    这样在模块开发阶段（Stage 5 Phase M_k）即可发现违规，避免下沉
-    到 Stage 6 集成阶段才暴露。
+
+def _ol31_dynamic_scan(ctx: CheckContext, impl_files: list[str]) -> tuple:
+    """逐文件检查 jit 函数是否使用动态注解。
+
+    返回 (files_without_dynamic, saw_jit, last_file_seen)。
     """
-    if not ctx.file_exists(DESIGN_FILE):
-        return ctx.make_finding("OL31", "SKIP", f"{DESIGN_FILE} 不存在")
-    design_meta = _load_doc_meta(ctx, DESIGN_FILE)
-    schema_errors = _validate_doc_schema("DESIGN", design_meta)
-    if schema_errors:
-        return ctx.make_finding("OL31", "FAIL",
-            f"{DESIGN_FILE} front matter schema 非法: {'; '.join(schema_errors)}",
-            file=DESIGN_FILE)
-
-    dynamic_axes = design_meta.get("dynamic_axes", [])
-    if not isinstance(dynamic_axes, list) or not dynamic_axes:
-        return ctx.make_finding("OL31", "PASS",
-            f"{DESIGN_FILE} front matter 未声明动态轴，无需检查")
-
-    impl_files = _impl_files_to_scan(ctx)
-    if not impl_files:
-        return ctx.make_finding("OL31", "SKIP", "无 impl 文件可供检查")
-    syntax_error = _ol31_syntax_error(ctx, impl_files)
-    if syntax_error is not None:
-        return syntax_error
-
     files_without_dynamic: list[str] = []
     saw_jit = False
     last_file_seen = ""
@@ -159,18 +187,89 @@ def check_ol31(ctx: CheckContext) -> Finding:
         dynamic_aliases = _extract_symbolic_dynamic_aliases(tree, aliases)
         if not _jit_has_dynamic_shape(jit_funcs, aliases, dynamic_aliases):
             files_without_dynamic.append(impl_file)
+    return files_without_dynamic, saw_jit, last_file_seen
+
+
+@register("OL31")
+def check_ol31(ctx: CheckContext) -> Finding:
+    """DESIGN.md front matter dynamic_axes 与 impl 动态注解一致。
+
+    覆盖范围：顶层集成 impl + modules/<op>_module*_impl.py。每个文件
+    单独评估，任一文件均未使用 pypto.DYNAMIC literal 时返回 FAIL。
+    这样在模块开发阶段（Stage 5 Phase M_k）即可发现违规，避免下沉
+    到 Stage 6 集成阶段才暴露。
+    """
+    if not ctx.file_exists(DESIGN_FILE):
+        return ctx.make_finding("OL31", "SKIP", f"{DESIGN_FILE} does not exist")
+    design_meta = _load_doc_meta(ctx, DESIGN_FILE)
+    schema_errors = _validate_doc_schema("DESIGN", design_meta)
+    if schema_errors:
+        return ctx.make_finding(
+            "OL31",
+            "FAIL",
+            f"{DESIGN_FILE} front matter schema invalid: {'; '.join(schema_errors)}",
+            file=DESIGN_FILE,
+        )
+
+    dynamic_axes = design_meta.get("dynamic_axes", [])
+    if not isinstance(dynamic_axes, list) or not dynamic_axes:
+        return ctx.make_finding(
+            "OL31",
+            "PASS",
+            f"{DESIGN_FILE} front matter does not declare dynamic axes, no check needed",
+        )
+
+    impl_files = _impl_files_to_scan(ctx)
+    if not impl_files:
+        return ctx.make_finding("OL31", "SKIP", "no impl files to check")
+    syntax_error = _ol31_syntax_error(ctx, impl_files)
+    if syntax_error is not None:
+        return syntax_error
+
+    files_without_dynamic, saw_jit, last_file_seen = _ol31_dynamic_scan(ctx, impl_files)
 
     if not saw_jit:
-        return ctx.make_finding("OL31", "SKIP", "无 jit 函数")
+        return ctx.make_finding("OL31", "SKIP", "no jit functions")
     if files_without_dynamic:
-        return ctx.make_finding("OL31", "FAIL",
-            f"{DESIGN_FILE} front matter 声明了动态轴，但以下 impl 文件的 "
-            f"Tensor 注解中均未使用 pypto.DYNAMIC/pypto.DYN: "
-            f"{', '.join(files_without_dynamic)}。"
-            "动态轴必须在类型注解中显式标记。",
-            file=files_without_dynamic[0])
-    return ctx.make_finding("OL31", "PASS",
-        "design 动态轴声明与 impl 注解一致", file=last_file_seen)
+        return _ol31_dynamic_fail(ctx, files_without_dynamic)
+    return ctx.make_finding(
+        "OL31",
+        "PASS",
+        "design dynamic axes declaration matches impl annotations",
+        file=last_file_seen,
+    )
+
+
+def _ol43_loop_fail(ctx: CheckContext, files_without_loop: list[str]) -> Finding:
+    """声明了动态轴但 impl 缺少 pypto.loop 的 FAIL finding（硬门禁）。"""
+    return ctx.make_finding(
+        "OL43",
+        "FAIL",
+        "DESIGN.md declares dynamic axes, but no "
+        "pypto.loop / pypto.lang.loop calls found in the following impl files: "
+        + ", ".join(files_without_loop)
+        + ". OL43 is a hard gate; passing NPU runs cannot replace the dynamic axis loop. "
+        "Please add the real pypto.loop traversing dynamic axes in the corresponding JIT kernel, "
+        "and continue fixing with the NPU error code and traceback.",
+        file=files_without_loop[0],
+    )
+
+
+def _ol43_files_without_loop(ctx: CheckContext, impl_files: list[str]) -> tuple:
+    """逐 jit impl 判定 loop 结构，返回 (saw_jit, files_without_loop, last_pass_file)。"""
+    saw_jit = False
+    files_without_loop: list[str] = []
+    last_pass_file = None
+    for impl_file, tree, _, jit_funcs in _iter_jit_impls_d5(ctx, impl_files):
+        saw_jit = True
+        # AST 级统一判定（覆盖 pypto.loop / pypto.loop_unroll / range 等），
+        # 不再用 `pypto\.loop\s*\(` 文本正则（loop_unroll( 会匹配失配被误拦），
+        # 对所有 jit 函数判定（而非仅 jit_funcs[0]），并跟随一层同文件 helper 委托。
+        if _has_loop_structure_with_helpers(jit_funcs, tree):
+            last_pass_file = impl_file
+        else:
+            files_without_loop.append(impl_file)
+    return saw_jit, files_without_loop, last_pass_file
 
 
 @register("OL43")
@@ -183,7 +282,7 @@ def check_ol43(ctx: CheckContext) -> Finding:
     集成 / Stage 6 production shape 上 workspace estimator INT32 溢出。
     """
     if not ctx.file_exists(DESIGN_FILE):
-        return ctx.make_finding("OL43", "SKIP", f"{DESIGN_FILE} 不存在")
+        return ctx.make_finding("OL43", "SKIP", f"{DESIGN_FILE} does not exist")
 
     design_meta = _load_doc_meta(ctx, DESIGN_FILE)
     dynamic_axes = design_meta.get("dynamic_axes") or design_meta.get("dynamic_axis")
@@ -192,48 +291,36 @@ def check_ol43(ctx: CheckContext) -> Finding:
     if not dynamic_axes:
         content = ctx.read_file(DESIGN_FILE)
         has_dynamic_keyword = bool(
-            re.search(r'(?:pypto\.DYNAMIC|pypto\.DYN|动态轴|dynamic.{0,10}axis)', content, re.IGNORECASE)
+            re.search(
+                r"(?:pypto\.DYNAMIC|pypto\.DYN|动态轴|dynamic.{0,10}axis)",
+                content,
+                re.IGNORECASE,
+            )
         )
         if not has_dynamic_keyword:
-            return ctx.make_finding("OL43", "SKIP",
-                "DESIGN.md 未声明动态轴，无需检查 pypto.loop")
+            return ctx.make_finding(
+                "OL43",
+                "SKIP",
+                "DESIGN.md does not declare dynamic axes, no need to check pypto.loop",
+            )
 
     impl_files = _impl_files_to_scan(ctx)
     if not impl_files:
-        return ctx.make_finding("OL43", "SKIP", "无 impl 文件可供检查")
+        return ctx.make_finding("OL43", "SKIP", "no impl files to check")
 
-    saw_jit = False
-    files_without_loop: list[str] = []
-    last_pass_file = None
-    for impl_file, _, _, jit_funcs in _iter_jit_impls_d5(ctx, impl_files):
-        saw_jit = True
-        impl_source = ctx.read_file(impl_file) or ""
-        has_pypto_loop = bool(re.search(r'pypto\.loop\s*\(', impl_source))
-        if not has_pypto_loop:
-            has_pypto_loop = _has_loop_structure(jit_funcs[0])
-        if has_pypto_loop:
-            last_pass_file = impl_file
-        else:
-            files_without_loop.append(impl_file)
+    saw_jit, files_without_loop, last_pass_file = _ol43_files_without_loop(
+        ctx, impl_files
+    )
 
     if not saw_jit:
-        return ctx.make_finding("OL43", "SKIP", "未找到 JIT 函数")
+        return ctx.make_finding("OL43", "SKIP", "no JIT function found")
 
     if files_without_loop:
-        return ctx.make_finding(
-            "OL43",
-            "FAIL",
-            "DESIGN.md 声明了动态轴，但以下 impl 文件中未找到 "
-            "pypto.loop / pypto.lang.loop 调用：" + ", ".join(files_without_loop) +
-            "。OL43 是硬性门禁；NPU 运行通过不能替代动态轴 loop。"
-            "请在对应 JIT kernel 中补齐遍历动态轴的真实 pypto.loop，"
-            "并结合 NPU 错误码与 traceback 继续修复。",
-            file=files_without_loop[0],
-        )
+        return _ol43_loop_fail(ctx, files_without_loop)
     return ctx.make_finding(
         "OL43",
         "PASS",
-        "DESIGN 声明动态轴，所有 impl 文件均含 loop 结构",
+        "DESIGN declares dynamic axes, and all impl files contain loop structure",
         file=last_pass_file,
     )
 
@@ -284,7 +371,7 @@ def _tolerance_mismatches(
         test_loosest = max(test_values)
         if test_loosest > spec_value * 3:
             mismatches.append(
-                f"{key}: spec 最严={spec_value}, test 最松={test_loosest}"
+                f"{key}: spec strictest={spec_value}, test loosest={test_loosest}"
             )
     return mismatches
 
@@ -293,38 +380,50 @@ def _tolerance_mismatches(
 def check_ol32(ctx: CheckContext) -> Finding:
     """SPEC.md front matter tolerance 须与 test 文件一致（支持 tolerance_schema 多模式）。"""
     if not ctx.file_exists(SPEC_FILE):
-        return ctx.make_finding("OL32", "SKIP", f"{SPEC_FILE} 不存在")
+        return ctx.make_finding("OL32", "SKIP", f"{SPEC_FILE} does not exist")
     spec_meta = _load_doc_meta(ctx, SPEC_FILE)
     schema_errors = _validate_doc_schema("SPEC", spec_meta)
     if schema_errors:
-        return ctx.make_finding("OL32", "FAIL",
-            f"{SPEC_FILE} front matter schema 非法: {'; '.join(schema_errors)}",
-            file=SPEC_FILE)
+        return ctx.make_finding(
+            "OL32",
+            "FAIL",
+            f"{SPEC_FILE} front matter schema invalid: {'; '.join(schema_errors)}",
+            file=SPEC_FILE,
+        )
 
     test_file = f"test_{ctx.op_name}.py"
     test_source = ctx.read_file(test_file)
     if not test_source:
-        return ctx.make_finding("OL32", "SKIP", f"{test_file} 不存在")
+        return ctx.make_finding("OL32", "SKIP", f"{test_file} does not exist")
 
     tolerance_meta = spec_meta.get("tolerance", {})
     if not isinstance(tolerance_meta, dict):
-        return ctx.make_finding("OL32", "FAIL",
-            f"{SPEC_FILE} front matter 中 tolerance 必须是 dict",
-            file=SPEC_FILE)
+        return ctx.make_finding(
+            "OL32",
+            "FAIL",
+            f"{SPEC_FILE} front matter tolerance must be a dict",
+            file=SPEC_FILE,
+        )
 
     matched_keys, modes = _matched_tolerance_keys(tolerance_meta)
     if modes is not None:
         return ctx.make_finding(
-            "OL32", "FAIL",
-            f"{SPEC_FILE} tolerance 不匹配任何已知模式: {modes}",
+            "OL32",
+            "FAIL",
+            f"{SPEC_FILE} tolerance does not match any known mode: {modes}",
             file=SPEC_FILE,
         )
     mismatches = _tolerance_mismatches(tolerance_meta, test_source, matched_keys)
     if mismatches:
-        return ctx.make_finding("OL32", "WARN",
-            f"{SPEC_FILE} 与 test 的精度容差差距较大: {'; '.join(mismatches)}",
-            file=test_file)
-    return ctx.make_finding("OL32", "PASS", "spec 精度容差与 test 一致")
+        return ctx.make_finding(
+            "OL32",
+            "WARN",
+            f"precision tolerance gap between {SPEC_FILE} and test is large: {'; '.join(mismatches)}",
+            file=test_file,
+        )
+    return ctx.make_finding(
+        "OL32", "PASS", "spec precision tolerance is consistent with test"
+    )
 
 
 @register("OL33")
@@ -338,24 +437,34 @@ def check_ol33(ctx: CheckContext) -> Finding:
     golden_tree = ctx.parse_file(golden_file)
     impl_tree = ctx.parse_file(impl_file)
     if golden_tree is None:
-        return ctx.make_finding("OL33", "SKIP", f"{golden_file} 不存在或无法解析")
+        return ctx.make_finding(
+            "OL33", "SKIP", f"{golden_file} does not exist or cannot be parsed"
+        )
     if impl_tree is None:
-        return ctx.make_finding("OL33", "SKIP", f"{impl_file} 不存在或无法解析")
+        return ctx.make_finding(
+            "OL33", "SKIP", f"{impl_file} does not exist or cannot be parsed"
+        )
     golden_func = f"{ctx.op_name}_golden"
     wrapper_func = f"{ctx.op_name}_wrapper"
     golden_count = _get_func_param_count(golden_tree, golden_func)
     wrapper_count = _get_func_param_count(impl_tree, wrapper_func)
     if golden_count is None:
-        return ctx.make_finding("OL33", "SKIP", f"未找到 {golden_func} 函数")
+        return ctx.make_finding("OL33", "SKIP", f"function {golden_func} not found")
     if wrapper_count is None:
-        return ctx.make_finding("OL33", "SKIP", f"未找到 {wrapper_func} 函数")
+        return ctx.make_finding("OL33", "SKIP", f"function {wrapper_func} not found")
     if golden_count != wrapper_count:
-        return ctx.make_finding("OL33", "WARN",
-            f"{golden_func} 需要 {golden_count} 个必需参数，"
-            f"但 {wrapper_func} 需要 {wrapper_count} 个必需参数，接口可能不兼容",
-            file=impl_file)
-    return ctx.make_finding("OL33", "PASS",
-        f"golden ({golden_count} 参数) 与 wrapper ({wrapper_count} 参数) 签名兼容")
+        return ctx.make_finding(
+            "OL33",
+            "WARN",
+            f"{golden_func} requires {golden_count} required parameters, "
+            f"but {wrapper_func} requires {wrapper_count} required parameters, the interfaces may be incompatible",
+            file=impl_file,
+        )
+    return ctx.make_finding(
+        "OL33",
+        "PASS",
+        f"golden ({golden_count} params) and wrapper ({wrapper_count} params) signatures are compatible",
+    )
 
 
 def _shape_tuple(value: object) -> tuple[int, ...] | None:
@@ -388,83 +497,121 @@ def _spec_p0_shapes(raw_shapes: list) -> set[tuple[int, ...]]:
     return shapes
 
 
+def _ol34_spec_p0_shapes(ctx: CheckContext, spec_meta: dict) -> tuple:
+    """SPEC 声明的 p0 shape 集合；声明非法时返回对应 Finding。"""
+    raw_shapes = spec_meta.get("p0_shapes", [])
+    if not isinstance(raw_shapes, list):
+        return None, ctx.make_finding(
+            "OL34",
+            "FAIL",
+            f"{SPEC_FILE} front matter p0_shapes must be a list",
+            file=SPEC_FILE,
+        )
+    spec_p0_shapes = _spec_p0_shapes(raw_shapes)
+    if not spec_p0_shapes:
+        return None, ctx.make_finding(
+            "OL34",
+            "FAIL",
+            f"{SPEC_FILE} front matter has no valid p0_shapes.\n"
+            "expected format: [[1024, 128], [1024, 256]] or [{x: [4, 2560], y: [4, 1024]}]\n"
+            "Note: {B: 4, C: 64} format is not supported (value must be a list, not a scalar)",
+            file=SPEC_FILE,
+        )
+    return spec_p0_shapes, None
+
+
 @register("OL34")
 def check_ol34(ctx: CheckContext) -> Finding:
     """SPEC.md front matter p0_shapes 应在 test 文件中覆盖。"""
     if not ctx.file_exists(SPEC_FILE):
-        return ctx.make_finding("OL34", "SKIP", f"{SPEC_FILE} 不存在")
+        return ctx.make_finding("OL34", "SKIP", f"{SPEC_FILE} does not exist")
     spec_meta = _load_doc_meta(ctx, SPEC_FILE)
     schema_errors = _validate_doc_schema("SPEC", spec_meta)
     if schema_errors:
-        return ctx.make_finding("OL34", "FAIL",
-            f"{SPEC_FILE} front matter schema 非法: {'; '.join(schema_errors)}",
-            file=SPEC_FILE)
+        return ctx.make_finding(
+            "OL34",
+            "FAIL",
+            f"{SPEC_FILE} front matter schema invalid: {'; '.join(schema_errors)}",
+            file=SPEC_FILE,
+        )
 
     test_file = f"test_{ctx.op_name}.py"
     test_source = ctx.read_file(test_file)
     if not test_source:
-        return ctx.make_finding("OL34", "SKIP", f"{test_file} 不存在")
+        return ctx.make_finding("OL34", "SKIP", f"{test_file} does not exist")
     test_tree = ctx.parse_file(test_file)
     if test_tree is None:
-        return ctx.make_finding("OL34", "SKIP", f"{test_file} 不存在或无法解析")
-    raw_shapes = spec_meta.get("p0_shapes", [])
-    if not isinstance(raw_shapes, list):
-        return ctx.make_finding("OL34", "FAIL",
-            f"{SPEC_FILE} front matter 中 p0_shapes 必须是 list",
-            file=SPEC_FILE)
-    spec_p0_shapes = _spec_p0_shapes(raw_shapes)
-
-    if not spec_p0_shapes:
-        return ctx.make_finding("OL34", "FAIL",
-            f"{SPEC_FILE} front matter 中未找到有效 p0_shapes。\n"
-            "期望格式: [[1024, 128], [1024, 256]] 或 [{x: [4, 2560], y: [4, 1024]}]\n"
-            "注意: {B: 4, C: 64} 格式不支持（value 必须是 list，不能是标量）",
-            file=SPEC_FILE)
-    test_shapes = _extract_shapes_from_test_ast(test_tree) | _extract_shapes_from_text(test_source)
+        return ctx.make_finding(
+            "OL34", "SKIP", f"{test_file} does not exist or cannot be parsed"
+        )
+    spec_p0_shapes, shape_error = _ol34_spec_p0_shapes(ctx, spec_meta)
+    if shape_error is not None:
+        return shape_error
+    test_shapes = _extract_shapes_from_test_ast(test_tree) | _extract_shapes_from_text(
+        test_source
+    )
     missing = spec_p0_shapes - test_shapes
     if missing:
         missing_str = ", ".join(str(list(s)) for s in sorted(missing))
-        return ctx.make_finding("OL34", "WARN",
-            f"{SPEC_FILE} 中 P0 配置的 shape {missing_str} 在测试文件中未覆盖",
-            file=test_file)
-    return ctx.make_finding("OL34", "PASS",
-        "spec P0 配置 shape 在 test 中均有覆盖")
+        return ctx.make_finding(
+            "OL34",
+            "WARN",
+            f"P0 shape {missing_str} configured in {SPEC_FILE} is not covered in the test file",
+            file=test_file,
+        )
+    return ctx.make_finding(
+        "OL34", "PASS", "spec P0 configured shapes are all covered in test"
+    )
 
 
 @register("OL39")
 def check_ol39(ctx: CheckContext) -> Finding:
     """strict 模式下，三个文档必须包含 front matter。"""
     if os.environ.get(STRICT_ENV, "1") != "1":
-        return ctx.make_finding("OL39", "SKIP", "strict 模式关闭")
+        return ctx.make_finding("OL39", "SKIP", "strict mode is off")
     for filename in (SPEC_FILE, DESIGN_FILE, API_REPORT_FILE):
         content = ctx.read_file(filename)
         if not content:
-            return ctx.make_finding("OL39", "FAIL", f"{filename} 不存在", file=filename)
+            return ctx.make_finding(
+                "OL39", "FAIL", f"{filename} does not exist", file=filename
+            )
         meta, _ = _parse_front_matter(content)
         if not meta:
-            return ctx.make_finding("OL39", "FAIL",
-                f"{filename} 缺少 front matter（必须以 --- 开头）",
-                file=filename)
-    return ctx.make_finding("OL39", "PASS", "front matter 完整")
+            return ctx.make_finding(
+                "OL39",
+                "FAIL",
+                f"{filename} missing front matter (must start with ---)",
+                file=filename,
+            )
+    return ctx.make_finding("OL39", "PASS", "front matter complete")
 
 
 @register("OL40")
 def check_ol40(ctx: CheckContext) -> Finding:
     """strict 模式下，三个文档 front matter 必填字段必须完整。"""
     if os.environ.get(STRICT_ENV, "1") != "1":
-        return ctx.make_finding("OL40", "SKIP", "strict 模式关闭")
-    docs = ((SPEC_FILE, "SPEC"), (DESIGN_FILE, "DESIGN"), (API_REPORT_FILE, "API_REPORT"))
+        return ctx.make_finding("OL40", "SKIP", "strict mode is off")
+    docs = (
+        (SPEC_FILE, "SPEC"),
+        (DESIGN_FILE, "DESIGN"),
+        (API_REPORT_FILE, "API_REPORT"),
+    )
     for filename, doc_type in docs:
         content = ctx.read_file(filename)
         if not content:
-            return ctx.make_finding("OL40", "FAIL", f"{filename} 不存在", file=filename)
+            return ctx.make_finding(
+                "OL40", "FAIL", f"{filename} does not exist", file=filename
+            )
         meta, _ = _parse_front_matter(content)
         errors = _validate_doc_schema(doc_type, meta)
         if errors:
-            return ctx.make_finding("OL40", "FAIL",
-                f"{filename} front matter schema 非法: {'; '.join(errors)}",
-                file=filename)
-    return ctx.make_finding("OL40", "PASS", "front matter schema 完整")
+            return ctx.make_finding(
+                "OL40",
+                "FAIL",
+                f"{filename} front matter schema invalid: {'; '.join(errors)}",
+                file=filename,
+            )
+    return ctx.make_finding("OL40", "PASS", "front matter schema complete")
 
 
 @register("OL41")
@@ -501,10 +648,47 @@ def check_ol41(ctx: CheckContext) -> Finding:
                 return ctx.make_finding(
                     "OL41",
                     "FAIL",
-                    f"{filename} 检测到 lint 输出污染片段: {token}",
+                    f"{filename} detected lint output pollution snippet: {token}",
                     file=filename,
                 )
-    return ctx.make_finding("OL41", "PASS", "未检测到 lint 输出污染")
+    return ctx.make_finding("OL41", "PASS", "no lint output pollution detected")
+
+
+# 无信息量的常见短名，求交集前先剔除。
+_IMPL_NAME_BLACKLIST = {
+    "i",
+    "j",
+    "k",
+    "n",
+    "m",
+    "x",
+    "y",
+    "z",
+    "tmp",
+    "temp",
+    "result",
+    "out",
+    "input",
+    "output",
+}
+
+
+def _ol37_impl_names(ctx: CheckContext, impl_files: list[str]) -> tuple:
+    """各 impl 文件 JIT 内局部变量名的并集（剔除无信息量短名）。
+
+    返回 (impl_names, last_impl_file)；last_impl_file 为 None 表示无可解析文件。
+    """
+    impl_names: set[str] = set()
+    last_impl_file = None
+    for impl_file in impl_files:
+        tree = ctx.parse_file(impl_file)
+        if tree is None:
+            continue
+        last_impl_file = impl_file
+        aliases = ctx.pypto_aliases(impl_file)
+        names = _extract_jit_assigned_names(tree, aliases)
+        impl_names |= {n for n in names if n not in _IMPL_NAME_BLACKLIST}
+    return impl_names, last_impl_file
 
 
 @register("OL37")
@@ -517,41 +701,31 @@ def check_ol37(ctx: CheckContext) -> Finding:
     """
     design_content = ctx.read_file(DESIGN_FILE)
     if not design_content:
-        return ctx.make_finding("OL37", "SKIP", f"{DESIGN_FILE} 不存在")
+        return ctx.make_finding("OL37", "SKIP", f"{DESIGN_FILE} does not exist")
 
     impl_files = _impl_files_to_scan(ctx)
     if not impl_files:
-        return ctx.make_finding("OL37", "SKIP", "无 impl 文件可供检查")
+        return ctx.make_finding("OL37", "SKIP", "no impl files to check")
 
     design_names = _extract_design_identifiers(design_content)
-    impl_blacklist = {
-        "i", "j", "k", "n", "m", "x", "y", "z", "tmp", "temp", "result", "out",
-        "input", "output",
-    }
-    impl_names: set[str] = set()
-    last_impl_file = None
-    for impl_file in impl_files:
-        tree = ctx.parse_file(impl_file)
-        if tree is None:
-            continue
-        last_impl_file = impl_file
-        aliases = ctx.pypto_aliases(impl_file)
-        names = _extract_jit_assigned_names(tree, aliases)
-        impl_names |= {n for n in names if n not in impl_blacklist}
+    impl_names, last_impl_file = _ol37_impl_names(ctx, impl_files)
 
     if last_impl_file is None:
-        return ctx.make_finding("OL37", "SKIP", "无 impl 文件可解析")
+        return ctx.make_finding("OL37", "SKIP", "no impl files to parse")
 
     # design 中缺少可对齐变量名时直接跳过，避免误报
     if len(design_names) < 3:
         return ctx.make_finding(
             "OL37",
             "SKIP",
-            f"{DESIGN_FILE} 中可用于对齐的代码变量名不足（<3），跳过可追溯性检查",
+            f"{DESIGN_FILE} does not contain enough alignable code variable "
+            "names (<3), skipping the traceability check",
         )
 
     if not impl_names:
-        return ctx.make_finding("OL37", "SKIP", "未检测到 jit 内局部变量赋值")
+        return ctx.make_finding(
+            "OL37", "SKIP", "no local variable assignments detected inside jit"
+        )
 
     overlap = sorted(design_names & impl_names)
     # 命中 >=2 视为具备可追溯性；该规则为 S3 信息提示，避免因 design 关键名
@@ -560,7 +734,7 @@ def check_ol37(ctx: CheckContext) -> Finding:
         return ctx.make_finding(
             "OL37",
             "PASS",
-            f"design/impl 命名可追溯性良好（命中 {len(overlap)} 个：{', '.join(overlap[:5])}）",
+            f"design/impl naming traceability is good (hit {len(overlap)}: {', '.join(overlap[:5])})",
             file=last_impl_file,
         )
 
@@ -568,8 +742,8 @@ def check_ol37(ctx: CheckContext) -> Finding:
     return ctx.make_finding(
         "OL37",
         "INFO",
-        "design 与 impl 的关键命名重合较少，建议对齐中间变量命名以提升可追溯性；"
-        f"当前 impl 示例变量：{sample_impl}",
+        "design and impl share few key names, consider aligning intermediate variable names to improve traceability; "
+        f"current impl sample variables: {sample_impl}",
         file=last_impl_file,
     )
 
@@ -577,6 +751,7 @@ def check_ol37(ctx: CheckContext) -> Finding:
 # ─────────────────────────────────────────────────────────────────────────────
 # OL50/OL51 — module_interfaces.yaml 契约与 impl 的一致性
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _load_module_interfaces(ctx: CheckContext) -> dict | None:
     """Load `<op_dir>/eval/module_interfaces.yaml`. Return None if absent / invalid."""
@@ -606,8 +781,9 @@ def _suffix_to_module_ids(suffix: str) -> list[int]:
         # Simple model: digits 1..9 are single-char, 10+ uses two chars.
         # Heuristic: try single digit first; ids are emitted in order so the
         # next id should always equal previous+1.
-        if i + 1 < len(suffix) and suffix[i:i + 2].isdigit():
-            two = int(suffix[i:i + 2])
+        pair_end = i + 2
+        if i + 1 < len(suffix) and suffix[i:pair_end].isdigit():
+            two = int(suffix[i:pair_end])
             if two == n:
                 out.append(two)
                 i += 2
@@ -638,9 +814,7 @@ def _impl_file_to_module_suffix(impl_file: str, op_name: str) -> str | None:
     return None
 
 
-def _primary_inputs_for_modules(
-    interfaces: dict, module_ids: list[int]
-) -> list[str]:
+def _primary_inputs_for_modules(interfaces: dict, module_ids: list[int]) -> list[str]:
     """Return the ordered list of primary-input names referenced by the given
     module ids. Order is determined by the `primary_inputs` declaration order.
     """
@@ -671,9 +845,7 @@ def _primary_inputs_for_modules(
     return [n for n in declared_order if n in referenced]
 
 
-def _outputs_for_modules(
-    interfaces: dict, module_ids: list[int]
-) -> list[str]:
+def _outputs_for_modules(interfaces: dict, module_ids: list[int]) -> list[str]:
     """Return the names of outputs declared by the given module ids.
     For cumulative modules, the final output(s) of the last module
     are the externally-visible outputs (others are intermediate).
@@ -685,11 +857,13 @@ def _outputs_for_modules(
     for mod in modules:
         if isinstance(mod, dict) and mod.get("id") == final_id:
             outs = mod.get("outputs", []) or []
-            return [
-                out_entry["name"]
-                for out_entry in outs
-                if isinstance(out_entry, dict) and isinstance(out_entry.get("name"), str)
-            ]
+            names = []
+            for out_entry in outs:
+                if isinstance(out_entry, dict) and isinstance(
+                    out_entry.get("name"), str
+                ):
+                    names.append(out_entry["name"])
+            return names
     return []
 
 
@@ -701,7 +875,8 @@ def _final_outputs_for_top_level(interfaces: dict) -> list[str]:
     if not isinstance(fos, list):
         return []
     return [
-        fo["name"] for fo in fos
+        fo["name"]
+        for fo in fos
         if isinstance(fo, dict) and isinstance(fo.get("name"), str)
     ]
 
@@ -765,19 +940,23 @@ def _invalid_suffix_finding(
 ) -> Finding:
     cumulative_example = (
         "".join(str(index) for index in range(1, int(suffix) + 1))
-        if suffix.isdigit() else "123..."
+        if suffix.isdigit()
+        else "123..."
     )
     return ctx.make_finding(
-        "OL50", "FAIL",
-        f"{impl_file}: 模块 suffix '{suffix}' 不满足累积命名规约。\n"
-        f"累积命名规则: 文件名 suffix 必须是从 1 开始的连续模块 ID 拼接。\n"
-        f"  合法示例: module1(M1), module12(M1+M2), module123(M1+M2+M3)\n"
-        f"  当前 suffix '{suffix}' 无法解析为累积序列。\n"
-        f"修正方式:\n"
-        f"  - 如果这是第 {suffix} 个 Phase 的累积产物（M1–M{suffix}），"
-        f"文件名应为 module{cumulative_example}_impl.py\n"
-        f"  - 如果这是 standalone 模块（不参与累积），应将其逻辑合并到 "
-        f"顶层 {ctx.op_name}_impl.py 中，或重新设计模块分解使其参与累积 Phase 链",
+        "OL50",
+        "FAIL",
+        f"{impl_file}: module suffix '{suffix}' does not satisfy the cumulative naming convention.\n"
+        "cumulative naming rule: the filename suffix must be the "
+        "concatenation of consecutive module IDs starting from 1.\n"
+        f"  valid examples: module1(M1), module12(M1+M2), module123(M1+M2+M3)\n"
+        f"  current suffix '{suffix}' cannot be parsed as a cumulative sequence.\n"
+        f"how to fix:\n"
+        f"  - if this is the cumulative artifact of Phase {suffix} (M1–M{suffix}), "
+        f"the filename should be module{cumulative_example}_impl.py\n"
+        f"  - if this is a standalone module (not part of the cumulative chain), merge its logic into "
+        f"the top-level {ctx.op_name}_impl.py, or redesign the module "
+        "decomposition so it joins the cumulative Phase chain",
         file=impl_file,
     )
 
@@ -802,7 +981,9 @@ def _wrapper_contract_finding(
     impl_file: str,
     tree: ast.Module,
 ) -> Finding | None:
-    expected, suffix, invalid_suffix = _expected_primary_inputs(ctx, interfaces, impl_file)
+    expected, suffix, invalid_suffix = _expected_primary_inputs(
+        ctx, interfaces, impl_file
+    )
     if invalid_suffix is not None:
         return invalid_suffix
     if expected is None:
@@ -810,10 +991,11 @@ def _wrapper_contract_finding(
     wrapper = _find_wrapper_function(tree, ctx.op_name, suffix)
     if wrapper is None:
         return ctx.make_finding(
-            "OL50", "FAIL",
-            f"{impl_file}: 未发现 Layer K wrapper 函数 "
-            f"(期望 `{ctx.op_name}_module{suffix}_wrapper` "
-            f"或 `host_wrapper`)。",
+            "OL50",
+            "FAIL",
+            f"{impl_file}: no Layer K wrapper function found "
+            f"(expected `{ctx.op_name}_module{suffix}_wrapper` "
+            f"or `host_wrapper`).",
             file=impl_file,
         )
     actual = _func_arg_names(wrapper)
@@ -822,18 +1004,19 @@ def _wrapper_contract_finding(
     fix_hint = ""
     if not expected and "primary_inputs" not in interfaces:
         fix_hint = (
-            "\n提示: 当前 expected=[] 是因为 YAML 缺少顶层 `primary_inputs`；"
-            "请按 pypto-op-designer 的 "
-            "`module_interfaces.yaml` schema 补回该字段，"
-            "`source: primary` 不能替代它。"
+            "\nhint: expected=[] is empty because the YAML lacks the top-level `primary_inputs`; "
+            "please add this field back per the `.opencode/agents/pypto-op-architect.md` "
+            "`module_interfaces.yaml` schema, "
+            "`source: primary` cannot replace it."
         )
     return ctx.make_finding(
-        "OL50", "FAIL",
-        f"{impl_file} 第 {wrapper.lineno} 行: wrapper `{wrapper.name}` 的 "
-        f"参数顺序与 module_interfaces.yaml 不一致。\n"
-        f"  expected (primary_inputs 顺序): {expected}\n"
+        "OL50",
+        "FAIL",
+        f"{impl_file} line {wrapper.lineno}: wrapper `{wrapper.name}` "
+        f"parameter order does not match module_interfaces.yaml.\n"
+        f"  expected (primary_inputs order): {expected}\n"
         f"  actual:                         {actual}\n"
-        f"修正方针: wrapper 显式参数应只包含 expected 列表，并保持同顺序。"
+        f"fix guideline: wrapper explicit parameters should only contain the expected list, and keep the same order."
         f"{fix_hint}",
         file=impl_file,
         line=wrapper.lineno,
@@ -854,19 +1037,22 @@ def check_ol50(ctx: CheckContext) -> Finding:
     interfaces = _load_module_interfaces(ctx)
     if interfaces is None:
         return ctx.make_finding(
-            "OL50", "SKIP",
-            "eval/module_interfaces.yaml 不存在或 PyYAML 未安装 — 无法核对契约",
+            "OL50",
+            "SKIP",
+            "eval/module_interfaces.yaml does not exist or PyYAML is not installed — cannot verify the contract",
         )
     impl_files = _impl_files_to_scan(ctx)
     if not impl_files:
-        return ctx.make_finding("OL50", "SKIP", "无 impl 文件可供检查")
+        return ctx.make_finding("OL50", "SKIP", "no impl files to check")
 
     for impl_file, tree, _ in _iter_parsed_impls(ctx, impl_files):
         failure = _wrapper_contract_finding(ctx, interfaces, impl_file, tree)
         if failure is not None:
             return failure
     return ctx.make_finding(
-        "OL50", "PASS", "wrapper 参数顺序与 module_interfaces.yaml 一致",
+        "OL50",
+        "PASS",
+        "wrapper parameter order matches module_interfaces.yaml",
     )
 
 
@@ -911,6 +1097,12 @@ def _call_writeback_targets(node: ast.Call) -> set[str]:
         if node.args and isinstance(node.args[0], ast.Name):
             targets.add(node.args[0].id)
         targets.update(_named_keyword_targets(node, ("input", "y")))
+    elif receiver == "pypto" and func.attr == "atomic_add":
+        # pypto.atomic_add(src, offsets, dst) — 写回目标是第 3 个位置参数 dst
+        # 或 dst 关键字参数（atomic_add 是 flash attention 反向梯度等场景的规范写回手段）。
+        if len(node.args) >= 3 and isinstance(node.args[2], ast.Name):
+            targets.add(node.args[2].id)
+        targets.update(_named_keyword_targets(node, ("dst", "out", "target")))
     elif func.attr in ("move", "assemble", "index_add_", "scatter_", "axpy_"):
         targets.add(receiver)
     return targets
@@ -945,6 +1137,7 @@ def _collected_writeback_targets(tree: ast.Module) -> set[str]:
       - `pypto.index_put_(<name>, ...)` — inplace 索引写入
       - `pypto.scatter_(<name>, ...)` — inplace 散射写入
       - `pypto.axpy_(<name>, ...)` — inplace AXPY (y = alpha*x + y)
+      - `pypto.atomic_add(src, offsets, <name>)` — 原子累加写回 (dst 为第 3 参)
       - `<name>.index_add_(...)` / `.scatter_(...)` / `.axpy_(...)`
     """
     out: set[str] = set()
@@ -973,12 +1166,15 @@ def _local_call_name(node: ast.Call) -> str | None:
 
 
 _INPLACE_PYPTO_OPS = (
-    "index_add_", "index_add__ub", "index_put_",
-    "scatter_", "axpy_",
+    "index_add_",
+    "index_add__ub",
+    "index_put_",
+    "scatter_",
+    "axpy_",
 )
 
 
-WritebackPair = tuple[str, ast.AST | None]
+WritebackPair = tuple[str, Optional[ast.AST]]
 
 
 def _assemble_pairs(node: ast.Call) -> list[WritebackPair]:
@@ -1069,9 +1265,7 @@ def _collect_jit_writeback_pairs(
             continue
         visited.add(func.name)
         for node in ast.walk(func):
-            pairs.extend(
-                _node_writeback_pairs(node, function_defs, visited, stack)
-            )
+            pairs.extend(_node_writeback_pairs(node, function_defs, visited, stack))
     return pairs
 
 
@@ -1169,10 +1363,7 @@ def _collect_function_local_assigns(
         modified_name = _modified_assignment_name(node)
         if modified_name is not None:
             subscript_modified.add(modified_name)
-    return {
-        k: v for k, v in direct_assigns.items()
-        if k not in subscript_modified
-    }
+    return {k: v for k, v in direct_assigns.items() if k not in subscript_modified}
 
 
 def _is_trivial_write_source(
@@ -1206,7 +1397,10 @@ def _is_trivial_write_source(
             return True
         if local_assigns is not None and source.id in local_assigns:
             return _is_trivial_write_source(
-                local_assigns[source.id], jit_input_params, local_assigns, _depth + 1,
+                local_assigns[source.id],
+                jit_input_params,
+                local_assigns,
+                _depth + 1,
             )
         return False
     # 输入参数的下标访问形式
@@ -1217,13 +1411,19 @@ def _is_trivial_write_source(
         if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name):
             # pypto.zeros / ones / empty / full / tensor — 未初始化或零值
             if f.value.id == "pypto" and f.attr in (
-                "zeros", "ones", "empty", "full", "tensor", "zeros_like",
-                "empty_like", "ones_like",
+                "zeros",
+                "ones",
+                "empty",
+                "full",
+                "tensor",
+                "zeros_like",
+                "empty_like",
+                "ones_like",
             ):
                 return True
             # 输入参数的浅层视图：pypto 命名空间的 view 或 reshape
-            first_arg_is_name = (
-                bool(source.args) and isinstance(source.args[0], ast.Name)
+            first_arg_is_name = bool(source.args) and isinstance(
+                source.args[0], ast.Name
             )
             if (
                 f.value.id == "pypto"
@@ -1232,10 +1432,13 @@ def _is_trivial_write_source(
             ):
                 return source.args[0].id in jit_input_params
             # 张量方法形式的浅层视图：输入参数的 reshape、view、contiguous、clone、detach
-            if (
-                f.attr in ("reshape", "view", "contiguous", "clone", "detach")
-                and isinstance(f.value, ast.Name)
-            ):
+            if f.attr in (
+                "reshape",
+                "view",
+                "contiguous",
+                "clone",
+                "detach",
+            ) and isinstance(f.value, ast.Name):
                 return f.value.id in jit_input_params
     return False
 
@@ -1263,14 +1466,15 @@ def _ol51_count_failure(
     if len(writebacks) >= len(expected_outputs):
         return None
     return ctx.make_finding(
-        "OL51", "FAIL",
-        f"[OL51.a] {impl_file}: YAML 声明了 {len(expected_outputs)} 个输出 "
-        f"{expected_outputs}, 但 impl 中只检测到 "
-        f"{len(writebacks)} 个写回点 (writebacks={sorted(writebacks)})。\n"
-        f"修正方针: 对每个输出, 在 JIT 函数内 / 任意 Layer I-J 中执行 "
-        f"`pypto.assemble(src, offsets, <buffer>)`、`<buffer>.move(src)` "
-        f"或 `<buffer>[:] = expr`。"
-        f"漏写回 = Verify 阶段「全零输出」型精度 FAIL 的典型原因。",
+        "OL51",
+        "FAIL",
+        f"[OL51.a] {impl_file}: YAML declares {len(expected_outputs)} outputs "
+        f"{expected_outputs}, but only "
+        f"{len(writebacks)} writeback points were detected in impl (writebacks={sorted(writebacks)}).\n"
+        f"fix guideline: for each output, execute within the JIT function / any Layer I-J: "
+        f"`pypto.assemble(src, offsets, <buffer>)`, `<buffer>.move(src)`, "
+        f"`<buffer>[:] = expr`, or accumulate writebacks via `pypto.atomic_add(src, offsets, <buffer>)`."
+        f"missing writeback is the typical cause of 'all-zero output' precision FAILs in the Verify stage.",
         file=impl_file,
     )
 
@@ -1308,12 +1512,13 @@ def _ol51_trivial_failure(
     if not trivial_hits:
         return None
     return ctx.make_finding(
-        "OL51", "FAIL",
-        f"[OL51.b] {impl_file}: JIT 仅以平凡 pass-through "
-        f"(直接复制输入 / pypto.zeros / 浅层 reshape) 写出 {trivial_hits}。\n"
-        f"修正方针: 输出值必须由真实 PyPTO compute op (pypto.matmul / "
-        f"pypto.exp / pypto.add / ...) 产生 "
-        f"(Issue #2083 _layout_check_placeholder 类占位实现 = 此处 FAIL)。",
+        "OL51",
+        "FAIL",
+        f"[OL51.b] {impl_file}: JIT only uses trivial pass-through "
+        f"(direct input copy / pypto.zeros / shallow reshape) to write {trivial_hits}.\n"
+        f"fix guideline: output values must be produced by real PyPTO compute ops (pypto.matmul / "
+        f"pypto.exp / pypto.add / ...) "
+        f"(Issue #2083 _layout_check_placeholder placeholder implementation = FAIL here).",
         file=impl_file,
     )
 
@@ -1348,16 +1553,19 @@ def check_ol51(ctx: CheckContext) -> Finding:
     interfaces = _load_module_interfaces(ctx)
     if interfaces is None:
         return ctx.make_finding(
-            "OL51", "SKIP",
-            "eval/module_interfaces.yaml 不存在或 PyYAML 未安装 — 无法核对写回",
+            "OL51",
+            "SKIP",
+            "eval/module_interfaces.yaml does not exist or PyYAML is not installed — cannot verify writebacks",
         )
     impl_files = _impl_files_to_scan(ctx)
     if not impl_files:
-        return ctx.make_finding("OL51", "SKIP", "无 impl 文件可供检查")
+        return ctx.make_finding("OL51", "SKIP", "no impl files to check")
 
     for impl_file, tree, aliases in _iter_parsed_impls(ctx, impl_files):
         expected_outputs = _expected_impl_outputs(
-            interfaces, impl_file, ctx.op_name,
+            interfaces,
+            impl_file,
+            ctx.op_name,
         )
         if not expected_outputs:
             continue
@@ -1365,7 +1573,10 @@ def check_ol51(ctx: CheckContext) -> Finding:
         # ── OL51.a — 数量层: 写回点总数 ≥ N (file scope) ──────────────────
         writebacks = _collected_writeback_targets(tree)
         failure = _ol51_count_failure(
-            ctx, impl_file, expected_outputs, writebacks,
+            ctx,
+            impl_file,
+            expected_outputs,
+            writebacks,
         )
         if failure:
             return failure
@@ -1381,14 +1592,18 @@ def check_ol51(ctx: CheckContext) -> Finding:
             if isinstance(node, ast.FunctionDef)
         }
         trivial_hits = _jit_trivial_hits(
-            expected_outputs, jit_funcs, function_defs,
+            expected_outputs,
+            jit_funcs,
+            function_defs,
         )
         failure = _ol51_trivial_failure(ctx, impl_file, trivial_hits)
         if failure:
             return failure
     return ctx.make_finding(
-        "OL51", "PASS",
-        "impl 写回点数 ≥ YAML 输出数, 且 (有 JIT 时) 写出非平凡 (OL51.a + OL51.b)",
+        "OL51",
+        "PASS",
+        "impl writeback point count ≥ YAML output count, and (when JIT is "
+        "present) writes are non-trivial (OL51.a + OL51.b)",
     )
 
 
@@ -1397,35 +1612,141 @@ def check_ol51(ctx: CheckContext) -> Finding:
 # ─────────────────────────────────────────────────────────────────────────────
 
 # torch.<X>(...) 允许的非算术调用 (alloc / 构造 / layout / 随机初始化 / 设备)
-_OL62_TORCH_OK = frozenset({
-    "empty", "zeros", "ones", "full", "empty_like", "zeros_like", "ones_like",
-    "full_like", "tensor", "as_tensor", "from_numpy", "arange", "eye",
-    "randn", "rand", "randint", "normal", "randn_like", "rand_like",
-    "reshape", "cat", "stack", "chunk", "split", "unbind", "movedim",
-    "swapaxes", "swapdims", "broadcast_to", "flatten", "squeeze", "unsqueeze",
-    "permute", "transpose", "pad", "tril", "triu", "tril_indices",
-    "triu_indices", "meshgrid", "repeat", "tile",
-    "set_device", "manual_seed", "device", "get_default_dtype",
-    "set_default_dtype", "no_grad", "set_grad_enabled", "is_available",
-    "device_count", "current_device",
-})
+_OL62_TORCH_OK = frozenset(
+    {
+        "empty",
+        "zeros",
+        "ones",
+        "full",
+        "empty_like",
+        "zeros_like",
+        "ones_like",
+        "full_like",
+        "tensor",
+        "as_tensor",
+        "from_numpy",
+        "arange",
+        "eye",
+        "randn",
+        "rand",
+        "randint",
+        "normal",
+        "randn_like",
+        "rand_like",
+        "reshape",
+        "cat",
+        "stack",
+        "chunk",
+        "split",
+        "unbind",
+        "movedim",
+        "swapaxes",
+        "swapdims",
+        "broadcast_to",
+        "flatten",
+        "squeeze",
+        "unsqueeze",
+        "permute",
+        "transpose",
+        "pad",
+        "tril",
+        "triu",
+        "tril_indices",
+        "triu_indices",
+        "meshgrid",
+        "repeat",
+        "tile",
+        "set_device",
+        "manual_seed",
+        "device",
+        "get_default_dtype",
+        "set_default_dtype",
+        "no_grad",
+        "set_grad_enabled",
+        "is_available",
+        "device_count",
+        "current_device",
+    }
+)
 # 张量算术方法 (recv.<X>(...)) —— 命中即 FAIL (recv 非 pypto/np/math 时)
-_OL62_METHOD_ARITH = frozenset({
-    "matmul", "mm", "bmm", "dot", "mv", "einsum", "exp", "expm1", "log",
-    "log1p", "log2", "log10", "softmax", "log_softmax", "sum", "mean",
-    "median", "std", "var", "prod", "cumsum", "cumprod", "rsqrt", "sqrt",
-    "sigmoid", "tanh", "relu", "gelu", "silu", "pow", "neg", "abs", "maximum",
-    "minimum", "amax", "amin", "argmax", "argmin", "where", "clamp",
-    "clamp_min", "clamp_max", "erf", "sin", "cos", "tan", "sign", "floor",
-    "ceil", "round", "reciprocal", "addmm", "baddbmm", "addbmm", "scatter",
-    "scatter_add", "gather", "index_select", "index_add", "norm", "dist",
-    "cross", "outer", "masked_fill", "add", "sub", "mul", "div",
-})
+_OL62_METHOD_ARITH = frozenset(
+    {
+        "matmul",
+        "mm",
+        "bmm",
+        "dot",
+        "mv",
+        "einsum",
+        "exp",
+        "expm1",
+        "log",
+        "log1p",
+        "log2",
+        "log10",
+        "softmax",
+        "log_softmax",
+        "sum",
+        "mean",
+        "median",
+        "std",
+        "var",
+        "prod",
+        "cumsum",
+        "cumprod",
+        "rsqrt",
+        "sqrt",
+        "sigmoid",
+        "tanh",
+        "relu",
+        "gelu",
+        "silu",
+        "pow",
+        "neg",
+        "abs",
+        "maximum",
+        "minimum",
+        "amax",
+        "amin",
+        "argmax",
+        "argmin",
+        "where",
+        "clamp",
+        "clamp_min",
+        "clamp_max",
+        "erf",
+        "sin",
+        "cos",
+        "tan",
+        "sign",
+        "floor",
+        "ceil",
+        "round",
+        "reciprocal",
+        "addmm",
+        "baddbmm",
+        "addbmm",
+        "scatter",
+        "scatter_add",
+        "gather",
+        "index_select",
+        "index_add",
+        "norm",
+        "dist",
+        "cross",
+        "outer",
+        "masked_fill",
+        "add",
+        "sub",
+        "mul",
+        "div",
+    }
+)
 # 这些 receiver 上的 .<arith>() 不是 torch 张量算术 (pypto op / scalar / 模块)
 _OL62_SKIP_ROOTS = frozenset({"np", "numpy", "math", "os", "sys", "self", "kwargs"})
 # 非生产函数 (self-test / demo) —— 不参与 OL62 检查
-_OL62_NONPROD = frozenset({"_validate", "_make_inputs", "main", "_self_test",
-                           "_demo", "_test"})
+_OL62_NONPROD = frozenset(
+    {"_validate", "_make_inputs", "main", "_self_test", "_demo", "_test"}
+)
 
 
 def _ol62_root_name(node: ast.AST) -> str | None:
@@ -1439,11 +1760,16 @@ def _ol62_production_nodes(tree: ast.Module) -> Iterator[ast.AST]:
     for top in tree.body:
         if isinstance(top, ast.If):
             t = top.test
-            if (isinstance(t, ast.Compare) and isinstance(t.left, ast.Name)
-                    and t.left.id == "__name__"):
+            if (
+                isinstance(t, ast.Compare)
+                and isinstance(t.left, ast.Name)
+                and t.left.id == "__name__"
+            ):
                 continue
-        if isinstance(top, (ast.FunctionDef, ast.AsyncFunctionDef)) \
-                and top.name in _OL62_NONPROD:
+        if (
+            isinstance(top, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and top.name in _OL62_NONPROD
+        ):
             continue
         yield from ast.walk(top)
 
@@ -1462,11 +1788,7 @@ def _ol62_hit(
         return node.lineno, f"torch.{attr}(...)"
     if root in ("F", "functional"):
         return node.lineno, f"F.{attr}(...)"
-    if (
-        attr in _OL62_METHOD_ARITH
-        and root not in skip_roots
-        and root != "torch"
-    ):
+    if attr in _OL62_METHOD_ARITH and root not in skip_roots and root != "torch":
         return node.lineno, f"{root or ''}.{attr}(...)"
     return None
 
@@ -1499,7 +1821,7 @@ def check_ol62(ctx: CheckContext) -> Finding:
     """
     impl_files = _impl_files_to_scan(ctx)
     if not impl_files:
-        return ctx.make_finding("OL62", "SKIP", "无 impl 文件可供检查")
+        return ctx.make_finding("OL62", "SKIP", "no impl files to check")
     for impl_file, tree, aliases in _iter_parsed_impls(ctx, impl_files):
         skip_roots = _OL62_SKIP_ROOTS | aliases
         hits = _ol62_hits(tree, skip_roots)
@@ -1507,15 +1829,18 @@ def check_ol62(ctx: CheckContext) -> Finding:
             uniq = sorted(set(hits))[:8]
             detail = "; ".join(f"L{ln}:{m}" for ln, m in uniq)
             return ctx.make_finding(
-                "OL62", "FAIL",
-                f"{impl_file}: 检测到 host 侧 torch 张量算术 ({detail})。\n"
-                f"修正方针: 算子的数值计算必须在 @pypto.frontend.jit 图内用 "
-                f"`pypto.*` op 实现; host (wrapper / 非 JIT helper) 仅允许 "
-                f"layout / alloc / cast / reshape。torch 主计算 = dummy-JIT 作弊。",
+                "OL62",
+                "FAIL",
+                f"{impl_file}: detected host-side torch tensor arithmetic ({detail}).\n"
+                "fix guideline: the operator's numeric computation must be "
+                "implemented inside the @pypto.frontend.jit graph with "
+                f"`pypto.*` ops; host (wrapper / non-JIT helper) is only allowed to "
+                f"layout / alloc / cast / reshape. torch main computation = dummy-JIT cheating.",
                 file=impl_file,
             )
     return ctx.make_finding(
-        "OL62", "PASS",
+        "OL62",
+        "PASS",
         "impl 内 torch 仅用于 layout/alloc/cast; 数值计算在 JIT 图内",
     )
 
@@ -1585,6 +1910,32 @@ def _row_status(row_text: str) -> str:
     return ""
 
 
+def _ol53_fail(ctx: CheckContext, memory_file: str, rows: list, bad: list) -> Finding:
+    """清单残留 ❌/未完成标记的 FAIL finding，含修复指引。"""
+    n_rows = len(rows)
+    bad_lines = ", ".join(f"L{ln}" for ln, _ in bad[:8])
+    more = f" and {len(bad)} lines in total" if len(bad) > 8 else ""
+    return ctx.make_finding(
+        "OL53",
+        "FAIL",
+        f"{memory_file}: Golden function inventory has {n_rows} rows, of which "
+        f"{len(bad)} rows carry ❌/unresolved markers ({bad_lines}{more}).\n"
+        f"fix guideline: update each row to ✅ and attach the line number of the corresponding PyPTO call in impl; "
+        f"if intentionally omitted, note the reason on another line. Residual ❌ will fail complete_stage.",
+        file=memory_file,
+    )
+
+
+def _ol53_unresolved_rows(rows: list) -> list:
+    """清单中标记为 ❌/未完成的行。"""
+    unresolved = [(ln, _row_status(r)) for ln, r in rows]
+    return [
+        (ln, st)
+        for ln, st in unresolved
+        if "❌" in st or st in {"", "❌", "TODO", "todo", "unimplemented", "WIP"}
+    ]
+
+
 @register("OL53")
 def check_ol53(ctx: CheckContext) -> Finding:
     """`custom/<op>/MEMORY.md` 中 "Golden function inventory" 必须每行在
@@ -1599,48 +1950,37 @@ def check_ol53(ctx: CheckContext) -> Finding:
     """
     memory_file = "MEMORY.md"
     if not ctx.file_exists(memory_file):
-        return ctx.make_finding("OL53", "SKIP", f"{memory_file} 不存在")
+        return ctx.make_finding("OL53", "SKIP", f"{memory_file} does not exist")
     text = ctx.read_file(memory_file)
     if not _INVENTORY_HEADING_RE.search(text):
         return ctx.make_finding(
-            "OL53", "SKIP",
-            f"{memory_file}: 缺少 'Golden function inventory' 章节",
+            "OL53",
+            "SKIP",
+            f"{memory_file}: missing 'Golden function inventory' section",
             file=memory_file,
         )
     # phase_scope 已设置时, 未启动 module 的 ❌ 残留属正常情况
     if getattr(ctx, "phase_scope", None):
         return ctx.make_finding(
-            "OL53", "SKIP",
-            f"phase_scope={ctx.phase_scope}: 允许未启动 module 的 ❌",
+            "OL53",
+            "SKIP",
+            f"phase_scope={ctx.phase_scope}: allows ❌ for modules not yet started",
             file=memory_file,
         )
     rows = _extract_inventory_rows(text)
     if not rows:
         return ctx.make_finding(
-            "OL53", "SKIP",
-            f"{memory_file}: Golden function inventory 无数据行",
+            "OL53",
+            "SKIP",
+            f"{memory_file}: Golden function inventory has no data rows",
             file=memory_file,
         )
-    unresolved = [(ln, _row_status(r)) for ln, r in rows]
-    bad = [
-        (ln, st)
-        for ln, st in unresolved
-        if "❌" in st or st in {"", "❌", "TODO", "todo", "未实现", "WIP"}
-    ]
+    bad = _ol53_unresolved_rows(rows)
     if bad:
-        n_rows = len(rows)
-        bad_lines = ", ".join(f"L{ln}" for ln, _ in bad[:8])
-        more = f" 等共 {len(bad)} 行" if len(bad) > 8 else ""
-        return ctx.make_finding(
-            "OL53", "FAIL",
-            f"{memory_file}: Golden function inventory 共 {n_rows} 行中 "
-            f"{len(bad)} 行带 ❌/未解决标记 ({bad_lines}{more})。\n"
-            f"修正方针: 将每行更新为 ✅ 并附 impl 中对应 PyPTO 调用的行号; "
-            f"如果有意省略, 请在另一行注明理由。残留 ❌ 时 complete_stage 不通过。",
-            file=memory_file,
-        )
+        return _ol53_fail(ctx, memory_file, rows, bad)
     return ctx.make_finding(
-        "OL53", "PASS",
-        f"Golden function inventory 全 {len(rows)} 行均已 ✅",
+        "OL53",
+        "PASS",
+        f"Golden function inventory: all {len(rows)} rows are ✅",
         file=memory_file,
     )

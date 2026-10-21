@@ -3,8 +3,8 @@
 *Verified lessons from delivered operators: `scale_add`, `softmax`, `relu`, `gelu`, `sigmoid` (fwd+bwd), `rmsnorm`, `matmul` (2D GEMM — first cube-pipe), and `attention` (non-causal SDPA — first mixed cube+vec, verified at T up to 4096). Each issue below cost at least one failed Stage check cycle. Last update: 2026-04-22.*
 
 Related reference material:
-- Kernel code format and per-file invariants: skill `pypto-op-develop`'s `references/pypto-kernel-design-format.md`
-- Pipe-class conventions (vector vs cube vs mixed): skill `pypto-op-design`'s `references/quick_ref.md`
+- Kernel code format and per-file invariants: skill `pypto-op-develop`'s `../../pypto-op-develop/references/pypto-kernel-design-format.md`
+- Pipe-class conventions (vector vs cube vs mixed): skill `pypto-op-develop`'s `../../pypto-op-develop/references/pypto-kernel-design-format.md`
 
 ## Issue: `Errcode: FFFFFF! launch aicpu failed: 107003`
 

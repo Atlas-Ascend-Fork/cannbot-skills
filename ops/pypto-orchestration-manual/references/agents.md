@@ -5,7 +5,7 @@ what each produces, the gate criterion the verifier checks before
 `complete_stage`, and the handoff rule that decides the next dispatch.
 
 Sub-agent-internal skill loading is **not** described here. Each sub-agent
-declares its own active skills in its `agents/<name>.md` →
+declares its own active skills in its `../../../agents/<name>.md` →
 **Mandatory reads** section. The orchestrator dispatches by name and does
 not inspect what skills each agent loads.
 
@@ -23,11 +23,11 @@ not inspect what skills each agent loads.
 | 1 | `pypto-op-planner` | Stage 1 |
 | 2 | `pypto-op-mathematician` | Stage 2 |
 | 3 | `pypto-op-architect` | Stage 3 |
-| 4 | `pypto-op-designer` | Stage 4 |
 | 5 | `pypto-op-coder` | Stage 5 (per-module + cleanup) |
 | 6 | `pypto-op-verifier` | Stage 4 scaffolding (Step B) + Stage 5 phase scaffolding + Stage 5 composition + Stage 6 E2E + Stage 7 regression |
 | 7 | `pypto-op-debugger` | Stage 5 failure investigation |
 | 8 | `pypto-op-optimizer` | Stage 7 performance tuning (S1_SETUP / S2_COLLECT / S3_ANALYZE / S4_FRONTEND / S4_SWIMLANE / S4_INCORE / S5_REPORT). Loads `pypto-op-perf-tune` + `tune-orchestrator` per dispatch; self-manages ITER loops within each PHASE. |
+| 9 | `pypto-op-auto-tuner-panko` | Stage 7 search-based auto-tuning (PANKO), when the user asks for it. World model + evaluator. Loads `pypto-op-perf-panko-manual` per dispatch; runs one search cycle over the persisted tree and returns a CODE/STOP directive. |
 
 **Separation of concerns in Stage 5 phase failure:** verifier = judge
 (pass / fail with `failure_category`); debugger = investigator (proposes a
@@ -52,32 +52,19 @@ kernel code. The orchestrator does not edit kernel code in Stage 1–7.
 - **Deliverables:** `custom/<op>/<op>_golden.py` (PyPTO-friendly form),
   `custom/<op>/GOLDEN_PERF_REPORT.md` (NPU profiling report).
 - **Gate:** shape comments on all intermediates; inventory recorded in the `<op>_golden.py` header (**not** MEMORY.md);
-  `allclose(original, normalized)` passes; **`GOLDEN_PERF_REPORT.md` exists with Op Performance section** (mandatory — generated via `pypto-golden-generate/scripts/profile_golden.py` §15; do NOT defer to orchestrator).
+  `allclose(original, normalized)` passes; **`GOLDEN_PERF_REPORT.md` exists with Op Performance section** (mandatory — generated via `../../pypto-golden-generate/scripts/profile_golden.py` §15; do NOT defer to orchestrator).
 - **Handoff:** Returns to orchestrator → dispatch `pypto-op-architect`.
 
-### 3. pypto-op-architect — Stage 3
+### pypto-op-architect — 设计与模块接口
 
-- **Inputs:** `SPEC.md`, `<op>_golden.py` (含 golden inventory 头部注释；从该文件读取，不读 MEMORY.md).
-- **Deliverables:** `custom/<op>/DESIGN.md` (§0 decomposition decision,
-  §1 API mapping + precision routing, §3 tiling, §4 loop / data flow, §5
-  cross-validation).
-- **Gate:** §0.3 `module_count` set; if `module_count ≥ 2`, §0.5 lists
-  `module_count - 1` data-flow breakpoints; Layers A–L populated; vec
-  tile axes ∈ [16, 64] (or rationale for going below 16); cube tile by
-  the M-based recommendation table. **Performance target sheet is NOT
-  produced here** — it is produced at Stage 7 entry by pypto-op-optimizer.
-- **Handoff:** Returns to orchestrator → dispatch `pypto-op-designer`.
+- **Inputs:** SPEC.md、API_REPORT.md 和 golden。
+- **Deliverables:** `custom/<op>/DESIGN.md` 与 `custom/<op>/eval/module_interfaces.yaml`。
+- **Completion:** 一次调度完成设计和接口。模块数、输入来源、输出 shape/dtype 与设计一致，完成 design skill 的结构检查。
+- **Handoff:** 调用 `complete_stage(3)` 进入验证准备，随后调用 `submit_design(stage=4)`。失败时携带问题重新调度 architect，成功后调度 verifier。
 
-### 4. pypto-op-designer — Stage 4
+### 验证准备 — Stage 4
 
-- **Inputs:** `DESIGN.md` (§0 decomposition decision + breakpoints).
-- **Deliverables:** `custom/<op>/module_interfaces.yaml`.
-- **Gate (Step 1, designer handoff):** `state_transition(submit_design)`
-  runs the DESIGN-side structural gate (required DESIGN.md sections are
-  present; every `pypto.<attr>` cited in fenced code blocks actually
-  exists). FAIL throws → re-dispatch designer with the failure details.
-- **Handoff:** On `submit_design` PASS → dispatch `pypto-op-verifier` in
-  **Scaffolding mode (Step B)** to produce the adversarial harness.
+本阶段不再生成设计或模块接口。verifier 独立检查设计与接口；多模块时准备对抗测试文件，单模块时不生成多模块测试文件。完成后调用 `complete_stage(4)`，进入实现。
 
 ### 5. pypto-op-coder — Stage 5
 
@@ -91,15 +78,15 @@ README directly — no per-module loop, no cleanup.
   `custom/<op>/modules/<op>_module<suffix_k>_impl.py` — one new file,
   exactly the cumulative scope through M_k.
 - **Per-phase gate:** `state_transition(submit_for_verify, phase=M_k)`
-  runs the phase-scoped structural gate. FAIL throws → patch the impl and
-  re-submit; the verifier is NOT dispatched until the gate passes.
+  runs the phase-scoped lint gate. FAIL throws → patch the impl and
+  re-submit; the verifier is NOT dispatched until lint passes.
 - **Cleanup deliverable (after the last verified phase):**
   `custom/<op>/<op>_impl.py` (integrated kernel) + `custom/<op>/README.md`.
 - **Handoff:** Returns per-phase. On verifier FAIL → debugger investigates
   → coder applies the proposed patch → re-`submit_for_verify`.
 
 **Forbidden during a coder dispatch:** producing later staged files,
-loading any debug sub-skill.
+loading any debug sub-skill, calling `pypto_op_lint.py` manually.
 
 ### 6. pypto-op-verifier — Stages 4, 5, 6, 7 (judge-only)
 
@@ -124,7 +111,7 @@ composition, no cleanup); the modes below are L1.
   `<op>_golden.py` under the operator's composition_verification seeds /
   shapes / tolerances.
 - **Stage 6 final E2E mode:** Run `detailed_tensor_compare` on every
-  output of `<op>_impl.py` plus the final layout / structure gate.
+  output of `<op>_impl.py` plus the final layout / structure lint gate.
   If dispatched "kernel unchanged" (impl hash unchanged since Stage 5),
   structure-only — skip `detailed_tensor_compare`; Stage 5 all_close stands.
 - **Stage 7 regression mode:** Re-run E2E + layout on the optimized
@@ -217,3 +204,46 @@ adopted/failed optimizations, constraints, and code config to
   `.orchestrator_state.json`.
 
 
+
+### 9. pypto-op-auto-tuner-panko — Stage 7 search-based auto-tuning (PANKO)
+
+Used **only when the user asks for PANKO** in the initial prompt; otherwise Stage 7
+runs section 8 unchanged. Auto-tuner reads skill `pypto-op-perf-panko-manual` (the only agent
+that does) and runs ONE search cycle per dispatch over
+`custom/<op>/optimization/search_state.json` — the persisted world-model tree. It is
+both the **world model** (propose δ, reflect, rescore V, insert/update/prune) and the
+**evaluator** (run the frozen `E(x) → (s, p)`). The deterministic core — selection,
+legality, duplicate detection, keep-or-revert, tile numbers, stop conditions and all
+state I/O — lives in `scripts/panko_harness.py`, which it calls. The orchestrator
+neither reads the skill nor runs the harness.
+
+**Dispatch contract:**
+
+| | |
+|---|---|
+| **Inputs (INIT — first cycle, no `candidate_file`)** | `op`, `op_dir=custom/<op>`, `DEVICE=TILE_FWK_DEVICE_ID`, `op_file`, `test_command`, `P_ref`, `config` |
+| **Inputs (STEP — a candidate the coder just produced)** | the same, plus `action_id` and `candidate_file` |
+| **Output** | exactly one JSON directive, nothing else |
+
+```
+{"directive":"CODE","op_file":"custom/<op>/<op>_impl.py","action_id":"u13","intent":"<δ>"}
+{"directive":"CODE", ..., "coder":false}     # the core already wrote the file
+{"directive":"STOP","reason":"<stop reason>","best":{"latency_us":..,"J":..,"speedup_vs_preopt":..}}
+```
+
+- **Handoff:** on `CODE`, the orchestrator forwards `intent` **verbatim** to
+  `pypto-op-coder` and then re-dispatches the auto-tuner (STEP). A `CODE` carrying
+  `"coder": false` skips the coder — the deterministic core has already written
+  `op_file`, and dispatching the coder would overwrite what the core proposed. On
+  `STOP`, the orchestrator runs the Stage 7 regression verify (`pypto-op-verifier`)
+  on `best`, then `complete_stage(7)`.
+- **The coder needs no knowledge of PANKO.** It receives one fully specified change
+  and applies it once, exactly as in any other dispatch.
+- **Gate:** Stage 6 is `complete_stage(6)` before the first dispatch (trusted, not
+  re-confirmed). Lint gate **OL63** additionally requires `progress.stop_reason` in
+  `search_state.json` to be non-empty before `complete_stage(7)` — the orchestrator
+  cannot declare the search finished on the harness's behalf.
+- **Forbidden:** calling `state_transition`; changing the frozen evaluation method,
+  its thresholds or how latency is measured; hard-coding `DEVICE`; changing the
+  operator's public contract (name / arguments / shapes / dtypes / layout — only the
+  internal implementation is tuned).

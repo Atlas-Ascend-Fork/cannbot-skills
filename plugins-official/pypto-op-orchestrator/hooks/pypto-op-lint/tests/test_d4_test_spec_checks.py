@@ -10,6 +10,9 @@
 # ----------------------------------------------------------------------------------------------------------
 
 """D4 测试规范规则（OL19-OL22）核心测试。"""
+
+from __future__ import annotations
+
 from pathlib import Path
 
 from .helpers import build_stateless_op_dir, load_lint_module, run_rule, write_file
@@ -32,34 +35,48 @@ def _jit_impl(
         "    out[:] = x",
     ]
     if pure_entry_name:
-        parts.extend([
-            "", f"def {pure_entry_name}(x):",
-            "    return torch.zeros_like(x)",
-        ])
+        parts.extend(
+            [
+                "",
+                f"def {pure_entry_name}(x):",
+                "    return torch.zeros_like(x)",
+            ]
+        )
     if wrapper_name:
-        parts.extend([
-            "", f"def {wrapper_name}(x):", "    out = torch.empty_like(x)",
-            f"    {kernel_name}(x, out)", "    return out",
-        ])
+        parts.extend(
+            [
+                "",
+                f"def {wrapper_name}(x):",
+                "    out = torch.empty_like(x)",
+                f"    {kernel_name}(x, out)",
+                "    return out",
+            ]
+        )
     if delegate_name and wrapper_name:
-        parts.extend([
-            "", f"def {delegate_name}(x):", f"    return {wrapper_name}(x)",
-        ])
+        parts.extend(
+            [
+                "",
+                f"def {delegate_name}(x):",
+                f"    return {wrapper_name}(x)",
+            ]
+        )
     return "\n".join(parts) + "\n"
 
 
 def _entry_test(module_name: str, entry_name: str, expected: str = "x") -> str:
-    return "\n".join([
-        "import torch",
-        "from numpy.testing import assert_allclose",
-        f"from {module_name} import {entry_name}",
-        "",
-        "def test_level0_basic():",
-        "    x = torch.randn(128, dtype=torch.float32)",
-        f"    y = {entry_name}(x)",
-        f"    assert_allclose(y.numpy(), {expected}.numpy(), atol=1e-3, rtol=1e-3)",
-        "",
-    ])
+    return "\n".join(
+        [
+            "import torch",
+            "from numpy.testing import assert_allclose",
+            f"from {module_name} import {entry_name}",
+            "",
+            "def test_level0_basic():",
+            "    x = torch.randn(128, dtype=torch.float32)",
+            f"    y = {entry_name}(x)",
+            f"    assert_allclose(y.numpy(), {expected}.numpy(), atol=1e-3, rtol=1e-3)",
+            "",
+        ]
+    )
 
 
 def _write_ol60_case(
@@ -230,6 +247,22 @@ def test_demo_l0():
     assert finding.status == "FAIL"
 
 
+def test_ol21_fail_message_is_self_contained(tmp_path: Path):
+    """FAIL 文案应直接给出合规命名示例（不依赖外部文档考古）。"""
+    mod = load_lint_module()
+    op_dir = build_stateless_op_dir(tmp_path, "demo")
+    test = """import torch
+def test_demo_basic():
+    pass
+"""
+    write_file(op_dir / "test_demo.py", test)
+    finding = run_rule(mod, op_dir, "OL21")
+    assert finding.status == "FAIL"
+    assert "缺少测试级别" in finding.message
+    assert "_l0" in finding.message and "_l1" in finding.message
+    assert "test_demo_l0_basic" in finding.message
+
+
 def test_ol22_fail_when_no_manual_seed(tmp_path: Path):
     mod = load_lint_module()
     op_dir = build_stateless_op_dir(tmp_path, "demo")
@@ -269,10 +302,13 @@ def test_ol59_fail_test_calls_pure_torch_entry(tmp_path: Path):
     mod = load_lint_module()
     op_dir = build_stateless_op_dir(tmp_path, "demo")
     impl = _jit_impl(
-        wrapper_name="demo_wrapper", pure_entry_name="pure_torch_entry",
+        wrapper_name="demo_wrapper",
+        pure_entry_name="pure_torch_entry",
     )
     test = _entry_test(
-        "demo_impl", "pure_torch_entry", expected="torch.zeros_like(x)",
+        "demo_impl",
+        "pure_torch_entry",
+        expected="torch.zeros_like(x)",
     )
     _write_ol60_case(op_dir, impl, test)
     finding = run_rule(mod, op_dir, "OL60")

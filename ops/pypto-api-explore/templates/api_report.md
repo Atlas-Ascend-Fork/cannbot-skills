@@ -86,7 +86,7 @@ feasibility: {feasibility}
 
 <!-- 无匹配时填写：无匹配参考实现，需从零设计 -->
 <!-- 置信度：正式算子实现为「高」，golden 用法为「高」，experimental 实现为「中」 -->
-<!-- 注意：tests/ 中的 golden/用法仅作 API 用法参考，不是 production 实现标准；简化写法（如 pypto.Tensor([])）可能违反门禁要求，冲突时以门禁要求为准，不得据此判定门禁误报。 -->
+<!-- 注意：tests/ 中的 golden/用法仅作 API 用法参考，不是 production 实现标准；简化写法（如 pypto.Tensor([])）可能违反 lint / 门禁，与 lint 冲突时以 lint 为准，不得据此判定 lint 误报。 -->
 
 | 参考路径 | 来源 | 相似度 | 置信度 | 可复用点 |
 |----------|------|--------|--------|----------|

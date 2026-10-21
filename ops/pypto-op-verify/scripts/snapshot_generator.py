@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 # coding: utf-8
-# Copyright (c) 2024-2026 Huawei Technologies Co., Ltd.
+# ----------------------------------------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
 # This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 # CANN Open Software License Agreement Version 2.0 (the "License").
 # Please refer to the License for details. You may not use this file except in compliance with the License.
 # THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE in the root of the software repository for the full text of the License.
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------------------------------------
+
 # snapshot_generator.py
 #
 # Reads a validated snapshot manifest and produces three artifacts under
@@ -20,9 +22,9 @@
 #                                        module_<k>_inspect() extended to
 #                                        return per-iteration intermediates.
 #   3. run_snapshot_bisect.sh          — one-command runner that invokes
-#                                        snapshot_bisect.py for all three modes
-#                                        (torch/sim/npu) and prints drift-onset
-#                                        per intermediate.
+#                                        snapshot_bisect.py for the requested
+#                                        PyPTO modes (sim/npu) and compares
+#                                        them with the torch golden.
 #
 # Design principle: the generator does NOT do full AST rewriting. Instead it
 # relies on MARKER COMMENTS the kernel author leaves in the module file.
@@ -50,13 +52,23 @@ import os
 import re
 import stat
 import sys
+from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path
-from typing import Dict, List, NamedTuple, Optional
+from typing import Dict, List, Optional
 
 # Local import — the manifest loader lives next to us.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from snapshot_manifest_schema import load_manifest   # noqa: E402
+load_manifest = import_module("snapshot_manifest_schema").load_manifest
 
+PYPTO_DTYPE_NAMES = {
+    "float32": "pypto.DT_FP32",
+    "float16": "pypto.DT_FP16",
+    "bfloat16": "pypto.DT_BF16",
+    "int32": "pypto.DT_INT32",
+    "int64": "pypto.DT_INT64",
+    "bool": "pypto.DT_BOOL",
+}
 
 MARKER_OPEN = re.compile(
     r"^(\s*)# <<< SNAPSHOT:("
@@ -80,6 +92,7 @@ PROBE_REGIONS = {"before_nt_loop", "inside_nt_loop", "after_nt_loop"}
 # -----------------------------------------------------------------------------
 # Impl-side code generation
 # -----------------------------------------------------------------------------
+
 
 def _gen_impl_probe_block(intermediate: Dict, indent: str) -> List[str]:
     """
@@ -116,72 +129,73 @@ def _gen_impl_probe_block(intermediate: Dict, indent: str) -> List[str]:
     raise ValueError(f"unknown probe_point {pp!r}")
 
 
-def _gen_sig_impl_kwargs(intermediates: List[Dict], indent: str) -> List[str]:
-    """kwargs for the _<op>_kernel_impl signature — plain Python, defaulting to None."""
-    return [f"{indent}inspection_{e['name']}=None," for e in intermediates]
+def _gen_impl_kwargs(
+    intermediates: List[Dict],
+    indent: str,
+    pass_through: bool,
+) -> List[str]:
+    """Generate inspection kwargs for signatures or call-through sites."""
+    arguments = []
+    for intermediate in intermediates:
+        name = intermediate["name"]
+        value = f"inspection_{name}" if pass_through else "None"
+        arguments.append(f"{indent}inspection_{name}={value},")
+    return arguments
 
 
 def _gen_sig_jit_kwargs(intermediates: List[Dict], indent: str) -> List[str]:
     """kwargs for the JIT entry — annotated with pypto.Tensor, default None."""
     return [
-        f"{indent}inspection_{e['name']}: pypto.Tensor([], pypto.DT_FP32) = None,"
-        for e in intermediates
+        f"{indent}inspection_{entry['name']}: "
+        f"pypto.Tensor([pypto.DYNAMIC, ...], "
+        f"{PYPTO_DTYPE_NAMES[entry['dtype']]}) = None,"
+        for entry in intermediates
     ]
-
-
-def _gen_call_impl_kwargs(intermediates: List[Dict], indent: str) -> List[str]:
-    """Keyword-argument pass-through from the JIT entry into _<op>_kernel_impl."""
-    return [f"{indent}inspection_{e['name']}=inspection_{e['name']}," for e in intermediates]
 
 
 def _gen_host_wrapper_alloc(intermediates: List[Dict], indent: str) -> List[str]:
     """
-    Allocate zero buffers inside host_wrapper(). Shape depends on probe_point
-    (same rule as _alloc_inspection_buffers in snapshot_bisect.py).
+    Bind buffers preallocated by snapshot_bisect. The generator cannot infer a
+    host wrapper's input variable names, so silently allocating on ``x.device``
+    would be incorrect for operators whose first input is not named ``x``.
     """
     out: List[str] = []
     for entry in intermediates:
         name = entry["name"]
-        shape = entry["shape"]
-        if entry["probe_point"] == "inside_nt_loop":
-            shape_expr = "[B, H, NT, " + ", ".join(str(s) for s in shape) + "]"
-        else:
-            shape_expr = "[B, H, " + ", ".join(str(s) for s in shape) + "]"
-        out.append(
-            f"{indent}inspection_{name} = torch.zeros({shape_expr}, dtype=torch.float32, device=x.device) "
-            f"if kwargs.get('inspection_{name}') is None else kwargs['inspection_{name}']"
+        out.extend(
+            [
+                f"{indent}inspection_{name} = kwargs.get('inspection_{name}')",
+                f"{indent}if inspection_{name} is None:",
+                f"{indent}    raise ValueError("
+                f"'inspection_{name} must be preallocated by snapshot_bisect')",
+            ]
         )
     return out
 
 
-def _gen_host_wrapper_pass(intermediates: List[Dict], indent: str) -> List[str]:
-    """Pass allocated inspection buffers into the JIT entry call."""
-    return [f"{indent}inspection_{e['name']}=inspection_{e['name']}," for e in intermediates]
+def _group_by_probe_point(intermediates: List[Dict]) -> Dict[str, List[Dict]]:
+    grouped: Dict[str, List[Dict]] = {}
+    for entry in intermediates:
+        grouped.setdefault(entry["probe_point"], []).append(entry)
+    return grouped
 
 
-def _gen_region_lines(
-    region_name: str,
-    intermediates: List[Dict],
-    by_pp: Dict[str, List[Dict]],
-    indent: str,
-) -> List[str]:
-    """Generate the lines injected before a single closing marker, keyed by region kind."""
+def _generated_region_lines(region_name, indent, intermediates, by_probe_point):
     if region_name in PROBE_REGIONS:
-        lines: List[str] = []
-        for entry in by_pp.get(region_name, []):
+        lines = []
+        for entry in by_probe_point.get(region_name, []):
             lines.extend(_gen_impl_probe_block(entry, indent))
         return lines
     if region_name == "SIG_IMPL":
-        return _gen_sig_impl_kwargs(intermediates, indent)
-    if region_name == "SIG_JIT":
-        return _gen_sig_jit_kwargs(intermediates, indent)
-    if region_name == "CALL_IMPL":
-        return _gen_call_impl_kwargs(intermediates, indent)
-    if region_name == "HOST_WRAPPER_INSPECT_ALLOC":
-        return _gen_host_wrapper_alloc(intermediates, indent)
-    if region_name == "HOST_WRAPPER_INSPECT_PASS":
-        return _gen_host_wrapper_pass(intermediates, indent)
-    return []
+        return _gen_impl_kwargs(intermediates, indent, pass_through=False)
+    if region_name in ("CALL_IMPL", "HOST_WRAPPER_INSPECT_PASS"):
+        return _gen_impl_kwargs(intermediates, indent, pass_through=True)
+    generators = {
+        "SIG_JIT": _gen_sig_jit_kwargs,
+        "HOST_WRAPPER_INSPECT_ALLOC": _gen_host_wrapper_alloc,
+    }
+    generator = generators.get(region_name)
+    return generator(intermediates, indent) if generator else []
 
 
 def _splice_impl(source: str, intermediates: List[Dict]) -> str:
@@ -205,10 +219,7 @@ def _splice_impl(source: str, intermediates: List[Dict]) -> str:
     inserted at the SAME indent as the closing marker (the author is responsible
     for placing the marker pair at the correct block level).
     """
-    by_pp: Dict[str, List[Dict]] = {}
-    for entry in intermediates:
-        by_pp.setdefault(entry["probe_point"], []).append(entry)
-
+    by_probe_point = _group_by_probe_point(intermediates)
     out: List[str] = []
     inside_region: Optional[str] = None
     region_indent = ""
@@ -221,7 +232,14 @@ def _splice_impl(source: str, intermediates: List[Dict]) -> str:
             out.append(line)
             continue
         if m_close and inside_region == m_close.group(2):
-            out.extend(_gen_region_lines(inside_region, intermediates, by_pp, region_indent))
+            out.extend(
+                _generated_region_lines(
+                    inside_region,
+                    region_indent,
+                    intermediates,
+                    by_probe_point,
+                )
+            )
             inside_region = None
             out.append(line)
             continue
@@ -230,11 +248,11 @@ def _splice_impl(source: str, intermediates: List[Dict]) -> str:
 
 
 REQUIRED_MARKERS = [
-    "SIG_IMPL",                         # _<op>_kernel_impl signature
-    "SIG_JIT",                          # <op>_kernel_npu_impl signature
-    "CALL_IMPL",                        # inside the JIT entry: call to _<op>_kernel_impl
-    "HOST_WRAPPER_INSPECT_ALLOC",     # inside host_wrapper(): buffer allocation
-    "HOST_WRAPPER_INSPECT_PASS",      # inside host_wrapper(): JIT call kwargs
+    "SIG_IMPL",  # _<op>_kernel_impl signature
+    "SIG_JIT",  # <op>_kernel_npu_impl signature
+    "CALL_IMPL",  # inside the JIT entry: call to _<op>_kernel_impl
+    "HOST_WRAPPER_INSPECT_ALLOC",  # inside host_wrapper(): buffer allocation
+    "HOST_WRAPPER_INSPECT_PASS",  # inside host_wrapper(): JIT call kwargs
 ]
 
 
@@ -242,8 +260,10 @@ def _check_required_markers(source: str, filename: str) -> None:
     """Raise ValueError if any of the required wiring markers are missing."""
     missing: List[str] = []
     for marker in REQUIRED_MARKERS:
-        if (f"# <<< SNAPSHOT:{marker}" not in source
-                or f"# >>> SNAPSHOT:{marker}" not in source):
+        if (
+            f"# <<< SNAPSHOT:{marker}" not in source
+            or f"# >>> SNAPSHOT:{marker}" not in source
+        ):
             missing.append(marker)
     if missing:
         raise ValueError(
@@ -258,6 +278,7 @@ def _check_required_markers(source: str, filename: str) -> None:
 # Golden-side augmentation
 # -----------------------------------------------------------------------------
 
+
 def _gen_golden_inspect(module_id: str, intermediates: List[Dict]) -> str:
     """
     Produce the module_<k>_inspect() function body. For each intermediate, the
@@ -267,7 +288,7 @@ def _gen_golden_inspect(module_id: str, intermediates: List[Dict]) -> str:
     If golden_expression is absent for an intermediate, a TODO stub is emitted
     and @pypto-op-debugger must fill it in manually.
     """
-    m_num = int(module_id[1:])   # "M2" -> 2
+    m_num = int(module_id[1:])  # "M2" -> 2
     lines: List[str] = [
         f"def module_{m_num}_inspect(**inputs):",
         f'    """AUTO-GENERATED by snapshot_generator.py. Returns per-iteration intermediates for module {module_id}.',
@@ -287,8 +308,12 @@ def _gen_golden_inspect(module_id: str, intermediates: List[Dict]) -> str:
             lines.append(f"    # {name}: user-provided expression")
             lines.append(f"    result['{name}'] = {expr}")
         else:
-            lines.append(f"    # TODO[@pypto-op-debugger]: fill in the per-iteration computation for {name}.")
-            lines.append(f"    #   Expected shape: [B, H, NT, {', '.join(str(s) for s in entry['shape'])}]")
+            lines.append(
+                f"    # TODO[@pypto-op-debugger]: fill in the per-iteration computation for {name}."
+            )
+            lines.append(
+                f"    #   Expected shape: [B, H, NT, {', '.join(str(s) for s in entry['shape'])}]"
+            )
             lines.append(f"    #   dtype:          {entry['dtype']}")
             lines.append(f"    result['{name}'] = None")
     lines.append("    return result")
@@ -300,26 +325,30 @@ def _gen_golden_inspect(module_id: str, intermediates: List[Dict]) -> str:
 # Bisect shell script
 # -----------------------------------------------------------------------------
 
-class BisectTarget(NamedTuple):
-    """The (op, module, case) triple identifying what a bisect script targets."""
+
+@dataclass(frozen=True)
+class BisectScriptSpec:
     op: str
     module: str
     case: str
+    modes: List[str]
+    manifest_path: str
+    device: str = "9"
 
 
-def _gen_bisect_sh(target: BisectTarget, modes: List[str], manifest_path: str, device: str = "9") -> str:
-    modes_csv = ",".join(modes)
+def _gen_bisect_sh(spec: BisectScriptSpec) -> str:
+    modes_csv = ",".join(spec.modes)
     return f"""#!/usr/bin/env bash
 # AUTO-GENERATED by snapshot_generator.py.
-# Runs snapshot_bisect.py for {target.op} {target.module} on case {target.case} across modes: {modes_csv}.
+# Runs snapshot_bisect.py for {spec.op} {spec.module} on case {spec.case} across modes: {modes_csv}.
 
 set -euo pipefail
 cd "$(dirname "$0")/../../.."    # -> repo root from custom/<op>/_debug/
 
-MANIFEST="{manifest_path}"
-DEVICE="${{TILE_FWK_DEVICE_ID:-{device}}}"
+MANIFEST="{spec.manifest_path}"
+DEVICE="${{TILE_FWK_DEVICE_ID:-{spec.device}}}"
 
-python skills/pypto-op-verify/scripts/snapshot_bisect.py \\
+python ./snapshot_bisect.py \\
     --manifest "$MANIFEST" \\
     --modes {modes_csv} \\
     --device "$DEVICE"
@@ -330,89 +359,87 @@ python skills/pypto-op-verify/scripts/snapshot_bisect.py \\
 # Top-level driver
 # -----------------------------------------------------------------------------
 
-def _locate_sources(manifest_path: str | Path, op: str):
-    """
-    Resolve repo root, the _debug output dir, and the source impl/golden files.
 
-    The impl source is the widest-suffix existing custom/<op>/<op>_module*.py
-    (by Stage 5 the latest staged file is canonical). Raises FileNotFoundError
-    if no module file exists or the modular golden is missing.
-    """
-    repo_root = Path(manifest_path).resolve().parents[3]   # custom/<op>/_debug/manifest.yaml -> repo root
-    # parents run outward from the manifest: the _debug dir, then the op dir, then custom, then the repo root
-    op_dir = repo_root / "custom" / op
-    debug_dir = op_dir / "_debug"
-    debug_dir.mkdir(parents=True, exist_ok=True)
+def _module_suffix(module):
+    module_number = int(module[1:])
+    return "".join(str(index) for index in range(1, module_number + 1))
 
-    candidates = sorted(op_dir.glob(f"{op}_module*.py"))
-    if not candidates:
-        raise FileNotFoundError(f"no {op}_module*.py found under {op_dir}")
-    source_impl = candidates[-1]
 
-    source_golden = op_dir / "eval" / f"{op}_golden_modular.py"
-    if not source_golden.exists():
-        raise FileNotFoundError(f"expected golden at {source_golden}")
+def _resolve_generation_paths(manifest_path, op, module):
+    manifest_file = Path(manifest_path).resolve()
+    debug_dir = manifest_file.parent
+    op_dir = debug_dir.parent
+    if debug_dir.name != "_debug" or op_dir.name != op:
+        raise ValueError(
+            "snapshot manifest must live at custom/<op>/_debug/snapshot_manifest.yaml"
+        )
+    if op_dir.parent.name != "custom":
+        raise ValueError("snapshot operator directory must be under custom/")
+    repo_root = op_dir.parents[1]
+    module_dir = op_dir / "modules"
+    suffix = _module_suffix(module)
+    source_impl = module_dir / f"{op}_module{suffix}_impl.py"
+    source_golden = module_dir / f"{op}_module{suffix}_golden.py"
+    if module == "M1" and not source_impl.exists() and not source_golden.exists():
+        source_impl = op_dir / f"{op}_impl.py"
+        source_golden = op_dir / f"{op}_golden.py"
+    missing = [path for path in (source_impl, source_golden) if not path.exists()]
+    if missing:
+        expected = ", ".join(str(path) for path in missing)
+        raise FileNotFoundError(
+            f"missing staged artifact(s) for {module} (suffix {suffix}): {expected}"
+        )
     return repo_root, debug_dir, source_impl, source_golden
 
 
-def _verify_markers(impl_src: str, source_name: str, intermediates: List[Dict]) -> None:
-    """Check probe-point marker pairs for the needed probe points, plus the required wiring markers."""
-    needed_pps = {e["probe_point"] for e in intermediates}
-    for pp in needed_pps:
-        if f"# <<< SNAPSHOT:{pp}" not in impl_src or f"# >>> SNAPSHOT:{pp}" not in impl_src:
+def _validate_probe_markers(source, source_name, intermediates):
+    needed_probe_points = {entry["probe_point"] for entry in intermediates}
+    for probe_point in needed_probe_points:
+        opening = f"# <<< SNAPSHOT:{probe_point}"
+        closing = f"# >>> SNAPSHOT:{probe_point}"
+        if opening not in source or closing not in source:
             raise ValueError(
-                f"marker pair # <<< SNAPSHOT:{pp} / # >>> SNAPSHOT:{pp} not found in {source_name}. "
+                f"marker pair {opening} / {closing} not found in {source_name}. "
                 "Add the marker pair around the probe-point region before generating snapshots. "
                 "See intermediate-snapshot-automation.md for the marker contract."
             )
-    _check_required_markers(impl_src, source_name)
+    _check_required_markers(source, source_name)
 
 
-def _build_snapshot_impl(impl_src: str, intermediates: List[Dict], op: str, module: str) -> str:
-    """Splice all markers in one pass, then retag the JIT entry so it doesn't collide with the live kernel."""
-    impl_with_probes = _splice_impl(impl_src, intermediates)
-    return impl_with_probes.replace(
-        f"{op}_kernel_npu_impl", f"{op}_{module}_snapshot_kernel_npu_impl"
-    ).replace(
-        f"{op}_kernel_npu", f"{op}_{module}_snapshot_kernel_npu"
+def _retag_snapshot_impl(source, op, module):
+    suffix = _module_suffix(module)
+    replacements = (
+        (f"{op}_module{suffix}_kernel_npu", f"{op}_{module}_snapshot_kernel_npu"),
+        (f"{op}_module{suffix}_kernel", f"{op}_{module}_snapshot_kernel"),
+        (f"{op}_kernel_npu_impl", f"{op}_{module}_snapshot_kernel_npu_impl"),
+        (f"{op}_kernel_npu", f"{op}_{module}_snapshot_kernel_npu"),
+        (f"{op}_module{suffix}_wrapper", "host_wrapper"),
+    )
+    for original, replacement in replacements:
+        source = source.replace(original, replacement)
+    if module == "M1":
+        source = source.replace(f"{op}_wrapper", "host_wrapper")
+    return source
+
+
+def _augment_golden(source, module, intermediates):
+    module_number = int(module[1:])
+    if f"def module_{module_number}_inspect" not in source:
+        return source + "\n\n" + _gen_golden_inspect(module, intermediates)
+    return (
+        source
+        + f"\n\n# NOTE[snapshot_generator]: module_{module_number}_inspect already exists; "
+        "generator skipped its scaffold. If the manifest adds NEW intermediates, "
+        "extend the existing function by hand.\n"
     )
 
 
-def _build_snapshot_golden(golden_src: str, module: str, intermediates: List[Dict]) -> str:
-    """Append the module_<k>_inspect scaffold, or a collision note if it already exists."""
-    m_num = int(module[1:])
-    inspect_fn = _gen_golden_inspect(module, intermediates)
-    if f"def module_{m_num}_inspect" in golden_src:
-        # Preserve existing inspect fn; the generator will not clobber hand-
-        # written golden capture logic. We append a comment warning that the
-        # generator detected a collision.
-        return (
-            golden_src
-            + f"\n\n# NOTE[snapshot_generator]: module_{m_num}_inspect already exists; "
-              "generator skipped its scaffold. If the manifest adds NEW intermediates, "
-              "extend the existing function by hand.\n"
-        )
-    return golden_src + "\n\n" + inspect_fn
-
-
-def _write_artifacts(debug_dir: Path, op: str, module: str, contents: Dict[str, str],
-                     dry_run: bool) -> Dict[str, Path]:
-    """Compute artifact paths and (unless dry_run) write them, marking the shell script executable."""
-    out_impl = debug_dir / f"{op}_{module}_snapshot.py"
-    out_golden = debug_dir / f"{op}_golden_modular_snapshot.py"
-    out_sh = debug_dir / "run_snapshot_bisect.sh"
-
-    if dry_run:
-        logging.info("DRY RUN — would write:")
-        for p in (out_impl, out_golden, out_sh):
-            logging.info("  %s", p)
-        return {"impl": out_impl, "golden": out_golden, "sh": out_sh}
-
-    out_impl.write_text(contents["impl"])
-    out_golden.write_text(contents["golden"])
-    out_sh.write_text(contents["sh"])
-    os.chmod(out_sh, os.stat(out_sh).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    return {"impl": out_impl, "golden": out_golden, "sh": out_sh}
+def _write_artifacts(paths, contents):
+    paths["impl"].write_text(contents["impl"], encoding="utf-8")
+    paths["golden"].write_text(contents["golden"], encoding="utf-8")
+    paths["sh"].write_text(contents["sh"], encoding="utf-8")
+    executable = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    os.chmod(paths["sh"], os.stat(paths["sh"]).st_mode | executable)
 
 
 def generate(manifest_path: str | Path, *, dry_run: bool = False) -> Dict[str, Path]:
@@ -421,43 +448,60 @@ def generate(manifest_path: str | Path, *, dry_run: bool = False) -> Dict[str, P
     {artifact_name: output_path}. Raises FileNotFoundError if the source
     module file is missing; raises ValueError if markers are absent.
     """
-    m = load_manifest(manifest_path)
-    op, module, case = m["op"], m["module"], m["case"]
-
-    repo_root, debug_dir, source_impl, source_golden = _locate_sources(manifest_path, op)
-    impl_src = source_impl.read_text()
-    golden_src = source_golden.read_text()
-
-    # Check markers for the probe points we need AND the required wiring markers.
-    _verify_markers(impl_src, source_impl.name, m["intermediates"])
-
-    # 1. Splice all markers in one pass, then retag the JIT entry name.
-    impl_with_probes = _build_snapshot_impl(impl_src, m["intermediates"], op, module)
-
-    # 2. Augment golden — append inspect function at end of golden file.
-    augmented_golden = _build_snapshot_golden(golden_src, module, m["intermediates"])
-
-    # 3. Bisect shell script.
-    manifest_rel = Path(manifest_path).relative_to(repo_root) \
-        if Path(manifest_path).is_absolute() else Path(manifest_path)
-    bisect_sh = _gen_bisect_sh(BisectTarget(op, module, case), m["modes"], str(manifest_rel))
-
-    return _write_artifacts(
-        debug_dir, op, module,
-        {"impl": impl_with_probes, "golden": augmented_golden, "sh": bisect_sh},
-        dry_run,
+    manifest = load_manifest(manifest_path)
+    op, module = manifest["op"], manifest["module"]
+    repo_root, debug_dir, source_impl, source_golden = _resolve_generation_paths(
+        manifest_path, op, module
     )
+    impl_source = source_impl.read_text(encoding="utf-8")
+    golden_source = source_golden.read_text(encoding="utf-8")
+    _validate_probe_markers(impl_source, source_impl.name, manifest["intermediates"])
+    impl_with_probes = _retag_snapshot_impl(
+        _splice_impl(impl_source, manifest["intermediates"]), op, module
+    )
+    manifest_file = Path(manifest_path).resolve()
+    manifest_relative = manifest_file.relative_to(repo_root)
+    paths = {
+        "impl": debug_dir / f"{op}_{module}_snapshot.py",
+        "golden": debug_dir / f"{op}_golden_modular_snapshot.py",
+        "sh": debug_dir / "run_snapshot_bisect.sh",
+    }
+    contents = {
+        "impl": impl_with_probes,
+        "golden": _augment_golden(golden_source, module, manifest["intermediates"]),
+        "sh": _gen_bisect_sh(
+            BisectScriptSpec(
+                op, module, manifest["case"], manifest["modes"], str(manifest_relative)
+            )
+        ),
+    }
+    if dry_run:
+        logging.info("DRY RUN — would write:")
+        for path in paths.values():
+            logging.info("  %s", path)
+        return paths
+    _write_artifacts(paths, contents)
+    return paths
 
 
 # -----------------------------------------------------------------------------
 # CLI
 # -----------------------------------------------------------------------------
 
+
 def _main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    ap = argparse.ArgumentParser(description="Generate snapshot bisection artifacts from a manifest.")
-    ap.add_argument("manifest", help="path to custom/<op>/_debug/snapshot_manifest.yaml")
-    ap.add_argument("--dry-run", action="store_true", help="do not write files; just print what would be generated")
+    ap = argparse.ArgumentParser(
+        description="Generate snapshot bisection artifacts from a manifest."
+    )
+    ap.add_argument(
+        "manifest", help="path to custom/<op>/_debug/snapshot_manifest.yaml"
+    )
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="do not write files; just print what would be generated",
+    )
     args = ap.parse_args()
     paths = generate(args.manifest, dry_run=args.dry_run)
     logging.info("[OK] generated:")

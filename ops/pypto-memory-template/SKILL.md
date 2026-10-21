@@ -1,11 +1,11 @@
 ---
 name: pypto-memory-template
-description: "Template for the PyPTO Kernel operator-specific memory file (custom/{op}/MEMORY.md). Defines required sections, machine-readable fields, and update cadence. Use when creating or updating an operator's MEMORY.md."
+description: PyPTO 算子开发中算子专属 memory 文件模板（custom/OP_NAME/MEMORY.md）。定义必备章节、机器可读字段与更新节奏。触发：创建或更新算子的 MEMORY.md 时使用。
 ---
 
 # PyPTO Complex Kernel — Memory Template
 
-This skill contains the memory template that agents copy to `custom/<operator_name>/MEMORY.md` at the start of Stage 5 (implementation). Stage 1–4 agents (planner / mathematician / architect / designer) do NOT read or write MEMORY.md — their deliverables live in SPEC.md, `<op>_golden.py`, DESIGN.md, and `module_interfaces.yaml`. MEMORY.md is created and owned by Stage 5 coder and downstream agents only.
+This skill contains the memory template that agents copy to `custom/<operator_name>/MEMORY.md` at the start of Stage 5 (implementation). Stage 1–4 agents (planner / mathematician / architect) do NOT read or write MEMORY.md — their deliverables live in SPEC.md, `<op>_golden.py`, DESIGN.md, and `module_interfaces.yaml`. MEMORY.md is created and owned by Stage 5 coder and downstream agents only.
 
 ## Contents
 

@@ -8,7 +8,7 @@ Goals:
 - **Debugging** stays tractable: each numbered stage matches a small function with a clear contract.
 - **Portability**: swap math, tiling, or fusion without losing the overall structure.
 
-**Canonical Python skeleton (complex-kernel workflow):** skill `pypto-op-develop`'s `templates/impl_template.py` — agents **must** use this file as the starting layout for **each** staged module file and the **full** kernel under `custom/<op>/` (see **skill `pypto-orchestration-manual`'s `references/rules.md`** rule **17** and **skill `pypto-orchestration-manual`'s `references/rules.md`** rule **17**). This document (layers A–L) and that template stay aligned.
+**Canonical Python skeleton (complex-kernel workflow):** skill `pypto-op-develop`'s `../templates/impl_template.py.tmpl` — agents **must** use this file as the starting layout for **each** staged module file and the **full** kernel under `custom/<op>/` (see **skill `pypto-orchestration-manual`'s `../../pypto-orchestration-manual/references/rules.md`** rule **17**). This document (layers A–L) and that template stay aligned.
 
 ---
 
@@ -142,7 +142,7 @@ The Layer K host wrapper has exactly **four** responsibilities — no more, no l
 
 Keep I/O reshaping **out** of the JIT function when possible.
 
-### 9a. Anti-pattern: Python `for ... in range(...)` driving the kernel per chunk
+### 9a. Anti-pattern: Python `for ... in range(...)` driving the kernel per chunk (OL45, S0)
 
 A common mistake is to chunk the input on the host with a Python loop and call the JIT kernel once per chunk. This collapses the kernel into a single-chunk operation and only the first iteration actually runs through the PyPTO compilation path; subsequent calls re-launch identical compiled artifacts. **The chunk iteration belongs inside Layer I as `pypto.loop(NT)` + `pypto.view(..., offsets=[...])`.**
 
@@ -170,11 +170,11 @@ def _attention_kernel_impl(q, k, v, out):
     # ... per-chunk work via pypto.view ...
 ```
 
-This pattern blocks the per-Phase / cleanup / verification gates.
+Lint rule **OL45 (S0)** auto-detects this pattern. It blocks the per-Phase / cleanup / verification gates.
 
-### 9a-2. Inside the JIT graph, the only loop is `pypto.loop`
+### 9a-2. Inside the JIT graph, the only loop is `pypto.loop` (OL57, S0)
 
-§9a governs Layer K (the host wrapper). The complementary constraint governs the **JIT graph** — the `@pypto.frontend.jit` entry plus every function it calls (Layer I `_kernel_impl`, Layer H `pypto_*` sub-kernels, and any helper). Inside that JIT-reachable code the only permitted loop is `pypto.loop(...)` / `pypto.loop_unroll(...)` (`for ... in range(...)` is also allowed). Any other Python loop — `for ... in <list>`, a `while`, or a comprehension that issues `pypto.*` ops — is forbidden.
+OL45 governs Layer K (the host wrapper). The complementary rule **OL57 (S0)** governs the **JIT graph** — the `@pypto.frontend.jit` entry plus every function it calls (Layer I `_kernel_impl`, Layer H `pypto_*` sub-kernels, and any helper). Inside that JIT-reachable code the only permitted loop is `pypto.loop(...)` / `pypto.loop_unroll(...)` (`for ... in range(...)` is also allowed). Any other Python loop — `for ... in <list>`, a `while`, or a comprehension that issues `pypto.*` ops — is forbidden.
 
 This holds even for a **static, small unroll**. Iterating a tensor axis (e.g. `for g in range(num_groups): pypto.view(...); pypto.assemble(...)`) must be `pypto.loop(num_groups)`; and a structural block decomposition (e.g. a block-wise matrix inverse) must also use `pypto.loop` (add `submit_before_loop=True` when iterations are dependent), not a Python `for`. A Python `for`/`while` in JIT code unrolls the iteration into the graph at construction time, defeats the framework's tiling / parallelism, and bloats compile time.
 
@@ -260,12 +260,12 @@ Every tensor assignment and tiling configuration line **must** carry an inline s
 
 ### 11b. `pypto.loop(1)` is a layout-check escape hatch — not a default wrapper
 
-Some agents wrap their kernels in `pypto.loop(1)` "to be safe" — even when an inner `pypto.loop(N)` already exists. This is wrong. The only legitimate use of `pypto.loop(1)` is the case where the kernel has **no other** `pypto.loop` call and the layout check would otherwise complain about a vector-pipe op having no loop.
+Some agents wrap their kernels in `pypto.loop(1)` "to be safe" — even when an inner `pypto.loop(N)` already exists. This is wrong. The only legitimate use of `pypto.loop(1)` is the case where the kernel has **no other** `pypto.loop` call and the layout check (`OL23`) would otherwise complain about a vector-pipe op having no loop.
 
 ```python
 # ❌ BAD — redundant pypto.loop(1) around an inner pypto.loop(N)
 def _kernel_impl(...):
-    pypto.loop(1)                                  # adds nothing, redundant wrapper
+    pypto.loop(1)                                  # adds nothing, lint catches via OL46
     pypto.loop(NT)
     ...
 
@@ -274,9 +274,9 @@ def _kernel_impl(...):
     pypto.loop(NT)
     ...
 
-# ✅ GOOD — vector-pipe simple op with no other loop, wrapper required by the layout check
+# ✅ GOOD — vector-pipe simple op with no other loop, wrapper required by OL23
 def _kernel_impl(...):
-    pypto.loop(1)                                  # only loop call, satisfies the layout check
+    pypto.loop(1)                                  # only loop call, satisfies OL23
     ...
 ```
 
@@ -285,13 +285,13 @@ Rule of thumb:
 | Pipe class | `pypto.loop(1)` policy |
 |---|---|
 | **Vector pipe**, simple op (no inner loop) | **REQUIRED** as the sole `pypto.loop` call |
-| **Vector pipe**, op with `pypto.loop(N)` already present | **FORBIDDEN** |
+| **Vector pipe**, op with `pypto.loop(N)` already present | **FORBIDDEN** (OL46 warns) |
 | **Cube pipe** | Same as vector pipe: required iff no other `pypto.loop` exists |
 | **Mixed cube + vec body** | Same as vector pipe: required iff no other `pypto.loop` exists |
 
 ### 11c. Tile shape scope — per-stage, not per-kernel
 
-`set_vec_tile_shapes` and `set_cube_tile_shapes` change the active tile layout for every PyPTO call that follows them in the same JIT body. When a kernel has multiple stages with different tile-optimal shapes (e.g. one matmul wants `[64, 128]` cube tiles and another wants `[128, 64]`), setting tiles **once at the top of `_kernel_impl`** forces every stage to share the same tiles and loses optimization headroom. The example values below illustrate scope only; concrete tile values come from DESIGN.md §3.2.5.
+`set_vec_tile_shapes` and `set_cube_tile_shapes` change the active tile layout for every PyPTO call that follows them in the same JIT body. When a kernel has multiple stages with different tile-optimal shapes (e.g. one matmul wants `[64, 128]` cube tiles and another wants `[128, 64]`), setting tiles **once at the top of `_kernel_impl`** forces every stage to share the same tiles and loses optimization headroom. The example values below illustrate scope only; concrete tile values come from DESIGN.md 「范式与设计决策」.
 
 The recommended pattern is to push the tile-shape call **into each `pypto_*` sub-kernel** so each stage sets its own optimal layout:
 
@@ -318,7 +318,7 @@ def _kernel_impl(q, k, v, out):
     b = pypto_stage_beta(a, v)
 ```
 
-Avoid a `_kernel_impl` body that holds a global `set_*_tile_shapes` call AND dispatches to two or more `pypto_*` sub-kernels — configure the tile shapes inside each stage instead. If the kernel has only one stage that needs tile config, the global call is fine.
+Lint rule **OL47 (S3 / INFO)** flags `_kernel_impl` bodies that hold a global `set_*_tile_shapes` call AND dispatch to two or more `pypto_*` sub-kernels. INFO is non-blocking — if the kernel has only one stage that needs tile config, the global call is fine.
 
 ### Original — tile shape comment convention
 
@@ -346,11 +346,11 @@ out = pypto.matmul(a, b, pypto.DT_BF16)      # [M, N]
 **3. Tile config lines show tile shape**
 
 ```python
-pypto.set_vec_tile_shapes(1, 1, 8, 8)                         # tile dimensions per DESIGN.md §3.2.5
+pypto.set_vec_tile_shapes(1, 1, 8, 8)                         # tile dimensions per DESIGN.md 「范式与设计决策」
 pypto.set_cube_tile_shapes([128, 128], [128, 128], [128, 128]) # each list is [L0, L1]
 ```
 
-> Tile shape 具体值、参数格式规则和约束详见 skill `pypto-op-design` SKILL.md "第 2 轮：Tiling 推导" + quick_ref.md。
+> Tile shape 具体值和约束详见 skill `pypto-op-design/constraints/tiling.md`；算子级设计决策记录在 DESIGN.md 「范式与设计决策」。
 
 **4. Loop body tensors show the slice shape, not the full shape**
 

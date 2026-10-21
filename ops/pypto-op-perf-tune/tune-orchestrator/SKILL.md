@@ -1,6 +1,6 @@
 ---
 name: tune-orchestrator
-description: PyPTO 算子性能调优编排器。控制调优流程按固定顺序严格执行、迭代轮次完整执行、Todo 清单实时更新。负责流程推进、完成条件校验、状态机转移，不负责具体优化建议或代码修改。适用于 PyPTO 算子性能调优流程编排时。
+description: PyPTO 算子性能调优编排器。控制调优流程按固定顺序严格执行、迭代轮次完整执行、Todo 清单实时更新。负责流程推进、完成条件校验、状态机转移，不负责具体优化建议或代码修改。触发：编排 PyPTO 算子性能调优流程、推进调优迭代轮次时使用。
 ---
 
 # PyPTO 算子性能调优编排器
@@ -118,7 +118,7 @@ S4_TUNE = PHASE_FRONTEND → PHASE_SUMMARY_F
 |---------|---------|--------|---------|------------------------|
 | INIT | 用户已提供目标（如"提升X倍"/"≤X us"）或用户确认 | S1_SETUP | 记录目标到 Todo，计算目标执行时间 | 完成时调用 `state_transition(opDir, "complete_stage", 0)` |
 | S1_SETUP | 环境检查全部通过（见下方「环境检查清单」）+ 精度通过 | S2_COLLECT | ⛔ S1a 环境检查：逐项检查环境；⛔ S1b 精度校验：环境通过后运行精度校验；⛔ 全部通过后强制创建完整 Todo | S1a通过时调用 `state_transition(opDir, "start_stage", 1)`，全部通过后调用 `state_transition(opDir, "complete_stage", 1)` |
-| S2_COLLECT | swimlane.json 存在 | S3_ANALYZE | 无 | 完成时调用 `state_transition(opDir, "start_stage", 2)` → 验证后调用 `complete_stage(2)` |
+| S2_COLLECT | swimlane.json 存在 + ⛔ S-20 检查完成（max_workspace_kb 已按 NPU 推荐值设置，host_options 已配置） | S3_ANALYZE | ⛔ S2 阶段首次运行时检查 stdout 中 "Recommended: set max_workspace_kb near XXXX KB" 提示，提取推荐值设置到 runtime_options；同时设置 host_options={"compile_monitor_enable": 0} | 完成时调用 `state_transition(opDir, "start_stage", 2)` → 验证后调用 `complete_stage(2)` |
 | S3_ANALYZE | 性能报告文件存在 | S4_TUNE | 记录基准性能 | 完成时调用 `state_transition(opDir, "start_stage", 3)` → 验证后调用 `complete_stage(3)` |
 | S4_TUNE | ⛔ 提前达标（PHASE_SUMMARY_F / PHASE_SUMMARY_I_n 达标时直接→S5）或 外循环≤3轮全部完成（FRONTEND + [SWIMLANE→INCORE]×≤3 及其对应的 SUMMARY） | S5_REPORT | ⛔ 各PHASE间通过SUMMARY强制交接；⛔ 每轮外循环从SWIMLANE_n入口重新独立采集性能数据 | 每个 PHASE 完成时调用 `state_transition(opDir, "complete_stage", 4)` |
 | S5_REPORT | 报告文件已保存 | DONE | ⛔ 还原 debug_options | 完成时调用 `state_transition(opDir, "complete_stage", 5)` |
@@ -142,7 +142,7 @@ S4_TUNE = PHASE_FRONTEND → PHASE_SUMMARY_F
 
 | 迭代子状态 | 执行内容 | 完成标志 | 转移到 | 失败处理 |
 |-----------|---------|---------|--------|---------|
-| ITER_START | 根据子技能阶段A/B分析结论和 [shared/optimization_catalog.md](../shared/optimization_catalog.md) 选择一个优化点。⛔ 必须按调优点清单选择下一个未尝试的优化点，禁止凭直觉选题。⛔ FRONTEND阶段：优化点必须引用阶段A或B分析表格中的具体行号。⛔ 退出前提：只有调优点清单中所有项均已标记为 ✅已尝试 或 ❌已失败 或 ❌不适用(须注明原因) 时，才允许"无优化点可选→退出迭代循环"。**清单中存在未标记项时，禁止以"无优化点可选"为由退出，必须逐一尝试所有标记为 ⏳待尝试 的项。** | 确定了要改什么参数（含编号+分析依据） | ITER_MODIFY | 无优化点可选 **且 清单已全部标记** → 退出迭代循环（进入对应 PHASE_SUMMARY） |
+| ITER_START | 根据子技能阶段A/B分析结论和 [shared/optimization_catalog.md](../shared/optimization_catalog.md) 选择一个优化点。⛔ 必须按调优点清单选择下一个未尝试的优化点，禁止凭直觉选题。⛔ FRONTEND阶段：优化点必须引用阶段A或B分析表格中的具体行号。⛔ SWIMLANE/INCORE阶段：优化点必须引用前置分析结果中的具体数据。**无法写出"依据：XX表第N行"或"依据：[分析数据]" → 前置分析未完成 → 回退补充，禁止进入 ITER_MODIFY。** ⛔ 退出前提：只有调优点清单中所有项均已标记为 ✅已尝试 或 ❌已失败 或 ❌不适用(须注明原因) 时，才允许"无优化点可选→退出迭代循环"。**清单中存在未标记项时，禁止以"无优化点可选"为由退出，必须逐一尝试所有标记为 ⏳待尝试 的项。** | 确定了要改什么参数（含编号+分析依据） | ITER_MODIFY | 无优化点可选 **且 清单已全部标记** → 退出迭代循环（进入对应 PHASE_SUMMARY） |
 | ITER_MODIFY | 修改代码，只改一个参数 | 代码已修改 | ITER_VERIFY | - |
 | ITER_VERIFY | 运行测试用例验证精度 | 输出含 "passed" | ITER_MEASURE | → ITER_ROLLBACK |
 | ITER_MEASURE | 运行用例采集性能数据 | 新的性能数据已获取 | ITER_RECORD | → ITER_ROLLBACK |
@@ -153,8 +153,8 @@ S4_TUNE = PHASE_FRONTEND → PHASE_SUMMARY_F
 ### S1_SETUP 结构
 
 S1_SETUP 包含两个子阶段：
-1. **S1a：环境检查** — 执行主技能步骤 1.0 的环境检查流程（含完整清单和修复步骤），⛔ 不可跳过
-2. **S1b：精度校验** — 环境通过后执行主技能步骤 1.2-1.3 的精度校验流程
+1. **S1a：环境检查** — 执行主技能步骤 1.0 环境检查流程，⛔ 不可跳过
+2. **S1b：精度校验** — 环境检查全部通过后，执行主技能步骤 1.1-1.2 精度校验流程
 
 两个子阶段全部通过后，转移到 S2_COLLECT。
 
@@ -190,9 +190,9 @@ Step 0a: 独立性能数据分析
 
 | PHASE | 加载子技能 | 编排器核查的产出制品 | 退出后进入 |
 |-------|-----------|-------------------|-----------|
-| PHASE_FRONTEND | `tune-frontend` | 阶段A 全局分析制品 + 阶段B 局部分析制品 + 最终优化点排序清单（具体清单见 `tune-frontend/SKILL.md`） | PHASE_SUMMARY_F |
-| PHASE_SWIMLANE_n | `tune-swimlane` | 核使用率分析 + 调优点清单（具体清单见 `tune-swimlane/SKILL.md`）；⛔ 泳道图重采次数记录在 Todo 中 | PHASE_SUMMARY_S_n |
-| PHASE_INCORE_n | `tune-incore` | 瓶颈 task 分析 + 调优点清单（具体清单见 `tune-incore/SKILL.md`） | PHASE_SUMMARY_I_n |
+| PHASE_FRONTEND | `tune-frontend` | 阶段A 全局分析制品 + 阶段B 局部分析制品 + 最终优化点排序清单（具体清单见 `../tune-frontend/SKILL.md`） | PHASE_SUMMARY_F |
+| PHASE_SWIMLANE_n | `tune-swimlane` | 核使用率分析 + 调优点清单（具体清单见 `../tune-swimlane/SKILL.md`）；⛔ 泳道图重采次数记录在 Todo 中 | PHASE_SUMMARY_S_n |
+| PHASE_INCORE_n | `tune-incore` | 瓶颈 task 分析 + 调优点清单（具体清单见 `../tune-incore/SKILL.md`） | PHASE_SUMMARY_I_n |
 
 ⛔ **核查规则**：子技能声明的所有分析制品均已生成后，才允许进入 ITER 循环。缺少任何一项 → 要求补充分析，禁止跳过进入优化。
 
@@ -345,7 +345,7 @@ ITER_MODIFY 阶段，每次只允许修改一个优化参数：
 
 | 条件 | 判定方法 | 动作 |
 |------|---------|------|
-| 性能达标 | 当前执行时间 ≤ 目标值 | → 退出迭代循环 → PHASE_SUMMARY_F |
+| 性能达标 | 当前 AICore E2E Time ≤ 目标值 | → 退出迭代循环 → PHASE_SUMMARY_F |
 | 调优点清单已全部尝试 且 连续5轮无提升 | 调优点清单中所有项已标记为 ✅已尝试 或 ❌已失败，且最近5轮无提升 | → 退出迭代循环 → PHASE_SUMMARY_F |
 | 用户主动要求停止 | 用户明确说"停止" | → 退出迭代循环 → PHASE_SUMMARY_F |
 
@@ -353,18 +353,27 @@ ITER_MODIFY 阶段，每次只允许修改一个优化参数：
 
 | 条件 | 判定方法 | 动作 |
 |------|---------|------|
-| 性能达标 | 当前执行时间 ≤ 目标值 | → 退出迭代循环 → PHASE_SUMMARY_S |
+| 性能达标 | 当前 AICore E2E Time ≤ 目标值 | → 退出迭代循环 → PHASE_SUMMARY_S |
 | 调优点清单已全部尝试 且 连续8轮无提升 | 调优点清单中所有项已标记，且最近8轮无提升 | → 退出迭代循环 → PHASE_SUMMARY_S |
 | 用户主动要求停止 | 用户明确说"停止" | → 退出迭代循环 → PHASE_SUMMARY_S |
+
+**⚠️ S-14 Mix合图的轮次特殊规则**：Mix合图（S-14）内部调优的轮次计算、最低尝试要求、退化诊断决策树详见 [merge-optimization.md §4.2.5](../tune-swimlane/references/merge-optimization.md)。Mix合图退化时，禁止跳过退化诊断决策树直接退出 Mix 转向其他优化（如 S-15 ooo_sched_mode / S-16 vf_options）。必须完成诊断决策树全部 4 步（scope 范围→CV 通路→spill→配套参数）且仍无收益，才允许退出 Mix 合图。
 
 **PHASE_INCORE 退出条件（满足任一）**：
 
 | 条件 | 判定方法 | 动作 |
 |------|---------|------|
-| 性能达标 | 当前执行时间 ≤ 目标值 | → 退出迭代循环 → PHASE_SUMMARY_I_n |
+| 性能达标 | 当前 AICore E2E Time ≤ 目标值 | → 退出迭代循环 → PHASE_SUMMARY_I_n |
 | 调优点清单已全部尝试 且 达到理论性能上限 | 清单全部尝试，核心利用率 > 80% 且 气泡率 < 10% | → 退出迭代循环 → PHASE_SUMMARY_I_n |
-| 调优点清单已全部尝试 且 连续5轮无提升 | 清单全部尝试，最近5轮无提升 | → 退出迭代循环 → PHASE_SUMMARY_I_n |
+| 调优点清单已全部尝试 且 连续5轮无提升 | 清单全部尝试，最近5轮无提升 | → 检查是否可进入算法级优化（见下方） |
 | 用户要求停止 | 用户明确说停止 | → 退出迭代循环 → PHASE_SUMMARY_I_n |
+
+**算法级优化路由（INCORE 收敛后）**：当 INCORE 调优点清单全部尝试且连续5轮无提升、性能仍未达标时，不直接退出到 S5_REPORT，而是检查是否可进入算法级优化（对应 top-level SKILL.md §4.3）：
+1. 确认当前性能瓶颈是否为 DDR 往返带宽瓶颈（AIC 等 AIV 产出 / AIV 等前驱时间占比 > 20% E2E）
+2. 若是 DDR 瓶颈 → 执行 A-D1~A-D3（合并 gather / view 复用 / 消除中间 assemble），每次只改一个算法点，改后验证精度+测性能。⚠️ A-D1↔I-10、A-D2↔I-11 是同一优化的两个编号，若 INCORE 已尝试 I-10/I-11 则 A-D1/A-D2 标记"已尝试"不重复执行。A-D3（消除中间 assemble 回 GM）无对应 I- 编号。A-D1~A-D3 修复 CV 断点后须重新评估 S-14 Mix合图（回退至 SWIMLANE 下一轮重试 S-14）
+3. 若非 DDR 瓶颈 → 执行 A-G1~A-G7（通用算法优化）
+4. 算法级优化也收敛（所有 A-D/A-G 项已尝试且连续3轮无提升）→ 退出迭代循环 → PHASE_SUMMARY_I_n
+5. 算法级优化有收益 → 继续迭代直到达标或收敛
 
 ### ITER_JUDGE 判定流程
 
@@ -381,7 +390,7 @@ ITER_JUDGE 执行时，按以下顺序判断：
     刚完成 ITER_MEASURE（正常执行）时，检查迭代轮次记录表：
     → 检查: 最新一轮（轮次编号最大）的"状态"列是否为 ✅（性能提升）或 ❌回退（性能回退）
     → 通过条件: 最新轮次的状态列已填写 ✅ 或 ❌
-    → ❌ 未通过（状态列为空或标记为 🔄 进行中）: 
+    → ❌ 未通过（状态列为空或标记为 🔄 进行中）:
        ⛔ 禁止继续判定！必须先执行 ITER_RECORD 更新 Todo，再回到 ITER_JUDGE
        ⛔ 命令: `todowrite` 补充本轮记录
 
@@ -394,14 +403,17 @@ ITER_JUDGE 执行时，按以下顺序判断：
     → 禁止状态列为空就直接退出
 
 1. 性能是否达标？
-    当前执行时间 ≤ 目标值
+    当前 AICore E2E Time ≤ 目标值
     → 是: 输出"达标"，退出迭代循环，进入对应 PHASE_SUMMARY
     → 否: 继续
 
 2. 当前轮次是否有提升？
-   当前执行时间 < 上一轮执行时间
-   → 是: 重置连续无提升计数器为 0
-   → 否: 连续无提升计数器 +1
+   判定条件（必须同时满足才能接受本轮改动）：
+   - 限定性能指标：仅允许使用 AICore E2E 耗时，单位 μs，取值从 `bubble_analysis.log` 文件的 `Core Total Work Time` 字段读取（或通过 `perf-analyzer/scripts/analyze_perf.py` 脚本获取）。
+   - 性能正向收益：本轮耗时 < 上一轮耗时，上一轮耗时存储于 Todo 迭代轮次记录表。
+   口径说明：本技能全部判定上下文中的"执行时间 / 耗时"均指上述 AICore E2E 耗时（下同，不再重复注明）。
+   → 是（本轮耗时 < 上一轮耗时）: 采纳本轮改动，重置连续无提升计数器为 0
+   → 否（本轮耗时 ≥ 上一轮耗时，即未提升或劣化）: 必须 ITER_ROLLBACK 回退本轮改动（不得保留），连续无提升计数器 +1，计入失败累计，再进入 ITER_JUDGE
 
 3. 连续无提升次数是否达到阈值？
     FRONTEND: 5次, SWIMLANE: 8次, INCORE: 5次
@@ -410,7 +422,10 @@ ITER_JUDGE 执行时，按以下顺序判断：
 
 3a. ⛔ 调优点清单完整性闸门（连续无提升达阈值时的强制核验）
     检查优化点清单状态列：**所有项已标记为 ✅已尝试 或 ❌已失败 或 ❌不适用**
-    → 清单已全部标记: 输出"阶段内优化耗尽"，退出迭代循环，进入对应 PHASE_SUMMARY
+    → 清单已全部标记:
+      ⚠️ 若为 INCORE 阶段且性能未达标 → 不直接退出，转算法级优化路由（见「PHASE_INCORE 退出条件」中的算法级优化路由）
+      → 算法级优化也收敛（所有 A-D/A-G 项已尝试且连续3轮无提升）→ 输出"阶段内优化耗尽"，退出迭代循环，进入对应 PHASE_SUMMARY
+      → 其他 PHASE（FRONTEND/SWIMLANE）→ 输出"阶段内优化耗尽"，退出迭代循环，进入对应 PHASE_SUMMARY
     → **清单存在未标记项（⏳待尝试 或 空状态）: ⛔ 禁止退出！必须回到 ITER_START 继续尝试未标记的优化点**
 
 3b. 优化点清单是否已全部尝试？（仅当 3 未触发时执行）
@@ -447,7 +462,7 @@ ITER_JUDGE 执行时，按以下顺序判断：
 > S1_SETUP 包含两个子阶段：S1a 环境检查 + S1b 精度校验。环境检查通过后，继续精度校验。
 > **⛔ 门控要求**：`complete_stage(1)` 必须在 S1a（环境检查全部通过）和 S1b（精度校验通过）**两个子阶段均完成后**才能调用。任一子阶段未通过，禁止调用 `complete_stage(1)`。
 > 子阶段失败时使用 `fail_stage(1)` 标记，并在 Todo 中记录失败原因（区分环境问题或精度问题）。
-> 精度校验流程详见主技能步骤 1.3。
+> 精度校验流程详见主技能步骤 1.2。
 
 ### S2_COLLECT
 
@@ -477,6 +492,10 @@ find . -name "performance_analysis_report.md" -type f
 
 **外循环控制**：SWIMLANE→INCORE 为一个外循环轮次，最多 3 轮。
 
+**回环说明（预期行为）**：INCORE 阶段执行 I-10/I-11（合并 gather / view 复用）修复 CV 通路 DDR 断点后，须回退至 SWIMLANE 下一轮重试 S-14 Mix合图。这种"合图未完成→进入 INCORE 修复→回退 SWIMLANE 重试"的回环是预期行为，不是异常——外循环机制天然支持此场景。
+
+**算法级优化（INCORE 尾部子步骤）**：INCORE 调优点清单收敛但性能未达标时，不直接退出到 S5_REPORT，而是在 INCORE 阶段内继续执行算法级优化（A-D1~A-D3 / A-G1~A-G7，对应 top-level SKILL.md §4.3）。A-D1~A-D3 修复 CV 断点后同样回退 SWIMLANE 重试 S-14。
+
 **单 PHASE 退出条件**：⛔ 见「退出条件详细定义」
 
 **提前终止条件**：任意 PHASE_SUMMARY（F/S_n/I_n）在生成摘要时检查全局性能目标，达标则直接路由到 S5_REPORT，不继续后续阶段。
@@ -505,14 +524,17 @@ debug_options 已还原（runtime_debug_mode 移除或置 0）
 S1_SETUP 全部通过后，必须立即创建包含以下所有阶段的完整 TODO，不得遗漏任何子阶段：
 
 ```
-S1 → S2 → S3 → S4 → S5
-  S4 = FRONTEND → SWIMLANE_1 → INCORE_1 → SWIMLANE_2 → INCORE_2 → SWIMLANE_3 → INCORE_3
+S1 → S2(⛔含S-20检查) → S3 → S4 → S5
+  S4 = FRONTEND → SWIMLANE_1 → INCORE_1(含算法级优化A-D/A-G) → SWIMLANE_2 → INCORE_2 → SWIMLANE_3 → INCORE_3
   ⚠️ 任意 PHASE_SUMMARY 达标可提前跳到 S5，不要求全部跑完
+  ⚠️ INCORE 收敛但未达标时，在 INCORE 内执行算法级优化（A-D1~A-D3 / A-G1~A-G7）
+  ⚠️ A-D1~A-D3 修复 CV 断点后须回退 SWIMLANE 下一轮重试 S-14（预期回环行为）
 ```
 
 TODO 中必须明确列出：
 - ✅ 全部 3 轮外循环的 SWIMLANE_n/INCORE_n 子阶段（创建时全量列出，达标时标记 ✅ 并跳过后续）
-- ✅ 每个子阶段的轮次数、连续无提升阈值（FRONTEND:5, SWIMLANE:8, INCORE:5）
+- ✅ INCORE_n 内的算法级优化条目（A-D1~A-D3 / A-G1~A-G7），标注为 INCORE 子步骤
+- ✅ 每个子阶段的轮次数、连续无提升阈值（FRONTEND:5, SWIMLANE:8, INCORE:5, 算法级:3）
 - ✅ 失败累计计数器（所有 PHASE 共用）
 - ✅ 基准性能值和目标性能值
 
@@ -612,8 +634,8 @@ todowrite  # 读取当前 Todo 清单
 ### 迭代轮次记录更新示例
 
 ```markdown
-| 轮次 | 外循环 | 阶段 | 编号 | 优化内容 | 精度 | 执行时间(us) | 变化 | 结果类型 | 状态 |
-|------|---------|------|------|---------|------|-------------|------|---------|------|
+| 轮次 | 阶段 | 编号 | 优化内容 | 精度 | 执行时间(us) | 变化 | 结果类型 | 状态 |
+|------|------|------|---------|------|-------------|------|---------|------|
 | 基准 | 0 | - | - | - | ✅ | 79.34 | - | - | ✅ |
 | #1 | 1 | FRONTEND | F-1 | BLOCK_SIZE 128→64 | ✅ | 68.54 | -13.6% | 性能提升 | ✅ |
 | #2 | 1 | FRONTEND | F-8 | unroll_list [8,4,2,1] | ✅ | 74.44 | +8.6% | 性能回退 | ❌回退 |

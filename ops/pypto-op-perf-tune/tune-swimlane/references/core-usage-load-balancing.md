@@ -22,7 +22,7 @@
 
 从 `merged_swimlane.json` 的 `traceEvents` 中解析每个 leafHash 占用的 core 数量，并与芯片理论核数对比：
 
-> **路径说明**：以下脚本命令在技能目录 `skills/pypto-op-perf-tune/tune-swimlane/` 下执行
+> **路径说明**：以下脚本命令在技能目录 `../` 下执行
 
 ```bash
 python3 scripts/analyze_core_usage.py <output_dir> [--device-id N]
@@ -46,9 +46,9 @@ psgId | type | tasks |    used/total (usage%) |  avg(us) | total(us) |    status
     8 |  AIC |     8 |             8/24 (33%) |      8.1 |      64.9 |  NOT FULL | FILL CORES FIRST (reduce TileShape)
     6 |  AIV |     4 |              4/48 (8%) |      6.4 |      25.5 |  NOT FULL | FILL CORES FIRST (reduce TileShape)
 
-Summary:	 
-    NOT FULL (fill cores first): 4 leafHash(es)	 
-    FULL (can merge): 0 leafHash(es)	 
+Summary:
+    NOT FULL (fill cores first): 4 leafHash(es)
+    FULL (can merge): 0 leafHash(es)
 
 Next step: For NOT FULL leafHashes, use leafhash_to_code.py to map to frontend code,
            then adjust set_cube_tile_shapes() to increase task count.
@@ -96,6 +96,8 @@ pypto.set_cube_tile_shapes([16, 16], [128, 256], [128, 128])
    - 建议逐步减小（如 256→128→64），每步实测
 
 **⛔ 禁止以结构限制为由跳过核填充**：即使某轴（如 M 轴）因语义固定（如 decode 阶段 M=1），其他轴的 TileShape 仍可调整来增加任务数和核心利用率。必须尝试完所有轴的 TileShape 调整（减小 L0/L1 增加任务数）后，才能判定"核无法再增"并进入合图阶段。禁止仅凭某轴固定就跳过核填充。
+
+**⚠️ CV 任务配比与 TileShape 切分**：A5 平台硬件 AIC:AIV 核数比 = 32:64 = 1:2，CV 最优配比为 1:2（1 个 AIC 输出分给 2 个 AIV 处理）（实测经验值，暂无官方文档引用）。核填充和 TileShape 调优时须关注 **CV 间数据分配比例**：1 个 AIC 的输出数据应通过 TileShape 切分为 2 份，分配到 2 个 AIV 上执行。例如 AIC 输出 shape 为 `(128, 128)`，应将 N 轴切分为 2 个 `(128, 64)` 分配到 2 个 AIV 核上，使 AIV 核数利用率与 AIC 匹配。若 CV 间数据未按 1:2 切分，会导致 AIV 核闲置（切分不足）或 AIC 成为瓶颈（切分过多）。
 
 #### 4. 负载均衡优化（核填充后的强制步骤）
 

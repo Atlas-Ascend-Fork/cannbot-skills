@@ -1,38 +1,37 @@
 ---
 name: pypto-op-review
-description: "Op-by-op PyPTO call extraction plus the layout / structure requirements for custom/{operator}/ kernels. Use when reviewing or debugging a custom operator's kernels."
+description: Op-by-op PyPTO call extraction for debugging custom/OP_NAME/ kernels. Layout / structure validation is enforced automatically by the pypto-op-lint hooks (no separate script). 触发：调试 custom 下算子 kernel、逐算子提取 PyPTO 调用或审查算子工程结构时使用。
 ---
 
 # PyPTO Complex Kernel — Review helpers
 
-This skill covers two things: the **layout / structure requirements** every `custom/<operator>/` directory must satisfy, and a helper that lists PyPTO call sites for op-by-op debugging.
+Layout and structure rules for `custom/<operator>/` are enforced **automatically** by the pypto-op-lint hooks — on every file write (PostToolUse) and at the phase / stage gates. There is no separate layout script to run.
 
 ## Contents
 
 | File | Purpose |
 |------|---------|
 | **`scripts/extract_pypto_calls.py`** | List every `pypto.*` call site by line number — used for op-by-op debugging |
-| **`references/CI.md`** | The same requirements with more detail on when to re-check them |
 
 ---
 
-## Layout / structure requirements
+## Layout / structure rules are now lint rules
 
-Check these whenever you write or review a file under `custom/<operator>/`:
+The checks formerly performed by a standalone layout script are covered by pypto-op-lint:
 
-| Area | Requirement |
-|------|-------------|
-| Three-piece set | `custom/<op>/test_<op>.py` exists alongside the impl and golden files |
-| Comparison helper | Every test assertion goes through `assert_allclose` **or** `detailed_tensor_compare` — no hand-rolled tolerance loops |
-| Staged naming | Each active phase has its module trio: `*_module<k>_impl.py` + `*_golden.py` + `test_*` |
-| Host wrapper | No Python `for ... in range(...)` driving the kernel from the host wrapper — the wrapper calls the JIT kernel once |
-| Kernel iteration | Inside the JIT graph, iterate only with `pypto.loop` / `pypto.loop_unroll` / `range(...)`; no `while` and no non-range Python `for` |
-| Views | `pypto.view(...)` shape / offsets / valid_shape ranks all match — `view` is not `reshape` |
-| Cube tiles | `set_cube_tile_shapes` passes each of m/k/n as `[L0, L1]` with `0 < L0 <= L1` and `L1 % L0 == 0` |
-| Tile literals | Tile arguments are compile-time int literals, not computed expressions |
-| Dynamic axes | A kernel iterating a dynamic axis uses `pypto.loop` rather than a Python-level loop |
+| Check | Lint rule |
+|-------|-----------|
+| `custom/<op>/test_<op>.py` exists (three-piece set) | OL13 / OL44 |
+| Test uses `assert_allclose` **or** `detailed_tensor_compare` | OL19 |
+| Staged module trio (`*_module<k>_impl.py` + `_golden.py` + `test_*`) | OL44 |
+| No Python `for ... in range(...)` driving the kernel from the host wrapper | OL45 |
+| Only `pypto.loop` / `pypto.loop_unroll` / `range(...)` inside the JIT graph (no `while` or non-range `for`) | OL57 |
+| `pypto.view(...)` shape / offsets / valid_shape ranks match (view is not reshape) | OL52 |
+| `set_cube_tile_shapes` each m/k/n is `[L0, L1]`, 0<L0<=L1, L1%L0==0 | OL48 |
+| Tile args are compile-time int literals | OL48 |
+| `pypto.loop` present when a kernel iterates a dynamic axis | OL23 / OL43 |
 
-Violating any of these is a defect to fix before the file is considered done — do not paper over it in the test or the memory log.
+A lint **FAIL** blocks the write (S0/S1) and the gate; fix it before re-writing the file.
 
 ---
 
@@ -42,5 +41,3 @@ Violating any of these is a defect to fix before the file is considered done —
 python3 scripts/extract_pypto_calls.py \
   custom/<operator_name>/<kernel_file>.py
 ```
-
-Add `--json` for machine-readable output. See skill `pypto-general-debug` (SKILL.md auto-loads) → op-by-op check protocol.

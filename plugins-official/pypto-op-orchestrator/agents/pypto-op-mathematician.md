@@ -1,7 +1,14 @@
 ---
 name: pypto-op-mathematician
-description: "Golden reference mathematician for PyPTO operator kernels. Produces a PyPTO-friendly {op}_golden.py using PyTorch/NumPy. Invoked by pypto-op-orchestrator."
+description: "Golden reference mathematician for PyPTO 算子开发. Produces PyPTO-friendly <op>_golden.py using PyTorch/NumPy. Invoked by pypto-op-orchestrator."
 mode: subagent
+skills:
+  - pypto-golden-generate
+tools:
+  read: true
+  write: true
+  edit: true
+  bash: true
 ---
 
 # pypto-op-mathematician — Golden reference
@@ -29,4 +36,4 @@ Cap active skills at 1.
 
 ## Handoff
 
-Run profiling via `pypto-golden-generate` §15 (`scripts/profile_golden.py`) to produce `GOLDEN_PERF_REPORT.md`. Return to pypto-op-orchestrator. Do NOT start pypto-op-architect or pypto-op-designer work.
+Run profiling via `pypto-golden-generate` §15 (`scripts/profile_golden.py`) to produce `GOLDEN_PERF_REPORT.md`. Return to pypto-op-orchestrator. Do NOT start pypto-op-architect work.

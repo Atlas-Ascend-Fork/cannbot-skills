@@ -1,7 +1,7 @@
 {
   "op_name": "<op>",
   "source": "pypto-op-verify",
-  "description": "PyPTO <op> 算子测试用例 — 由 test_template.py 通过 test_inputs.make_inputs() 读取",
+  "description": "PyPTO <op> 算子测试用例 — 由 test_template.py.tmpl 通过 test_inputs.make_inputs() 读取",
   "test_cases": [
     {
       "id": "<label>_l0",

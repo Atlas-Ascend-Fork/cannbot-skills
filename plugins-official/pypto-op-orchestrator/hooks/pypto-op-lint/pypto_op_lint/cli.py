@@ -104,7 +104,9 @@ def cmd_check_phase_gate(op_dir: str, phase: str, stage: int = 5) -> int:
     for rule in ctx.rules:
         target = rule.get("target")
         rid = rule["id"]
-        is_phase_rule = target == "impl" or (target == "gate" and rid in phase_gate_allow)
+        is_phase_rule = target == "impl" or (
+            target == "gate" and rid in phase_gate_allow
+        )
         if not is_phase_rule:
             continue
         if stage not in rule.get("stages", []):
@@ -117,14 +119,14 @@ def cmd_check_phase_gate(op_dir: str, phase: str, stage: int = 5) -> int:
 def cmd_check_design_gate(op_dir: str, stage: int = 4) -> int:
     """Stage 4 ``submit_design`` 用的设计阶段门禁。
 
-    Stage 4 由两个 subagent 串联执行: Designer 先产出 ``DESIGN.md`` /
+    Stage 4 由两个 subagent 串联执行: Architect 先产出 ``DESIGN.md`` /
     ``module_interfaces.yaml``, 之后 Verifier 在 scaffolding mode 中产出
-    adversarial harness。本门禁在两者之间触发, 让 Designer 的产出在
-    Verifier 启动**之前**就被 lint 捕获, 避免 Verifier 的工作因 Designer
+    adversarial harness。本门禁在两者之间触发, 让 Architect 的产出在
+    Verifier 启动**之前**就被 lint 捕获, 避免 Verifier 的工作因 Architect
     侧的 typo / API 不存在而作废。
 
     与 :func:`cmd_check_phase_gate` 的对偶: phase gate 在 Coder 之后,
-    design gate 在 Designer 之后。
+    design gate 在 Architect 之后。
 
     扫描范围: ``DESIGN.md`` (含 fenced Python code block) 内的:
 
@@ -135,7 +137,7 @@ def cmd_check_design_gate(op_dir: str, stage: int = 4) -> int:
     入口: ``state_transition(action=submit_design, stage=4)`` 由
     ``pypto-state-transition.ts`` 中的 plugin 转译为本命令。违规以
     exit code 2 + JSON 返回, 由 plugin 抛出, 让 Orchestrator 再次
-    dispatch Designer 而不是先 dispatch Verifier。
+    dispatch Architect 而不是先 dispatch Verifier。
     """
     ctx = _build_context(op_dir, stage)
     design_rules: list[str] = []
@@ -151,36 +153,47 @@ def cmd_check_design_gate(op_dir: str, stage: int = 4) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="PyPTO 算子开发流程确定性检查工具")
-    parser.add_argument("--hook",
-                        choices=["post-edit", "post-bash",
-                                 "pre-edit-backup", "stop"],
-                        help="Hook 模式（从 stdin 读 JSON）")
-    parser.add_argument("--lint-impl", action="store_true",
-                        help="检查 impl 文件")
-    parser.add_argument("--lint-golden", action="store_true",
-                        help="检查 golden 文件")
-    parser.add_argument("--lint-test", action="store_true",
-                        help="检查 test 文件")
-    parser.add_argument("--lint-consistency", action="store_true",
-                        help="检查跨文件一致性（D5 规则）")
-    parser.add_argument("--check-gate", action="store_true",
-                        help="检查阶段门禁")
-    parser.add_argument("--check-phase-gate", action="store_true",
-                        help="检查 Stage 5 phase 门禁 (仅扫描当前 phase 的累积模块 impl)")
-    parser.add_argument("--check-design-gate", action="store_true",
-                        help="检查 Stage 4 设计阶段门禁 (Designer 完成后, Verifier 启动前)")
-    parser.add_argument("--phase",
-                        help="Stage 5 phase 标识 (如 M1, M2, ...), 与 --check-phase-gate 配合")
-    parser.add_argument("--op-dir", help="算子工作目录")
-    parser.add_argument("--stage", type=int, default=5,
-                        help="当前阶段 (1-7)")
+    parser = argparse.ArgumentParser(
+        description="PyPTO operator development deterministic check tool"
+    )
+    parser.add_argument(
+        "--hook",
+        choices=["post-edit", "post-bash", "pre-edit-backup", "stop"],
+        help="Hook mode (read JSON from stdin)",
+    )
+    parser.add_argument("--lint-impl", action="store_true", help="Check impl files")
+    parser.add_argument("--lint-golden", action="store_true", help="Check golden files")
+    parser.add_argument("--lint-test", action="store_true", help="Check test files")
+    parser.add_argument(
+        "--lint-consistency",
+        action="store_true",
+        help="Check cross-file consistency (D5 rules)",
+    )
+    parser.add_argument("--check-gate", action="store_true", help="Check stage gates")
+    parser.add_argument(
+        "--check-phase-gate",
+        action="store_true",
+        help="Check Stage 5 phase gate (scan only current phase cumulative module impls)",
+    )
+    parser.add_argument(
+        "--check-design-gate",
+        action="store_true",
+        help="Check Stage 4 design gate (after Architect, before Verifier)",
+    )
+    parser.add_argument(
+        "--phase",
+        help="Stage 5 phase ID (e.g. M1, M2, ...), used with --check-phase-gate",
+    )
+    parser.add_argument("--op-dir", help="Operator working directory")
+    parser.add_argument("--stage", type=int, default=5, help="Current stage (1-7)")
     return parser
 
 
-def _require_op_dir(parser: argparse.ArgumentParser, args: argparse.Namespace, option: str) -> str:
+def _require_op_dir(
+    parser: argparse.ArgumentParser, args: argparse.Namespace, option: str
+) -> str:
     if not args.op_dir:
-        parser.error(f"{option} 需要 --op-dir")
+        parser.error(f"{option} requires --op-dir")
     return args.op_dir
 
 
@@ -212,7 +225,7 @@ def _dispatch_command(parser: argparse.ArgumentParser, args: argparse.Namespace)
     if args.check_phase_gate:
         op_dir = _require_op_dir(parser, args, "--check-phase-gate")
         if not args.phase:
-            parser.error("--check-phase-gate 需要 --phase (如 M1, M2, ...)")
+            parser.error("--check-phase-gate requires --phase (e.g. M1, M2, ...)")
         return cmd_check_phase_gate(op_dir, args.phase, args.stage)
 
     if args.check_design_gate:

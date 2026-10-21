@@ -1,24 +1,32 @@
 ---
 name: pypto-op-verify
-description: Validation runner requirements, detailed_tensor_compare usage, success criteria, required deliverables, and required output structure for the PyPTO Complex Kernel Workflow. Use when validating a PyPTO kernel and assembling deliverables.
+description: Validation runner requirements, detailed_tensor_compare usage, success criteria, required deliverables, and required output structure for the PyPTO Complex Kernel Workflow. 触发：验证 PyPTO 算子实现正确性、运行精度对比测试、确认交付产物结构时使用。
 ---
 
 # PyPTO Complex Kernel — Validation and Deliverables
 
-## Templates (verifier-owned skeletons)
+## 设计检查
+
+design-review 模式读取 SPEC.md、golden、DESIGN.md 和 eval/module_interfaces.yaml，不依赖 MEMORY.md。
+对照参考计算检查模块划分、输入来源、输出 shape/dtype、跨迭代状态与最终输出覆盖；按[模块接口说明](../pypto-op-design/references/module-interfaces.md)检查接口。
+只报告问题及依据，不修改设计或接口。单模块也需要设计检查；多模块通过后继续准备验证文件。此时实现尚未生成，不运行实现测试。
+
+## 实现验证模板
 
 | File | Used at | Purpose |
 |------|---------|---------|
-| [`templates/test_template.py`](templates/test_template.py) | Scaffolding step C, cleanup E2E | Layer L test skeleton with `test_*_l0` / `test_*_l1` functions, `_set_device()` helper, and `_compare_all_leaves` calling `detailed_tensor_compare`. Reads test fields from `test_cases.json`. |
-| [`templates/test_cases_template.json`](templates/test_cases_template.json) | Scaffolding step B | Test-case spec consumed by `test_template.py` via `make_inputs`. Each entry has `id` / `level` / `seed` / `shape` / `dtype` / `atol` / `rtol`. Copy to `custom/<op>/eval/test_cases.json` and fill from SPEC.md. |
+| [`templates/adversarial_runner_template.py.tmpl`](templates/adversarial_runner_template.py.tmpl) | Scaffolding step B | Generic NPU adversarial runner; copy to `eval/adversarial_runner.py` and set `OP_NAME`. |
+| [`templates/test_inputs_template.py.tmpl`](templates/test_inputs_template.py.tmpl) | Scaffolding step B | Operator-specific input factory; copy to `eval/test_inputs.py` and fill the marked blocks. |
+| [`templates/test_template.py.tmpl`](templates/test_template.py.tmpl) | Scaffolding step C, cleanup E2E | Layer L test skeleton with `test_*_l0` / `test_*_l1` functions, `_set_device()` helper, and `_compare_all_leaves` calling `detailed_tensor_compare`. Reads test fields from `test_cases.json`. |
+| [`templates/test_cases_template.json`](templates/test_cases_template.json) | Scaffolding step B | Test-case spec consumed by `test_template.py.tmpl` via `make_inputs`. Each entry has `id` / `level` / `seed` / `shape` / `dtype` / `atol` / `rtol`. Copy to `custom/<op>/eval/test_cases.json` and fill from SPEC.md. |
 
-The golden skeleton (for both `<op>_golden.py` and per-module `<op>_module<k>_golden.py` scaffolding step A) is the canonical `templates/golden-template.py` in skill `pypto-golden-generate` — pure torch, no `import pypto`. The impl-side template (`impl_template.py` covering Layers G–K) lives in `pypto-op-develop/templates/`. The Layer A–L design format reference is at `pypto-op-develop/references/pypto-kernel-design-format.md`.
+The golden skeleton (for both `<op>_golden.py` and per-module `<op>_module<k>_golden.py` scaffolding step A) is the canonical `../pypto-golden-generate/templates/golden-template.py.tmpl` in skill `pypto-golden-generate` — pure torch, no `import pypto`. The impl-side template (`impl_template.py.tmpl` covering Layers G–K) lives at `../pypto-op-develop/templates/impl_template.py.tmpl`. The Layer A–L design format reference is at `../pypto-op-develop/references/pypto-kernel-design-format.md`.
 
 ---
 
 ## Verification path selection (L0 vs L1)
 
-Before running any validation step, **read `module_count` from `custom/<op>/MEMORY.md`** (set by DESIGN.md §0.3, consumed by skill `pypto-op-construct`'s Decomposition Gate):
+Before running any validation step, **read `module_count` from `custom/<op>/MEMORY.md`** (set by DESIGN.md 「分解与模块边界」, consumed by the design document):
 
 | `module_count` | Verification path | What runs |
 |---|---|---|
@@ -45,8 +53,9 @@ The same `detailed_tensor_compare` helper is used in both paths — only the **g
 |------|-------------|
 | **Path** | `custom/<operator_name>/test_<operator_name>.py` |
 | **CWD** | Repository root |
-| **Command** | `python custom/<operator_name>/test_<operator_name>.py` (the test file's bootstrap preamble locates `detailed_tensor_compare` automatically; no PYTHONPATH needed) |
-| **Import** | `from detailed_tensor_compare import detailed_tensor_compare` (provided by `PYTHONPATH`; must be the bundled implementation) |
+| **Command** | `python custom/<operator_name>/test_<operator_name>.py` (no PYTHONPATH; the bootstrap preamble puts `custom/<op>/`, `modules/` and `eval/` on `sys.path`) |
+| **Import** | `from detailed_tensor_compare import detailed_tensor_compare` — resolved from the vendored `custom/<operator_name>/detailed_tensor_compare.py` |
+| **Vendored helper** | `custom/<operator_name>/detailed_tensor_compare.py`, written by `scripts/gen_module_test.py` from the bundled implementation and refreshed on every generation (so it cannot drift). Generated tests must never name the agent framework's skills directory — that name changes with the framework — and `custom/<op>/` must remain copyable on its own. |
 
 ### What the runner must do
 
@@ -57,7 +66,7 @@ The same `detailed_tensor_compare` helper is used in both paths — only the **g
 
 ### Module boundaries (per-Phase verification) — L1 path only
 
-Intermediate module-boundary checks must use the same bundled `detailed_tensor_compare`. Record each run in `custom/<operator_name>/MEMORY.md` → Per-module verification log (see skill `pypto-memory-template`'s `templates/MEMORY.template.md`).
+Intermediate module-boundary checks must use the same bundled `detailed_tensor_compare`. Record each run in `custom/<operator_name>/MEMORY.md` → Per-module verification log (see skill `pypto-memory-template`'s `../pypto-memory-template/templates/MEMORY.template.md`).
 
 > On **L0 path** (`module_count == 1`), there are no intermediate boundaries. Skip this step; the single E2E `detailed_tensor_compare` run on the final output(s) is sufficient. Per-module verification log remains empty (or contains a single row representing the E2E run).
 
@@ -90,7 +99,7 @@ The task is complete only when all of the following are true:
 
 **Always (both L0 and L1):**
 - the normalized golden matches the original golden within tolerance,
-- `custom/<operator_name>/MEMORY.md` documents the decomposition decision (`decomposition_level`, `module_count`) and the rationale from DESIGN.md §0.3,
+- `custom/<operator_name>/MEMORY.md` documents the decomposition decision (`decomposition_level`, `module_count`) and the rationale from DESIGN.md 「分解与模块边界」,
 - the final production design is one integrated `@pypto.frontend.jit` kernel (L0 single-shot, or L1 cumulative `<op>_module1…N.py` collapsed into `<op>_impl.py`),
 - the user can run one script to execute validation, and that script compares every kernel output tensor.
 
@@ -114,7 +123,7 @@ The agent must produce all of the following (deliverable set is path-conditional
 2. **Normalized golden reference** — consistent with the final kernel.
 3. **Validation runner script** — `custom/<operator_name>/test_<operator_name>.py` run from repo root with simply `python custom/<operator_name>/test_<operator_name>.py` — the test file's path-bootstrap preamble locates `detailed_tensor_compare` automatically (no PYTHONPATH env var needed); must compare all outputs. Do not use `pytest` as the default.
 4. **Production kernel implementation** — `<op>_impl.py`.
-5. **Summary** of: decomposition decision (level + complexity signals from DESIGN.md §0), module contracts (L1 only), frozen checkpoints (L1 only), current known limitations.
+5. **Summary** of: decomposition decision (level + complexity signals from DESIGN.md 「分解与模块边界」), module contracts (L1 only), frozen checkpoints (L1 only), current known limitations.
 
 **L1 path additionally (`module_count ≥ 2`):**
 6. **Staged module files** — `<op>_module1.py`, `…_module12.py`, …, `…_module1…N.py`; each stage passes before the next exists. The final staged file is the source of `<op>_impl.py` (cleanup dispatch).
@@ -141,17 +150,17 @@ At the end, the agent must be able to report:
 
 ## Harness upgrades — inspection tensors
 
-The adversarial runner contract has been extended to give @pypto-op-debugger better narrowing signal on complex kernels (gated delta rule backward, kimi delta attention, etc.). Features specified in the **pypto-op-verifier** agent definition (`agents/pypto-op-verifier.md`):
+The adversarial runner contract has been extended to give @pypto-op-debugger better narrowing signal on complex kernels (gated delta rule backward, kimi delta attention, etc.). Features specified in the **pypto-op-verifier** agent definition (`../../agents/pypto-op-verifier.md`):
 
 ### 1. NPU execution
 
 `adversarial_runner.py` runs the impl on the NPU and emits `status` + `first_failure` (with `failure_category`) in `evaluation_report.json`. The NPU result is the authoritative correctness signal.
 
-### 2. Inspection tensor protocol (pypto-op-verifier §B.5)
+### 2. Inspection tensor protocol (§B.5)
 
 `adversarial_runner.py --inspect <name>` compares per-iteration intermediate state inside a module instead of the terminal output, using `inspection_<name>` buffers that the impl assembles into and `module_<k>_inspect()` on the golden side. Emits drift-onset iteration in the report. Use when a module contains `pypto.loop(NT)` or a reverse scan; skip for elementwise / pure-cube modules. Information barrier (`_sanitize`) still applies.
 
-### 3. `cancellation_stress` input generation mode (pypto-op-verifier §B.6)
+### 3. `cancellation_stress` input generation mode (§B.6)
 
 `test_inputs.py::make_inputs(case)` must support a `cancellation_stress` knob when the op contains a subtractive accumulation. The generator engineers inputs where the subtracted pair's relative gap hits a target value (default `1e-5`), exposing catastrophic-cancellation bugs uniform-random inputs miss. At least one `L5_cancellation_stress_*` case per subtractive pair is mandatory for ops with such pairs.
 
@@ -160,13 +169,13 @@ The adversarial runner contract has been extended to give @pypto-op-debugger bet
 See `references/intermediate-snapshot-automation.md` for the full usage doc. Replaces the hand-written debug-stage file chain (see `custom/gated_delta_rule_backward/debug/` for the pre-automation pattern — 11 files per op) with a single manifest-driven pipeline:
 
 1. Author adds `# <<< SNAPSHOT:<point>` / `# >>> SNAPSHOT:<point>` marker pairs around the probe regions in `<op>_module<suffix>.py`.
-2. @pypto-op-debugger writes `custom/<op>/_debug/snapshot_manifest.yaml` listing the intermediates to probe.
+2. A snapshot manifest `custom/<op>/_debug/snapshot_manifest.yaml` is written listing the intermediates to probe.
 3. `python scripts/snapshot_generator.py custom/<op>/_debug/snapshot_manifest.yaml` produces the snapshot impl + golden-augmentation + bisect shell.
 4. `bash custom/<op>/_debug/run_snapshot_bisect.sh` runs the bisection and prints per-iteration drift-onset per intermediate, plus JSON to `custom/<op>/_debug/snapshot_report.json`.
 
 The snapshot-bisection tool binds to the inspection-tensor protocol (§B.5). It is a standalone deep-debug tool (`snapshot_bisect.py`), independent of the default per-case runner.
 
-**When @pypto-op-debugger invokes this path:** after a prefix-eval failure on the NPU where the module contains `pypto.loop(NT)` or a reverse scan, AND the module's single-shot output diff alone does not localize the bug to one expression.
+**When this path is invoked:** after a prefix-eval failure on the NPU where the module contains `pypto.loop(NT)` or a reverse scan, AND the module's single-shot output diff alone does not localize the bug to one expression.
 
 **Files:**
 - `scripts/snapshot_manifest_schema.py` — validator

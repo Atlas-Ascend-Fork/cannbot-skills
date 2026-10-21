@@ -1,12 +1,12 @@
 # Intermediate-value snapshot automation
 
-**Status:** IMPLEMENTED in this bundle. Files under skill `pypto-op-verify`'s `references/`:
+**Status:** IMPLEMENTED in this bundle. Files under skill `pypto-op-verify`'s `.`:
 
 | File | Role |
 |---|---|
 | `snapshot_manifest_schema.py` | Loader + validator for `snapshot_manifest.yaml`. |
 | `snapshot_generator.py` | Reads manifest → produces `<op>_<module>_snapshot.py`, `<op>_golden_modular_snapshot.py`, `run_snapshot_bisect.sh`. |
-| `snapshot_bisect.py` | Per-iteration bisection runner; compares impl vs golden across torch/sim/npu; emits `snapshot_report.json` + human summary. |
+| `snapshot_bisect.py` | Per-iteration bisection runner; compares sim/npu impl results with the torch golden; emits `snapshot_report.json` + human summary. |
 | `snapshot_manifest.example.yaml` | Worked example for gated_delta_rule_backward M2. |
 
 Relies on items 1–2 (3-way dispatcher, inspection-tensor protocol §B.5) being in effect, which they are in this same branch.
@@ -72,7 +72,7 @@ A small CLI that reads the manifest and produces:
 
 ### Interaction with existing items
 
-- **Item 1 (3-way dispatcher):** snapshot bisect must run under all three modes to preserve cross-mode signal — if `w_T_dvtotal` is correct in `torch` but wrong in `npu`, that is `kernel_ok_npu_only` at the per-iteration level, and the device-side sub-skill should be loaded, not `pypto-precision-debug`.
+- **Item 1 (3-way dispatcher):** snapshot bisect runs the PyPTO kernel under both supported modes (`sim` and `npu`) and compares each result with the torch golden. If `w_T_dvtotal` matches the golden in `sim` but drifts in `npu`, that is `kernel_ok_npu_only` at the per-iteration level, and the device-side sub-skill should be loaded, not `pypto-precision-debug`.
 - **Item 2 (inspection tensors):** the snapshot manifest is a **thin declarative layer on top of inspection tensors**. No new framework API — just a YAML → probe mapping.
 
 ### Implementation plan (3 days, after items 1–3 land)
@@ -106,7 +106,7 @@ The generator does NOT do full AST rewriting. Instead the kernel author leaves m
 **Wiring markers** (all five are required):
 
 - `# <<< SNAPSHOT:SIG_IMPL` / `# >>> SNAPSHOT:SIG_IMPL` — inside `_<op>_kernel_impl` signature. Generator injects `inspection_<name>=None` kwargs.
-- `# <<< SNAPSHOT:SIG_JIT` / `# >>> SNAPSHOT:SIG_JIT` — inside `<op>_kernel_npu_impl` (JIT entry) signature. Generator injects `inspection_<name>: pypto.Tensor([], pypto.DT_FP32) = None` kwargs.
+- `# <<< SNAPSHOT:SIG_JIT` / `# >>> SNAPSHOT:SIG_JIT` — inside the staged module's JIT entry signature. Generator injects `inspection_<name>: pypto.Tensor([pypto.DYNAMIC, ...], <manifest dtype>) = None` kwargs.
 - `# <<< SNAPSHOT:CALL_IMPL` / `# >>> SNAPSHOT:CALL_IMPL` — inside the JIT entry body at the `_<op>_kernel_impl(...)` call site. Generator injects `inspection_<name>=inspection_<name>` pass-through.
 - `# <<< SNAPSHOT:HOST_WRAPPER_INSPECT_ALLOC` / `# >>> SNAPSHOT:HOST_WRAPPER_INSPECT_ALLOC` — inside `host_wrapper()` before the JIT call, after `B, H, NT, K, V` are known. Generator injects `torch.zeros(...)` allocations for each inspection buffer that honor any kwargs override.
 - `# <<< SNAPSHOT:HOST_WRAPPER_INSPECT_PASS` / `# >>> SNAPSHOT:HOST_WRAPPER_INSPECT_PASS` — inside the JIT-entry call inside `host_wrapper()`. Generator injects `inspection_<name>=inspection_<name>` kwargs.
@@ -203,7 +203,7 @@ See `snapshot_manifest.example.yaml` for a worked example driving gated_delta_ru
 ### Step 3 — Generate artifacts
 
 ```bash
-python skills/pypto-op-verify/scripts/snapshot_generator.py \
+python ../scripts/snapshot_generator.py \
     custom/<op>/_debug/snapshot_manifest.yaml
 ```
 
@@ -226,27 +226,26 @@ bash custom/<op>/_debug/run_snapshot_bisect.sh
 Example output (for gated_delta_rule_backward M2 if `w_T_dvtotal` is the bug source):
 
 ```
-[torch] status=OK  runtime=0.812s
 [sim  ] status=OK  runtime=1.743s
 [npu  ] status=OK  runtime=2.104s
 
 ========================================================================
 Drift-onset summary — gated_delta_rule_backward/M2, case L5_cancellation_stress_dS_small_gap
 ========================================================================
-intermediate                        torch              sim              npu
-d_s_init                         PASS all         PASS all         PASS all
-d_s_decayed                      PASS all         PASS all         PASS all
-q_eff_doc_scaled                 PASS all         PASS all         PASS all
-w_T_dvtotal                      PASS all         PASS all    FAIL@iter=6
-d_s_tmp                          PASS all         PASS all         PASS all
-d_s_new                          PASS all         PASS all    FAIL@iter=6
+intermediate                          sim              npu
+d_s_init                         PASS all         PASS all
+d_s_decayed                      PASS all         PASS all
+q_eff_doc_scaled                 PASS all         PASS all
+w_T_dvtotal                      PASS all    FAIL@iter=6
+d_s_tmp                          PASS all         PASS all
+d_s_new                          PASS all    FAIL@iter=6
 ========================================================================
 Drift-onset interpretation:
-  * If intermediate X drifts first at iter K under `npu` but passes under `torch`/`sim`,
+  * If intermediate X drifts first at iter K under `npu` but passes under `sim`,
     the bug is NPU-specific in the expression that produces X (tile/pipe/memory).
 ```
 
-Interpretation: `w_T_dvtotal` is the root NPU-specific drift at iter 6; `d_s_new` fails only because it consumes `w_T_dvtotal`. `d_s_tmp` (pre-subtraction) passes, so `add` is fine and `sub` is also fine — it's the matmul that produces `w_T_dvtotal` that has the bug. `divergence_fingerprint` = `kernel_ok_npu_only` (since torch+sim PASS), so @pypto-op-debugger loads a device-side sub-skill (`pypto-general-debug` → `DEBUG_GUIDEBOOK.md` → `references/tile-shapes.md`) and NOT `pypto-precision-debug`.
+Interpretation: `w_T_dvtotal` is the root NPU-specific drift at iter 6; `d_s_new` fails only because it consumes `w_T_dvtotal`. `d_s_tmp` (pre-subtraction) passes, so `add` is fine and `sub` is also fine — it's the matmul that produces `w_T_dvtotal` that has the bug. `divergence_fingerprint` = `kernel_ok_npu_only` (sim matches the torch golden while npu drifts), so @pypto-op-debugger loads a device-side sub-skill (`pypto-general-debug` → `DEBUG_GUIDEBOOK.md` → `../../pypto-general-debug/references/tile-shapes.md`) and NOT `pypto-precision-debug`.
 
 ### Step 6 — Report back to pypto-op-orchestrator
 

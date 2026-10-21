@@ -1,6 +1,6 @@
 ---
 name: perf-analyzer
-description: 分析 PyPTO 算子的性能指标。适用于分析 PyPTO 算子的性能指标，从性能数据文件中提取关键指标，计算性能评级，并提供性能瓶颈分析和优化建议时。
+description: 分析 PyPTO 算子的性能指标。用于分析 PyPTO 算子的性能指标，从性能数据文件中提取关键指标，计算性能评级，并提供性能瓶颈分析和优化建议。触发：分析 PyPTO 算子性能数据、计算性能评级、定位性能瓶颈时使用。
 ---
 
 # PyPTO 性能指标分析技能
@@ -24,20 +24,20 @@ description: 分析 PyPTO 算子的性能指标。适用于分析 PyPTO 算子�
 使用技能中的性能分析脚本自动生成报告：
 
 **重要提示**
-- 性能分析脚本位置：`pypto-op-perf-tune/perf-analyzer/scripts/analyze_perf.py`
+- 性能分析脚本位置：`scripts/analyze_perf.py`
 - 性能数据目录位于**执行算子命令时的工作目录**下的 `output/output_*/` 目录中
 
 ### 使用方法
 
 ```bash
-# 传入完整的 output 目录路径（推荐使用绝对路径）
+# 传入 output 目录路径（相对于仓库根，或由仓库根拼出的路径）
 python3 <脚本路径>/analyze_perf.py <output_dir>
 
 # 示例1：在算子目录下执行的，output 就在算子目录下
 python3 scripts/analyze_perf.py custom/operator_name/output/output_20260304_171658_543682_529508
 
-# 示例2：使用绝对路径
-python3 scripts/analyze_perf.py /home/user/project/custom/operator_name/output/output_20260304_171658_543682_529508
+# 示例2：从其他目录执行时，用仓库根变量拼出路径，不要写死机器路径
+python3 scripts/analyze_perf.py "$REPO_ROOT"/custom/operator_name/output/output_20260304_171658_543682_529508
 ```
 
 **⚠️ 路径说明**：
@@ -82,8 +82,8 @@ find . -name "bubble_analysis.log" -type f
 **AIV 核心指标（AI Vector核心）：**
 - 同上指标
 
-**算子实际执行时间：**
-所有核心中 Core Total Work Time 的最大值
+**算子实际执行时间（即 AICore E2E Time，调优核心指标）：**
+所有核心中 Core Total Work Time 的最大值。与运行 stdout `AICORE Prof Summary` 中的 AICore End-to-End Time 为同一指标，调优判据以此为准，非 wall time。
 
 **AicoreTime(核心实际工作时间)：**
 AicoreTime = 核心总工作时间 - 总等待时间

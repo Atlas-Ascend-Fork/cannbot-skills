@@ -7,9 +7,9 @@
 - 可用的输出写回方式包括 `out[:] = ...`、`out.move(...)`、`pypto.assemble(..., out)`；`out = ...` 只会绑定局部变量，不会修改出参。
 - JIT 函数中的张量参数必须写成 `pypto.Tensor([...], dtype)` 类型注解。
 - JIT 函数中张量参数在前，非张量参数在后。
-- 动态轴必须在类型注解中标成 `pypto.DYNAMIC` 或 `pypto.DYN`。**禁止使用 `pypto.Tensor()` / `pypto.Tensor([], dtype)` 等空注解**。
+- 动态轴必须在类型注解中标成 `pypto.DYNAMIC` 或 `pypto.DYN`。**禁止使用 `pypto.Tensor()` / `pypto.Tensor([], dtype)` 等空注解**（门禁 OL25 会直接判 FAIL）。
 - 标成 `pypto.DYNAMIC` 的轴变化时无需重编译；标成 `pypto.STATIC` 的轴变化会触发重编译。
-- DESIGN.md 声明了动态轴时，JIT 函数内必须包含遍历动态轴的 `pypto.loop(...)` 调用，trip count 必须是 `tensor.shape[i]`、函数参数或其符号表达式；**禁止**用 `pypto.loop(1)` / 常量 trip count 的空循环冒充。
+- DESIGN.md 声明了动态轴时，JIT 函数内必须包含遍历动态轴的 `pypto.loop(...)` 调用，trip count 必须是 `tensor.shape[i]`、函数参数或其符号表达式；**禁止**用 `pypto.loop(1)` / 常量 trip count 的空循环冒充（门禁 OL43）。
 - 固定整数轴只接受该固定大小；传入其他大小会报错（runtime_debug_mode=3 开启校验时）。
 - `...` 表示剩余轴按静态轴处理。
 - `pypto.tensor(...)` 创建的 Tensor 是未初始化随机值；使用前必须初始化。
@@ -51,7 +51,7 @@
 - `pypto.set_vec_tile_shapes(...)` 的每个维度都必须大于 0，参数个数最多 4 个。
 - TileShape 维度数必须和相关输出维度匹配；否则会在扩图阶段直接报错。
 - `pypto.set_cube_tile_shapes(...)` 是 `pypto.matmul` 的前置条件。
-- 具体 tile 值见 DESIGN.md §3.2.5；tile 推导规则见 skill `pypto-op-design` SKILL.md "第 2 轮：Tiling 推导" + quick_ref.md。
+- 具体 tile 值见 DESIGN.md 「范式与设计决策」；tile 推导规则见 skill `pypto-op-design/constraints/tiling.md`。
 
 ## 3. 控制流
 
@@ -238,7 +238,7 @@ Python `[]` 切片语法内部会对 index 做 `int()` 转换，因此也不能�
 
 ```python
 acc = pypto.tensor([TILE, D], pypto.DT_FP32, "acc")
-for idx in pypto.loop(n, name="LOOP", idx_name="idx", unroll_list=[1]):  # Stage 6 之前单一值
+for idx in pypto.loop(n, name="LOOP", idx_name="idx", unroll_list=[1]):  # 实现阶段单一值 (OL56)
     tile = compute_something(...)
     if pypto.is_loop_begin(idx):
         acc[:] = tile          # 首次迭代：初始化
@@ -251,9 +251,9 @@ for idx in pypto.loop(n, name="LOOP", idx_name="idx", unroll_list=[1]):  # Stage
 
 - `pypto.tensor()` 创建的是未初始化随机值，**必须在 is_loop_begin 中初始化**
 - `unroll_list` 对内层循环使用，让编译器为不同迭代次数生成优化代码
-- **Stage 6 之前 `unroll_list` 只能含单一值（默认 `[1]`）**：直接照搬 DESIGN.md §4 中
-  Designer 选定的单一值，**不要自行扩成多值**（如 `[4, 2, 1]`）。多值会触发编译路径爆炸、
-  拖慢编译并使开发流程超时；多值展开调优仅允许在 Stage 7 optimization 进行
+- **实现阶段 `unroll_list` 只能含单一值（默认 `[1]`）**：直接照搬 DESIGN.md 「范式与设计决策」 中
+  选定的单一值，**不要自行扩成多值**（如 `[4, 2, 1]`）。多值会触发编译路径爆炸、
+  拖慢编译并使开发流程超时；多值展开调优仅允许在性能优化阶段进行（OL56 强制 FAIL，S0）
 
 ### 5.5 梯度算子的两趟设计模式
 
@@ -302,7 +302,7 @@ q_2d = q   # 已经是 2D，不需要 reshape
 3. 把所有动态轴显式标成 `pypto.DYNAMIC` 或 `pypto.DYN`；禁止用 `pypto.Tensor()` 空注解。声明了动态轴的 kernel 必须含真实 `pypto.loop`（trip count 为符号表达式，不能是常量），不允许 `pypto.loop(1)` 这类空循环。
 4. 把依赖 Python 标量隐式 dtype 映射的写法改成显式 `Element` 或显式 dtype 转换。
 5. 把多轴广播改写成文档支持的单轴广播或等价拆分写法。
-6. 检查 TileShape 维度数、最后一维对齐和相关算子的 Tile 约束；tile 值按 DESIGN.md §3.2.5 设置，再执行编译。
+6. 检查 TileShape 维度数、最后一维对齐和相关算子的 Tile 约束；tile 值按 DESIGN.md 「范式与设计决策」 设置，再执行编译。
 7. 无法自动推导动态 `view` 的 `valid_shape` 时，显式传入 `valid_shape`。
 8. 避免同一 Tensor 在同一图里既被读取又被 `assemble` 回写。
 9. 多动态轴算子必须采用 "2D reshape + 嵌套 loop + concrete tile" 模式（见第 5 节），不要尝试在 4D DYN tensor 上直接 matmul。

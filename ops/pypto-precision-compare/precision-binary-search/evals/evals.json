@@ -71,10 +71,10 @@
           "deepseek-v4-flash": 150000
         },
         "ascend_platforms": ["A2"],
-        "distractor_skills": ["precision-verify", "precision-pass", "ops-precision-standard"]
+        "distractor_skills": ["precision-verify", "ops-precision-standard"]
       },
       "prompt": "PyPTO 算子上板精度对不上，想用二分法定位第一个出错的 Op。",
-      "expected_output": "回复应聚焦二分定位法的具体流程：修改 kernel 签名添加 checkpoint tensor、修改 golden 返回值、二分查找首个错误 Op。区别于文件保存对比法和 Pass 校验法。",
+      "expected_output": "回复应聚焦二分定位法的具体流程：修改 kernel 签名添加 checkpoint tensor、修改 golden 返回值、二分查找首个错误 Op。区别于文件保存对比法。",
       "files": [],
       "expectations": []
     }

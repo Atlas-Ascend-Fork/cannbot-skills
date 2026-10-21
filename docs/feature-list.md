@@ -111,8 +111,7 @@
 | **pypto-api-explore** | API 可行性探索与分析 |
 | **pypto-docs-search** | API 文档 / 参考实现 / golden / 错误码检索 |
 | **pypto-golden-generate** | Golden 参考实现生成 |
-| **pypto-op-design** | 算子方案设计生成 |
-| **pypto-op-construct** | 模块语义拆解与逐模块构建 |
+| **pypto-op-design** | 算子方案设计生成（含模块拆解，并入原 pypto-op-construct 能力） |
 | **pypto-op-develop** | 算子代码实现与测试 |
 | **pypto-op-verify** | 验证 runner 与 `detailed_tensor_compare` 用法 |
 | **pypto-op-review** | 逐算子 PyPTO 调用提取（调试用） |
@@ -120,6 +119,7 @@
 | **pypto-precision-debug** | 精度问题代码层排查 |
 | **pypto-general-debug** | 卡住/不明失败的调试路由 |
 | **pypto-op-perf-tune** | 算子性能分析与自动调优（含泳道图子技能） |
+| **pypto-op-perf-panko-manual** | PANKO 搜索式自动调优契约（world model + evaluator，用户要求 PANKO 时启用） |
 | **pypto-op-knowledge** | 算子开发经验表 / 问题查找表 |
 | **pypto-memory-template** | 算子级 `MEMORY.md` 模板 |
 
@@ -131,12 +131,12 @@
 |-------|------|
 | **pypto-op-planner** | 需求规划：SPEC.md / API_REPORT.md |
 | **pypto-op-mathematician** | Golden 参考实现 |
-| **pypto-op-architect** | 架构设计：拆解决策、Tile、Loop 结构 |
-| **pypto-op-designer** | 模块拆解与契约、staged 文件布局 |
+| **pypto-op-architect** | 架构设计：拆解决策、Tile、Loop 结构、模块契约 |
 | **pypto-op-coder** | 单文件 kernel 编码 |
 | **pypto-op-verifier** | 裁判：对抗测试 + 精度/layout 校验 |
 | **pypto-op-debugger** | 失败定位与补丁方案 |
-| **pypto-op-optimizer** | 性能分析与自动调优 |
+| **pypto-op-optimizer** | 性能分析与自动调优（分步骤） |
+| **pypto-op-auto-tuner-panko** | PANKO 搜索式自动调优（world model + evaluator，用户要求 PANKO 时启用） |
 
 ## TileLang 算子开发
 

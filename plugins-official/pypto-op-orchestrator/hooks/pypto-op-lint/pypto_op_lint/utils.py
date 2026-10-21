@@ -28,17 +28,56 @@ NPU_SMI_BIN = shutil.which("npu-smi") or "npu-smi"
 def _check_npu_available() -> bool:
     """通过 npu-smi info 检测 NPU 环境是否可用"""
     try:
-        result = subprocess.run(
-            [NPU_SMI_BIN, "info"], capture_output=True, timeout=10)
+        result = subprocess.run([NPU_SMI_BIN, "info"], capture_output=True, timeout=10)
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
 
 
 DTYPE_ALIASES: dict[str, str] = {
-    "float32": "fp32", "fp32": "fp32", "dt_fp32": "fp32", "torch.float32": "fp32",
-    "float16": "fp16", "fp16": "fp16", "dt_fp16": "fp16", "torch.float16": "fp16",
-    "bfloat16": "bf16", "bf16": "bf16", "dt_bf16": "bf16", "torch.bfloat16": "bf16",
+    "float32": "fp32",
+    "fp32": "fp32",
+    "dt_fp32": "fp32",
+    "torch.float32": "fp32",
+    "float16": "fp16",
+    "fp16": "fp16",
+    "dt_fp16": "fp16",
+    "torch.float16": "fp16",
+    "bfloat16": "bf16",
+    "bf16": "bf16",
+    "dt_bf16": "bf16",
+    "torch.bfloat16": "bf16",
+    "float64": "fp64",
+    "fp64": "fp64",
+    "dt_fp64": "fp64",
+    "torch.float64": "fp64",
+    "int8": "int8",
+    "dt_int8": "int8",
+    "torch.int8": "int8",
+    "int16": "int16",
+    "dt_int16": "int16",
+    "torch.int16": "int16",
+    "int32": "int32",
+    "dt_int32": "int32",
+    "torch.int32": "int32",
+    "int64": "int64",
+    "dt_int64": "int64",
+    "torch.int64": "int64",
+    "uint8": "uint8",
+    "dt_uint8": "uint8",
+    "torch.uint8": "uint8",
+    "uint16": "uint16",
+    "dt_uint16": "uint16",
+    "torch.uint16": "uint16",
+    "uint32": "uint32",
+    "dt_uint32": "uint32",
+    "torch.uint32": "uint32",
+    "uint64": "uint64",
+    "dt_uint64": "uint64",
+    "torch.uint64": "uint64",
+    "bool": "bool",
+    "dt_bool": "bool",
+    "torch.bool": "bool",
 }
 
 
@@ -114,7 +153,8 @@ def _split_front_matter(content: str) -> tuple[str, str] | None:
     end = content.find("\n---\n", 4)
     if end < 0:
         return None
-    return content[4:end], content[end + 5:]
+    body_start = end + 5
+    return content[4:end], content[body_start:]
 
 
 def _load_yaml_mapping(header: str) -> dict[str, Any] | None:
@@ -209,13 +249,22 @@ def _validate_tolerance(tol: dict[str, Any]) -> list[str]:
             return []  # 匹配成功
 
     # 所有模式都不匹配，列出可接受的模式
-    modes = [f"{s.get('mode', '?')}({', '.join(s.get('required', []))})" for s in schemas]
+    modes = [
+        f"{schema.get('mode', '?')}({', '.join(schema.get('required', []))})"
+        for schema in schemas
+    ]
     return [f"tolerance must match one of: {' | '.join(modes)}"]
 
 
 def _validate_doc_schema(doc_type: str, meta: dict[str, Any]) -> list[str]:
     required: dict[str, list[str]] = {
-        "SPEC": ["schema_version", "op_name", "supported_dtypes", "p0_shapes", "tolerance"],
+        "SPEC": [
+            "schema_version",
+            "op_name",
+            "supported_dtypes",
+            "p0_shapes",
+            "tolerance",
+        ],
         "DESIGN": ["schema_version", "op_name", "dynamic_axes"],
         "API_REPORT": ["schema_version", "op_name"],
     }
@@ -224,7 +273,9 @@ def _validate_doc_schema(doc_type: str, meta: dict[str, Any]) -> list[str]:
         if key not in meta or meta[key] in (None, "", []):
             errors.append(f"missing field: {key}")
     if doc_type == "SPEC":
-        if "supported_dtypes" in meta and not isinstance(meta.get("supported_dtypes"), list):
+        if "supported_dtypes" in meta and not isinstance(
+            meta.get("supported_dtypes"), list
+        ):
             errors.append("invalid type: supported_dtypes must be list")
         if "p0_shapes" in meta and not isinstance(meta.get("p0_shapes"), list):
             errors.append("invalid type: p0_shapes must be list")
@@ -243,25 +294,39 @@ def validate_doc_schema(doc_type: str, meta: dict[str, Any]) -> list[str]:
     return _validate_doc_schema(doc_type, meta)
 
 
-def _extract_spec_dtypes_from_meta(meta: dict[str, Any]) -> set[str]:
+def _extract_spec_dtypes_from_meta(meta: dict[str, Any]) -> tuple[set[str], list[str]]:
+    """提取 front matter supported_dtypes 的 canonical dtype 集合。
+
+    返回 ``(recognized, unrecognized)``：识别出的 canonical dtype 集合，
+    以及无法识别的原始条目列表。未识别条目不再静默丢弃，由调用方
+    （OL30）给出"无法识别的 dtype，请检查拼写"提示，避免词表不全
+    导致漏报或产生误导性文案。
+    """
     raw = meta.get("supported_dtypes", [])
     if not isinstance(raw, list):
-        return set()
-    result: set[str] = set()
+        return set(), []
+    recognized: set[str] = set()
+    unrecognized: list[str] = []
     for item in raw:
         key = str(item).strip().lower()
         canonical = DTYPE_ALIASES.get(key)
         if canonical:
-            result.add(canonical)
-    return result
+            recognized.add(canonical)
+        else:
+            unrecognized.append(str(item))
+    return recognized, unrecognized
 
 
 def _extract_test_dtypes(source: str) -> set[str]:
-    """从 test 文件源码中提取使用的 dtype"""
+    """从 test 文件源码中提取使用的 dtype。
+
+    按标识符边界匹配别名（前后不得紧跟 [a-z0-9_]），避免子串误伤：
+    如 ``uint8`` 不应覆盖 ``int8``，``bfloat16`` 不应同时计入 ``float16``。
+    """
     dtypes: set[str] = set()
     lower = source.lower()
     for alias, canonical in DTYPE_ALIASES.items():
-        if alias in lower:
+        if re.search(rf"(?<![a-z0-9_]){re.escape(alias)}(?![a-z0-9_])", lower):
             dtypes.add(canonical)
     return dtypes
 
@@ -284,7 +349,7 @@ def _extract_tolerance(content: str, key: str) -> list[float]:
 def _extract_shapes_from_text(content: str) -> set[tuple[int, ...]]:
     """从文本中提取 shape 元组，如 [1, 2048, 4096] 或 (1, 2048, 4096)"""
     shapes: set[tuple[int, ...]] = set()
-    for m in re.finditer(r'[\[\(](\d+(?:\s*,\s*\d+)+)[\]\)]', content):
+    for m in re.finditer(r"[\[\(](\d+(?:\s*,\s*\d+)+)[\]\)]", content):
         try:
             dims = tuple(int(x.strip()) for x in m.group(1).split(","))
             if len(dims) >= 2:
@@ -336,7 +401,9 @@ def _extract_section_text(content: str, heading_keyword: str) -> str:
     return "\n".join(buff).strip()
 
 
-def _syntax_error_finding(ctx: CheckContext, rule_id: str, filename: str) -> Optional[Finding]:
+def _syntax_error_finding(
+    ctx: CheckContext, rule_id: str, filename: str
+) -> Optional[Finding]:
     tree = ctx.parse_file(filename)
     if tree is not None:
         return None
@@ -346,7 +413,7 @@ def _syntax_error_finding(ctx: CheckContext, rule_id: str, filename: str) -> Opt
     return ctx.make_finding(
         rule_id,
         "FAIL",
-        f"{filename} 存在语法错误，无法解析: {error}",
+        f"{filename} has a syntax error and cannot be parsed: {error}",
         file=filename,
     )
 
@@ -355,9 +422,9 @@ PENDING_STUB_MARKER = "PYPTO_PENDING_STUB"
 
 
 def _is_pending_stub(ctx: CheckContext, file_rel: str) -> bool:
-    """True iff the file is marked as a "pending stub" by the designer.
+    """True iff the file is marked as a "pending stub" by the architect.
 
-    Convention: a stub created by :mod:`pypto-op-designer` for a not-yet-active
+    Convention: a stub created by :mod:`pypto-op-architect` for a not-yet-active
     phase contains a single comment line near the top:
 
         # PYPTO_PENDING_STUB: phase=M_k — implementation pending
@@ -473,9 +540,30 @@ def _extract_design_identifiers(content: str) -> set[str]:
 
     tokens = set(re.findall(r"\b[a-z_][a-z0-9_]{2,}\b", scoped_text))
     blacklist = {
-        "input", "output", "tensor", "shape", "dtype", "dynamic", "algorithm",
-        "default", "stage", "spec", "design", "report", "loop", "tiling",
-        "step", "max", "min", "round", "clamp", "cast", "mul", "add", "sub", "div",
+        "input",
+        "output",
+        "tensor",
+        "shape",
+        "dtype",
+        "dynamic",
+        "algorithm",
+        "default",
+        "stage",
+        "spec",
+        "design",
+        "report",
+        "loop",
+        "tiling",
+        "step",
+        "max",
+        "min",
+        "round",
+        "clamp",
+        "cast",
+        "mul",
+        "add",
+        "sub",
+        "div",
     }
     # 只保留更像“中间变量”的命名（snake_case 优先），减少误报
     return {t for t in tokens if t not in blacklist and ("_" in t or len(t) >= 6)}

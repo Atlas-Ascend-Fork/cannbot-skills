@@ -29,15 +29,52 @@ import argparse
 import csv
 import json
 import logging
-import sys
 from collections import defaultdict
 from pathlib import Path
 
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-SKIP_OPS = frozenset([
-    "PHASE1", "PHASE2", "SYNC_SRC", "SYNC_DST",
-])
+SKIP_OPS = frozenset(
+    [
+        "PHASE1",
+        "PHASE2",
+        "SYNC_SRC",
+        "SYNC_DST",
+    ]
+)
+
+
+def _collect_file_lines(operations):
+    file_lines = defaultdict(list)
+    for operation in operations:
+        file_path = operation.get("file", "")
+        line = operation.get("line", "")
+        if file_path and line:
+            file_lines[file_path].append((int(line), operation.get("opcode", "")))
+    return dict(file_lines)
+
+
+def _program_entry(func):
+    operations = func.get("operations", [])
+    all_ops = [operation.get("opcode", "") for operation in operations]
+    return {
+        "name": func.get("func_magicname", ""),
+        "all_ops": all_ops,
+        "core_ops": [opcode for opcode in all_ops if opcode not in SKIP_OPS],
+        "file_lines": _collect_file_lines(operations),
+        "incasts": func.get("incasts", []),
+        "outcasts": func.get("outcasts", []),
+        "rawtensor_symbols": [
+            tensor.get("symbol", "")
+            for tensor in func.get("rawtensors", [])
+            if tensor.get("symbol")
+        ],
+        "subfunc_symbols": [
+            tensor.get("symbol", "")
+            for tensor in (func.get("subfunc_param") or {}).get("tensors") or []
+            if tensor.get("symbol")
+        ],
+    }
 
 
 def load_program_info(prog_path):
@@ -47,43 +84,7 @@ def load_program_info(prog_path):
 
     info = {}
     for func in prog.get("functions", []):
-        h = str(func.get("hash", ""))
-
-        all_ops = []
-        core_ops = []
-        file_lines = {}
-
-        for op in func.get("operations", []):
-            opcode = op.get("opcode", "")
-            all_ops.append(opcode)
-
-            if opcode not in SKIP_OPS:
-                core_ops.append(opcode)
-
-            f_val = op.get("file", "")
-            l_val = op.get("line", "")
-            if f_val and l_val:
-                if f_val not in file_lines:
-                    file_lines[f_val] = []
-                file_lines[f_val].append((int(l_val), opcode))
-
-        info[h] = {
-            "name": func.get("func_magicname", ""),
-            "all_ops": all_ops,
-            "core_ops": core_ops,
-            "file_lines": file_lines,
-            "incasts": func.get("incasts", []),
-            "outcasts": func.get("outcasts", []),
-            "rawtensor_symbols": [
-                t.get("symbol", "") for t in func.get("rawtensors", [])
-                if t.get("symbol")
-            ],
-            "subfunc_symbols": [
-                t.get("symbol", "")
-                for t in (func.get("subfunc_param") or {}).get("tensors") or []
-                if t.get("symbol")
-            ],
-        }
+        info[str(func.get("hash", ""))] = _program_entry(func)
     return info
 
 
@@ -114,10 +115,19 @@ def load_dyn_topo_info(topo_path):
 
 def extract_compute_ops(ops):
     """过滤掉框架指令，保留实际计算指令。"""
-    skip = frozenset([
-        "PHASE1", "PHASE2", "SYNC_SRC", "SYNC_DST",
-        "COPY_IN", "COPY_OUT", "BAR.V", "BAR.M", "EXPAND",
-    ])
+    skip = frozenset(
+        [
+            "PHASE1",
+            "PHASE2",
+            "SYNC_SRC",
+            "SYNC_DST",
+            "COPY_IN",
+            "COPY_OUT",
+            "BAR.V",
+            "BAR.M",
+            "EXPAND",
+        ]
+    )
     return [o for o in ops if o not in skip and not o.startswith("L1_TO_L0")]
 
 
@@ -153,104 +163,132 @@ def format_code_location(code_ranges):
     return ", ".join(parts) if parts else "(no source info)"
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="leafHash → 前端代码行映射工具"
-    )
+def _parse_args():
+    parser = argparse.ArgumentParser(description="leafHash → 前端代码行映射工具")
     parser.add_argument("output_dir", help="包含 merged_swimlane.json 的输出目录路径")
-    parser.add_argument("--leafhash", default=None,
-                        help="只显示指定 leafHash 的映射（可选）")
+    parser.add_argument(
+        "--leafhash", default=None, help="只显示指定 leafHash 的映射（可选）"
+    )
     parser.add_argument("--json", default=None, help="输出 JSON 文件路径（可选）")
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    d = Path(args.output_dir)
-    prog_path = d / "program.json"
-    topo_path = d / "dyn_topo.txt"
 
+def _require_program(path):
+    prog_path = path / "program.json"
     if not prog_path.exists():
-        logging.error(f"错误: {prog_path} 不存在")
-        sys.exit(1)
+        raise FileNotFoundError(f"错误: {prog_path} 不存在")
+    return prog_path
 
-    prog_info = load_program_info(prog_path)
-    topo_info = load_dyn_topo_info(topo_path)
 
-    filter_lh = args.leafhash
-
+def _log_input_summary(output_dir, prog_info, topo_info):
     logging.info("=" * 80)
-    logging.info("leafHash → 前端代码行映射")
+    logging.info("leafHash → Frontend Code Line Mapping")
     logging.info("=" * 80)
-    logging.info(f"\n数据: {d}")
-    logging.info(f"program.json 函数数: {len(prog_info)}")
+    logging.info(f"\nData: {output_dir}")
+    logging.info(f"program.json function count: {len(prog_info)}")
     if topo_info:
-        logging.info(f"dyn_topo.txt leafHash 数: {len(topo_info)}")
+        logging.info(f"dyn_topo.txt leafHash count: {len(topo_info)}")
 
+
+def _leaf_details(leaf_hash, info, topo_info):
+    compute_ops = extract_compute_ops(info["core_ops"])
+    code_ranges = get_code_range(info["file_lines"])
+    topo = topo_info.get(leaf_hash, {})
+    core_type = topo.get("coreType", "?")
+    return {
+        "compute_ops": compute_ops,
+        "is_cube": any(op in ("A_MUL_B", "A_MULACC_B") for op in compute_ops),
+        "code_ranges": code_ranges,
+        "location": format_code_location(code_ranges),
+        "rootIndex": topo.get("rootIndex", "?"),
+        "psgIds": sorted(topo.get("psgIds", set())),
+        "taskCount": topo.get("count", 0),
+        "coreType": core_type,
+        "coreTypeName": {0: "VEC", 1: "CUBE", 4: "FAKE"}.get(core_type, "?"),
+    }
+
+
+def _log_leaf(leaf_hash, info, details):
+    cube_suffix = " (cube)" if details["is_cube"] else ""
+    logging.info(f"\n--- {leaf_hash} ---")
+    logging.info(f"  Type: {details['coreTypeName']}{cube_suffix}")
+    logging.info(f"  Function: {info['name']}")
+    if details["taskCount"]:
+        logging.info(
+            f"  Execution count: {details['taskCount']}, "
+            f"rootIndex: {details['rootIndex']}, psgId: {details['psgIds']}"
+        )
+    compute_text = (
+        " + ".join(details["compute_ops"]) if details["compute_ops"] else "(none)"
+    )
+    logging.info(f"  Compute ops: {compute_text}")
+    logging.info(f"  Code location: {details['location']}")
+
+    if info["subfunc_symbols"]:
+        logging.info(f"  Subfunction tensor: {info['subfunc_symbols']}")
+    for file_path, code_range in details["code_ranges"].items():
+        file_name = file_path.rsplit("/", 1)[-1] if "/" in file_path else file_path
+        logging.info(f"  {file_name} line details:")
+        for line in sorted(code_range["lines"]):
+            operations = ", ".join(code_range["lines"][line])
+            logging.info(f"    L{line}: {operations}")
+
+
+def _result_entry(info, details):
+    return {
+        "name": info["name"],
+        "compute_ops": details["compute_ops"],
+        "is_cube": details["is_cube"],
+        "code_ranges": {
+            file_path: {
+                "min": code_range["min"],
+                "max": code_range["max"],
+                "lines": code_range["lines"],
+            }
+            for file_path, code_range in details["code_ranges"].items()
+        },
+        "rootIndex": details["rootIndex"],
+        "psgIds": details["psgIds"],
+        "taskCount": details["taskCount"],
+        "coreType": details["coreType"],
+        "subfunc_symbols": info["subfunc_symbols"],
+        "rawtensor_symbols": info["rawtensor_symbols"],
+    }
+
+
+def _collect_results(prog_info, topo_info, filter_leaf_hash):
     results = {}
-
-    for h, info in sorted(prog_info.items()):
-        if filter_lh and h != filter_lh:
+    for leaf_hash, info in sorted(prog_info.items()):
+        if filter_leaf_hash and leaf_hash != filter_leaf_hash:
             continue
 
-        compute_ops = extract_compute_ops(info["core_ops"])
-        if not compute_ops:
-            is_cube = False
-        else:
-            is_cube = any(o in ("A_MUL_B", "A_MULACC_B") for o in compute_ops)
+        details = _leaf_details(leaf_hash, info, topo_info)
+        _log_leaf(leaf_hash, info, details)
+        results[leaf_hash] = _result_entry(info, details)
+    return results
 
-        code_ranges = get_code_range(info["file_lines"])
-        loc_str = format_code_location(code_ranges)
 
-        ti = topo_info.get(h, {})
-        root_idx = ti.get("rootIndex", "?")
-        psg_ids = sorted(ti.get("psgIds", set()))
-        task_cnt = ti.get("count", 0)
-        core_type = ti.get("coreType", "?")
-        ct_name = {0: "VEC", 1: "CUBE", 4: "FAKE"}.get(core_type, "?")
-
-        has_cube_succ = False
-
-        logging.info(f"\n--- {h} ---")
-        logging.info(f"  类型: {ct_name}{' (cube)' if is_cube else ''}")
-        logging.info(f"  函数: {info['name']}")
-        if task_cnt:
-            logging.info(f"  执行次数: {task_cnt}, rootIndex: {root_idx}, psgId: {psg_ids}")
-        logging.info(f"  计算指令: {' + '.join(compute_ops) if compute_ops else '(无)'}")
-        logging.info(f"  代码位置: {loc_str}")
-
-        if info["subfunc_symbols"]:
-            logging.info(f"  子函数 tensor: {info['subfunc_symbols']}")
-
-        for fpath, r in code_ranges.items():
-            fname = fpath.rsplit("/", 1)[-1] if "/" in fpath else fpath
-            logging.info(f"  {fname} 行号详情:")
-            for ln in sorted(r["lines"]):
-                ops_str = ", ".join(r["lines"][ln])
-                logging.info(f"    L{ln}: {ops_str}")
-
-        results[h] = {
-            "name": info["name"],
-            "compute_ops": compute_ops,
-            "is_cube": is_cube,
-            "code_ranges": {
-                fpath: {"min": r["min"], "max": r["max"], "lines": r["lines"]}
-                for fpath, r in code_ranges.items()
-            },
-            "rootIndex": root_idx,
-            "psgIds": psg_ids,
-            "taskCount": task_cnt,
-            "coreType": core_type,
-            "subfunc_symbols": info["subfunc_symbols"],
-            "rawtensor_symbols": info["rawtensor_symbols"],
-        }
+def main():
+    args = _parse_args()
+    output_dir = Path(args.output_dir)
+    prog_info = load_program_info(_require_program(output_dir))
+    topo_info = load_dyn_topo_info(output_dir / "dyn_topo.txt")
+    _log_input_summary(output_dir, prog_info, topo_info)
+    results = _collect_results(prog_info, topo_info, args.leafhash)
 
     if args.json:
         out = Path(args.json)
         with open(out, "w") as f:
             json.dump(results, f, indent=2, ensure_ascii=False)
-        logging.info(f"\nJSON 已写入: {out}")
+        logging.info(f"\nJSON written to: {out}")
 
     logging.info(f"\n{'=' * 80}")
-    logging.info("映射完成")
+    logging.info("Mapping complete")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except FileNotFoundError as exc:
+        logging.error("%s", exc)
+        raise SystemExit(1) from None

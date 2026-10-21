@@ -48,8 +48,23 @@ GOLDEN_PERF_REPORT_FILE = "GOLDEN_PERF_REPORT.md"
 OP_WORKSPACE_DIR = "pypto"
 
 IMPL_RULE_IDS = [
-    "OL01", "OL02", "OL03", "OL04", "OL05", "OL06", "OL07", "OL08",
-    "OL16", "OL23", "OL25", "OL26", "OL28", "OL29", "OL37", "OL48", "OL49",
+    "OL01",
+    "OL02",
+    "OL03",
+    "OL04",
+    "OL05",
+    "OL06",
+    "OL07",
+    "OL08",
+    "OL16",
+    "OL23",
+    "OL25",
+    "OL26",
+    "OL28",
+    "OL29",
+    "OL37",
+    "OL48",
+    "OL49",
     "OL55",  # PyPTO API 存在性 (typo 防止: pypto.empty 等)
     "OL56",  # Stage 6 之前 unroll_list 只能含单一值 (默认 [1])
     "OL57",  # JIT 图代码内允许 pypto.loop / pypto.loop_unroll / range 循环 (禁止 while 和非 range 的 for)
@@ -58,7 +73,7 @@ IMPL_RULE_IDS = [
     "OL62",  # impl 内 torch 仅限 layout/alloc/cast; 数值计算必须在 @jit 图内 (dummy-JIT 防护)
 ]
 
-# DESIGN.md post-edit 适用规则 (在 Stage 4 Designer 编辑 DESIGN.md 时即时校验)。
+# DESIGN.md post-edit 适用规则 (在 Stage 4 Architect 编辑 DESIGN.md 时即时校验)。
 # OL55 (PyPTO API 存在性) + OL56 (unroll_list 单一值) 进入此列表; OL12 等 DESIGN
 # 结构性检查在 stop / complete_stage gate 中校验, 不在 post-edit 阶段触发,
 # 避免半成品 block。
@@ -68,7 +83,17 @@ GOLDEN_RULE_IDS = ["OL15"]
 
 TEST_RULE_IDS = ["OL17", "OL18", "OL19", "OL20", "OL21", "OL22", "OL42", "OL60"]
 
-CONSISTENCY_RULE_IDS = ["OL30", "OL31", "OL32", "OL33", "OL34", "OL39", "OL40", "OL41", "OL43"]
+CONSISTENCY_RULE_IDS = [
+    "OL30",
+    "OL31",
+    "OL32",
+    "OL33",
+    "OL34",
+    "OL39",
+    "OL40",
+    "OL41",
+    "OL43",
+]
 
 # Subset of CONSISTENCY_RULE_IDS safe for post-edit: only rules that check
 # the edited file itself, not cross-file dependencies.  Cross-file rules
@@ -170,8 +195,9 @@ class CheckContext:
                 return r
         return {}
 
-    def make_finding(self, rule_id: str, status: str, message: str,
-                     file: str = "", line: int = 0) -> Finding:
+    def make_finding(
+        self, rule_id: str, status: str, message: str, file: str = "", line: int = 0
+    ) -> Finding:
         rule = self.get_rule(rule_id)
         return Finding(
             rule_id=rule_id,
@@ -190,9 +216,11 @@ CHECKERS: dict[str, Callable[[CheckContext], Finding]] = {}
 
 def register(rule_id: str):
     """装饰器：将检查函数注册到规则 ID"""
+
     def decorator(fn: Callable[[CheckContext], Finding]):
         CHECKERS[rule_id] = fn
         return fn
+
     return decorator
 
 
@@ -202,7 +230,9 @@ def _load_rules() -> list[dict[str, Any]]:
         with open(rules_path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except (json.JSONDecodeError, OSError) as e:
-        logging.getLogger(__name__).error("[pypto-op-lint FATAL] rules.json 加载失败: %s", e)
+        logging.getLogger(__name__).error(
+            "[pypto-op-lint FATAL] failed to load rules.json: %s", e
+        )
         return []
     return data.get("rules", [])
 
@@ -221,7 +251,9 @@ def _run_checks(ctx: CheckContext, rule_ids: list[str]) -> tuple[list[Finding], 
             start = time.perf_counter()
             rule = ctx.get_rule(rid)
             if ctx.stage not in rule.get("stages", []):
-                finding = ctx.make_finding(rid, "SKIP", "当前阶段不适用")
+                finding = ctx.make_finding(
+                    rid, "SKIP", "not applicable at the current stage"
+                )
                 findings.append(finding)
                 dur = (time.perf_counter() - start) * 1000
                 total_duration_ms += dur
@@ -229,7 +261,7 @@ def _run_checks(ctx: CheckContext, rule_ids: list[str]) -> tuple[list[Finding], 
                 continue
             checker = CHECKERS.get(rid)
             if not checker:
-                finding = ctx.make_finding(rid, "SKIP", "检查函数未注册")
+                finding = ctx.make_finding(rid, "SKIP", "check function not registered")
                 findings.append(finding)
                 dur = (time.perf_counter() - start) * 1000
                 total_duration_ms += dur

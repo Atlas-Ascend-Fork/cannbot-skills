@@ -35,7 +35,7 @@ This file used to be a single ~1200-line playbook. It has been split into smalle
 | Situation | Open |
 |-----------|------|
 | Opaque error code (`FFFFF`, `UNKNOWN`, `0x3FFFF`), silent failure, no detail | [`error-codes.md`](error-codes.md) |
-| Tile-shape failure: `L0A/L0B/L0C/L1 size exceeded`, tile align / not aligned, "tile shape not set", `enable_split_k`, or `set_cube_tile_shapes` misuse | [`tile-shapes.md`](tile-shapes.md) |
+| Tile-shape failure: `L0A/L0B/L0C/L1 size exceeded`, tile align / not aligned, "tile shape not set", `enable_split_k`, or lint OL48 flags `set_cube_tile_shapes` misuse | [`tile-shapes.md`](tile-shapes.md) |
 | `F21004` / `REGISTER_COPY` invalid vector tile errors | [`error-codes.md`](error-codes.md) §4; then use [`tile-shapes.md`](tile-shapes.md) if the fix is tile configuration |
 | About to write a `@pypto.frontend.jit` function | [`jit-signature.md`](jit-signature.md) |
 | About to write `pypto.view` / `pypto.assemble` | [`pypto-view.md`](pypto-view.md) |

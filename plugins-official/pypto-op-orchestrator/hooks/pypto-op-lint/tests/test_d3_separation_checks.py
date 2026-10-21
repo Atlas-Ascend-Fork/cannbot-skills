@@ -10,6 +10,7 @@
 # ----------------------------------------------------------------------------------------------------------
 
 """D3 三文件分离规则（OL16-OL18）核心测试。"""
+
 from pathlib import Path
 
 from .helpers import build_stateless_op_dir, load_lint_module, run_rule, write_file

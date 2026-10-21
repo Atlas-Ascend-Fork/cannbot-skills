@@ -79,5 +79,5 @@ single-op UB fit).
 
 ## See also
 
-- Implementation skeleton (canonical): `pypto-op-develop/references/pypto-kernel-design-format.md` §9c.
+- Implementation skeleton (canonical): `../../pypto-op-develop/references/pypto-kernel-design-format.md` §9c.
 - Design-level principle: `pypto-op-design/SKILL.md` §3.0 (4th data-flow principle).

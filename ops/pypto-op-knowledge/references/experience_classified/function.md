@@ -96,11 +96,20 @@ for t_idx in pypto.loop(T, ...):
 
 ---
 
-## 5. Online Softmax ELSE 分支必须用全局最大值 rescale
+## 5. 在线归约：**每一条分支**都必须用更新后的全局基准 rescale
 
-ELSE 分支使用局部最大值 `m_cur` 而非全局最大值 `m_new = max(m_prev, m_cur)` 做 rescale，导致 L/O 输出精度失败。
+**适用条件**：归约以流式/分块方式进行，且携带一个跨块的运行基准（running max / running scale），
+每块都要按新基准把已累积结果重新缩放。
 
-**解决方案**：ELSE 分支以全局 `m_new` 为基准重算全部 exp/sum/matmul。参考 `flash_attention_mha_impl.py` 中 `mi_new = maximum(mi, mij)` + rescale 的正确模式。
+**规则**：分支里用来 rescale 的必须是**合并后的新基准** `m_new = max(m_prev, m_cur)`，
+不能是本块的局部基准 `m_cur`。**容易只在"需要更新"的那条分支上写对，而在另一条分支上漏掉**——
+两条分支都要以同一个 `m_new` 为准重算 exp/sum/累加。
+
+**症状**：依赖累积量的输出（如归一化分母 L、加权和 O）精度失败，而只依赖本块的输出正常。
+这个"部分输出错、部分输出对"的组合，本身就是在指认**跨块状态**而不是本块数学。
+
+**实例**：online softmax 的 ELSE 分支用了 `m_cur`，导致 L/O 精度失败。
+正确形态见 `flash_attention_mha_impl.py` 的 `mi_new = maximum(mi, mij)` + rescale。
 
 ---
 
@@ -164,13 +173,20 @@ result = pypto.concat([blk0, blk1], dim=0)
 
 ---
 
-## 8. RoPE 精度 fail：interleave 与 half-split 模式不匹配
+## 8. 成对元素的**配对约定**不匹配 → 大面积精度失败，而不是小误差
 
-模型训练时使用 interleave（GPT-NeoX 风格，even-odd 成对 rotate），但 kernel 实现用了 half-split（LLaMA 风格，前半/后半 split），或反之。两种模式的 cos/sin 配对方式不同。
+**适用条件**：算子把元素两两配对做变换（旋转、复数乘、蝶形、交织/解交织），
+而**配对方式存在一种以上的通行约定**。
 
-**代码仓分布**：GLM 系列使用 half-split，DeepSeek 系列使用 interleave。
+**规则**：配对约定不是实现细节，是**接口的一部分**——必须与参考实现/权重来源使用的那一种一致。
+两种约定各自都自洽，所以代码看起来都对；不一致时误差不是"偏一点"，而是**大面积 mismatch**。
+**先确认参考用的是哪一种，再写实现**，不要靠调容差。
 
-**解决方案**：确认模型使用的 RoPE 模式，实现与之匹配。
+**判别**：误差呈"大面积、非随机、且按元素位置有规律"时，先怀疑配对约定，再怀疑数值。
+
+**实例**：位置编码的旋转有 even-odd 交织（GPT-NeoX 风格）和前半/后半切分（LLaMA 风格）
+两种配对，cos/sin 的配对方式不同；训练用一种、kernel 用另一种就会大面积 fail。
+（分布：GLM 系列 half-split，DeepSeek 系列 interleave。）
 
 ---
 
@@ -275,22 +291,23 @@ for i in pypto.loop(8):
 
 ---
 
-## 14. 从 tensor 元素提取动态循环边界：`tensor[idx].as_variable()`
+## 14. 从 tensor 元素提取动态循环边界：`tensor[idx]` + 符号算术
 
-paged attention 等场景中，循环次数由 tensor 中的值决定。直接用 tensor 元素做 loop 边界会触发 `Invalid value type`（见 §9）。
+paged attention 等场景中，循环次数由 tensor 中的值决定。`pypto.loop()` 边界只接受 Python int 或 `SymbolicScalar`。`tensor[符号索引]` 走 GetTensorData 直接返回 `SymbolicScalar`，经符号算术后即可作 loop 边界；而 `pypto.sub` 等 tensor 算术返回 `Tensor`，会被 loop 拒绝（见 §9）。
 
 ```python
-# ❌ 直接用 tensor 元素做 loop 边界
-cur_seq = actual_seqs[b_idx]
-for s in pypto.loop(cur_seq):  # TypeError
+# ❌ pypto.sub 等 tensor 算术 → Tensor 类型 → loop 拒绝
+s_count = pypto.sub(q_cur, q_off)
+for s in pypto.loop(s_count):  # Invalid value type
 
-# ✅ tensor 元素 → as_variable() → 符号算术 → loop
+# ✅ tensor[idx]（GetTensorData → SymbolicScalar）→ 符号算术 → loop
 cur_seq = actual_seqs[b_idx]
-cur_seq.as_variable()
 num_blocks = (cur_seq + BLOCK_SIZE - 1) // BLOCK_SIZE
 for s in pypto.loop(0, num_blocks, 1):
     ...
 ```
+
+> 历史注：早期版本此模式中出现的 `cur_seq.as_variable()` 是无实际行为的占位接口（返回 None，框架内无任何消费者），已从框架移除。真正让 loop 接受边界的是 GetTensorData 返回 SymbolicScalar 后的符号算术，与 `as_variable()` 无关。
 
 ---
 

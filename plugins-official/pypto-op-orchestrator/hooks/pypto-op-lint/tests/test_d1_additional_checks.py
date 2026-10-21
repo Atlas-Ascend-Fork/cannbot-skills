@@ -10,6 +10,7 @@
 # ----------------------------------------------------------------------------------------------------------
 
 """D1 框架约束合规规则（OL04-OL06, OL25, OL26）补充测试。"""
+
 from pathlib import Path
 
 from .helpers import build_stateless_op_dir, load_lint_module, run_rule, write_file
@@ -108,6 +109,7 @@ def demo_module1_wrapper(x, y):
 
 # ── OL05: kernel 张量参数必须有 pypto.Tensor 类型注解 ──
 
+
 def test_ol05_pass_when_tensor_annotated(tmp_path: Path):
     mod = load_lint_module()
     op_dir = build_stateless_op_dir(tmp_path, "demo")
@@ -133,6 +135,7 @@ def demo_wrapper(x, y):
 
 
 # ── OL06: kernel 内禁用 Python 原生 min()/max() ──
+
 
 def test_ol06_pass_when_no_native_minmax(tmp_path: Path):
     mod = load_lint_module()
@@ -183,6 +186,7 @@ def demo_module1_wrapper(x, y):
 
 # ── OL25: 禁止 pypto.Tensor() 空参数注解 ──
 
+
 def test_ol25_pass_when_tensor_has_args(tmp_path: Path):
     mod = load_lint_module()
     op_dir = build_stateless_op_dir(tmp_path, "demo")
@@ -231,6 +235,7 @@ def demo_module1_wrapper(x, y):
 
 
 # ── OL26: 张量参数必须在非张量参数之前 ──
+
 
 def test_ol26_pass_when_order_correct(tmp_path: Path):
     mod = load_lint_module()

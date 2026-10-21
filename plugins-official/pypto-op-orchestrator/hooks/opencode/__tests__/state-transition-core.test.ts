@@ -1,10 +1,12 @@
-// Copyright (c) 2025-2026 Huawei Technologies Co., Ltd.
+// ----------------------------------------------------------------------------------------------------------
+// Copyright (c) 2026 Huawei Technologies Co., Ltd.
 // This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 // CANN Open Software License Agreement Version 2.0 (the "License").
 // Please refer to the License for details. You may not use this file except in compliance with the License.
 // THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
+// ----------------------------------------------------------------------------------------------------------
 
 import { describe, test, expect } from "bun:test";
 import { applyTransition, type OrchestratorState } from "../lib/state-transition-core";
@@ -412,7 +414,7 @@ describe("rollback_to_stage", () => {
     expect(next.stage5_phases?.active_phase).toBeNull();
   });
 
-  test("drops artifact hashes for stages after target", () => {
+  test("invalidates both design outputs when returning to design", () => {
     const next = applyTransition(stage5InDebug(), {
       action: "rollback_to_stage",
       target_stage: 3,
@@ -420,10 +422,9 @@ describe("rollback_to_stage", () => {
     });
     // Stage 1 hashes survive (target=3, owning_stage=1 < 3)
     expect(next.artifact_hashes?.spec_md).toBe("spec-hash");
-    // Stage 4+ hashes are dropped
+    // Both outputs belong to the design stage being repeated.
     expect(next.artifact_hashes?.module_interfaces_yaml).toBeUndefined();
-    // design_md (stage 3) is preserved because it equals target
-    expect(next.artifact_hashes?.design_md).toBe("design-hash");
+    expect(next.artifact_hashes?.design_md).toBeUndefined();
   });
 
   test("appends an entry to rollback_history", () => {

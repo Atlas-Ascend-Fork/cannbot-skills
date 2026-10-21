@@ -2,21 +2,6 @@
   "eval_mode": "text",
   "evals": [
     {
-      "id": 1,
-      "title": "生成 Add 算子的 Golden 参考实现",
-      "config": {
-        "max_tokens": 150000,
-        "ascend_platforms": [
-          "A2"
-        ],
-        "eval_mode": "text"
-      },
-      "prompt": "我有一个 Add 算子，请帮我生成 golden 参考实现。算子规格如下：\n\n算子名称：Add\n数学公式：z = x + y（逐元素加法）\n输入：x fp16 [1024, 4096], y fp16 [1024, 4096]\n输出：z fp16 [1024, 4096]\n典型配置：\n| 配置名称 | 类型 | 优先级 | 参数 | 输入 Shape | 输出 Shape | 说明 |\n|----------|------|--------|------|------------|------------|------|\n| 性能_P0 | 性能 | P0 | 无 | x[1024,4096], y[1024,4096] | z[1024,4096] | 标准配置 |\n\n请生成 add_golden.py。",
-      "expected_output": "回复应调用 pypto-golden-generate skill，按工作流完成 golden 参考实现生成。应覆盖以下要点：\n- 从算子规格中提取算子名称、公式、输入输出规格\n- 检查规格字段完整性，确认必须字段齐全\n- 基于模板 templates/golden-template.py 生成 add_golden.py\n- 函数名称为 add_golden()，使用纯 PyTorch 实现（torch.add），禁止引入 pypto\n- 包含 _validate() 验证函数：典型 case 验证、值域检查、数值稳定性检查\n- 包含 if __name__ == \"__main__\": _validate() 入口\n- 通过 python3 add_golden.py 执行验证，exit code 为 0\n- 展示验证报告（含 PASS 结果）",
-      "files": [],
-      "expectations": []
-    },
-    {
       "id": 2,
       "title": "使用边界与触发条件",
       "config": {

@@ -15,7 +15,9 @@ from .helpers import build_stateless_op_dir, load_lint_module, run_rule, write_f
 
 
 def _write_module_interfaces(op_dir: Path):
-    write_file(op_dir / "eval" / "module_interfaces.yaml", """
+    write_file(
+        op_dir / "eval" / "module_interfaces.yaml",
+        """
 primary_inputs:
   - name: x
     shape: [N, M]
@@ -34,7 +36,8 @@ modules:
 final_outputs:
   - {name: out_a}
   - {name: out_b}
-""")
+""",
+    )
 
 
 def _four_arg_impl(
@@ -42,13 +45,9 @@ def _four_arg_impl(
     wrapper_signature: str = "x, y",
     wrapper_body: str = "demo_kernel(x, y, y, y)",
 ) -> str:
-    body = "\n".join(
-        f"    {line}" if line else ""
-        for line in kernel_body.splitlines()
-    )
+    body = "\n".join(f"    {line}" if line else "" for line in kernel_body.splitlines())
     wrapper = "\n".join(
-        f"    {line}" if line else ""
-        for line in wrapper_body.splitlines()
+        f"    {line}" if line else "" for line in wrapper_body.splitlines()
     )
     return f"""import pypto
 @pypto.frontend.jit
@@ -171,7 +170,9 @@ def test_ol41_detects_lint_output_pollution(tmp_path: Path):
     mod = load_lint_module()
     op_dir = build_stateless_op_dir(tmp_path, "demo")
 
-    polluted = (op_dir / "demo_impl.py").read_text(encoding="utf-8") + "\n[pypto-op-lint] 以下规则违规\n"
+    polluted = (op_dir / "demo_impl.py").read_text(
+        encoding="utf-8"
+    ) + "\n[pypto-op-lint] 以下规则违规\n"
     write_file(op_dir / "demo_impl.py", polluted)
 
     finding = run_rule(mod, op_dir, "OL41")
@@ -276,9 +277,7 @@ def test_ol51_does_not_treat_two_arg_assemble_offsets_as_target(tmp_path: Path):
     op_dir = build_stateless_op_dir(tmp_path, "demo")
     _write_module_interfaces(op_dir)
     impl = _four_arg_impl(
-        "tile_result = x\n"
-        "offsets = [0, 0]\n"
-        "pypto.assemble(tile_result, offsets)",
+        "tile_result = x\noffsets = [0, 0]\npypto.assemble(tile_result, offsets)",
     )
     write_file(op_dir / "demo_impl.py", impl)
 
@@ -338,8 +337,7 @@ def test_ol51_recognizes_axpy__as_writeback(tmp_path: Path):
     op_dir = build_stateless_op_dir(tmp_path, "demo")
     _write_module_interfaces(op_dir)
     impl = _four_arg_impl(
-        "pypto.axpy_(out_a, x, alpha=1.0)\n"
-        "pypto.axpy_(out_b, y, alpha=1.0)",
+        "pypto.axpy_(out_a, x, alpha=1.0)\npypto.axpy_(out_b, y, alpha=1.0)",
     )
     write_file(op_dir / "demo_impl.py", impl)
 
@@ -355,6 +353,33 @@ def test_ol51_recognizes_tensor_method_index_add__as_writeback(tmp_path: Path):
         "index = pypto.zeros([32], pypto.DT_INT32)\n"
         "out_a.index_add_(0, index, x)\n"
         "out_b.index_add_(0, index, y)",
+    )
+    write_file(op_dir / "demo_impl.py", impl)
+
+    finding = run_rule(mod, op_dir, "OL51")
+    assert finding.status == "PASS"
+
+
+def test_ol51_recognizes_atomic_add_positional_dst_as_writeback(tmp_path: Path):
+    mod = load_lint_module()
+    op_dir = build_stateless_op_dir(tmp_path, "demo")
+    _write_module_interfaces(op_dir)
+    impl = _four_arg_impl(
+        "pypto.atomic_add(x, [0, 0], out_a)\npypto.atomic_add(y, [0, 0], out_b)",
+    )
+    write_file(op_dir / "demo_impl.py", impl)
+
+    finding = run_rule(mod, op_dir, "OL51")
+    assert finding.status == "PASS"
+
+
+def test_ol51_recognizes_atomic_add_keyword_dst_as_writeback(tmp_path: Path):
+    mod = load_lint_module()
+    op_dir = build_stateless_op_dir(tmp_path, "demo")
+    _write_module_interfaces(op_dir)
+    impl = _four_arg_impl(
+        "pypto.atomic_add(src=x, offsets=[0, 0], dst=out_a)\n"
+        "pypto.atomic_add(src=y, offsets=[0, 0], dst=out_b)",
     )
     write_file(op_dir / "demo_impl.py", impl)
 
@@ -436,8 +461,7 @@ def test_ol51_b_pass_when_writes_are_real_compute(tmp_path: Path):
     op_dir = build_stateless_op_dir(tmp_path, "demo")
     _write_module_interfaces(op_dir)
     impl = _four_arg_impl(
-        "out_a[:] = pypto.exp(x)\n"
-        "pypto.assemble(pypto.add(x, y), [0, 0], out_b)",
+        "out_a[:] = pypto.exp(x)\npypto.assemble(pypto.add(x, y), [0, 0], out_b)",
     )
     write_file(op_dir / "demo_impl.py", impl)
 
@@ -518,3 +542,111 @@ if __name__ == "__main__":
     write_file(op_dir / "demo_impl.py", impl)
     finding = run_rule(mod, op_dir, "OL62")
     assert finding.status == "PASS"
+
+
+# ── OL30: int 系 dtype 别名与误判防护 ──
+
+
+def _write_spec_with_dtypes(op_dir: Path, dtypes: str):
+    spec = (op_dir / "SPEC.md").read_text(encoding="utf-8")
+    spec = spec.replace("supported_dtypes: [bfloat16]", f"supported_dtypes: {dtypes}")
+    write_file(op_dir / "SPEC.md", spec)
+
+
+def test_ol30_int_dtypes_recognized_and_covered(tmp_path: Path):
+    """SPEC 声明 bfloat16 + int32，test 覆盖两者 → PASS（修复前 int32 被静默丢弃）。"""
+    mod = load_lint_module()
+    op_dir = build_stateless_op_dir(tmp_path, "demo")
+    _write_spec_with_dtypes(op_dir, '["bfloat16", "int32"]')
+    test = (op_dir / "test_demo.py").read_text(encoding="utf-8")
+    test += "\nidx = torch.zeros(4, dtype=torch.int32)\n"
+    write_file(op_dir / "test_demo.py", test)
+    finding = run_rule(mod, op_dir, "OL30")
+    assert finding.status == "PASS", finding.message
+
+
+def test_ol30_int_dtype_missing_fail(tmp_path: Path):
+    """SPEC 声明 int32 但 test 未覆盖 → FAIL，且文案点名 int32。"""
+    mod = load_lint_module()
+    op_dir = build_stateless_op_dir(tmp_path, "demo")
+    _write_spec_with_dtypes(op_dir, '["bfloat16", "int32"]')
+    finding = run_rule(mod, op_dir, "OL30")
+    assert finding.status == "FAIL"
+    assert "int32" in finding.message
+
+
+def test_ol30_uint8_does_not_cover_int8(tmp_path: Path):
+    """uint8 不应因子串匹配被当成 int8 覆盖（标识符边界判定）。"""
+    mod = load_lint_module()
+    op_dir = build_stateless_op_dir(tmp_path, "demo")
+    _write_spec_with_dtypes(op_dir, '["bfloat16", "int8"]')
+    test = (op_dir / "test_demo.py").read_text(encoding="utf-8")
+    test += "\nw = torch.randint(0, 255, (4,), dtype=torch.uint8)\n"
+    write_file(op_dir / "test_demo.py", test)
+    finding = run_rule(mod, op_dir, "OL30")
+    assert finding.status == "FAIL"
+    assert "int8" in finding.message
+
+
+def test_ol30_torch_int64_alias_covered(tmp_path: Path):
+    """torch.int64 / DT_INT32 等别名形式可互相覆盖。"""
+    mod = load_lint_module()
+    op_dir = build_stateless_op_dir(tmp_path, "demo")
+    _write_spec_with_dtypes(op_dir, '["bfloat16", "int64"]')
+    test = (op_dir / "test_demo.py").read_text(encoding="utf-8")
+    test += "\nidx = torch.arange(4, dtype=torch.int64)\n"
+    write_file(op_dir / "test_demo.py", test)
+    finding = run_rule(mod, op_dir, "OL30")
+    assert finding.status == "PASS", finding.message
+
+
+# ── OL30: dtype 词表补全（uint 系/bool/fp64）与未识别 dtype 拒绝静默丢弃 ──
+
+
+def test_ol30_uint_dtypes_recognized_and_covered(tmp_path: Path):
+    """SPEC 声明 uint8，test 覆盖 torch.uint8 → PASS（补词表前 uint8 被静默丢弃）。"""
+    mod = load_lint_module()
+    op_dir = build_stateless_op_dir(tmp_path, "demo")
+    _write_spec_with_dtypes(op_dir, '["bfloat16", "uint8"]')
+    test = (op_dir / "test_demo.py").read_text(encoding="utf-8")
+    test += "\nw = torch.randint(0, 255, (4,), dtype=torch.uint8)\n"
+    write_file(op_dir / "test_demo.py", test)
+    finding = run_rule(mod, op_dir, "OL30")
+    assert finding.status == "PASS", finding.message
+
+
+def test_ol30_bool_fp64_recognized_and_covered(tmp_path: Path):
+    """bool / float64（含 torch. 前缀变体）可识别并互相覆盖。"""
+    mod = load_lint_module()
+    op_dir = build_stateless_op_dir(tmp_path, "demo")
+    _write_spec_with_dtypes(op_dir, '["bool", "float64"]')
+    test = (op_dir / "test_demo.py").read_text(encoding="utf-8")
+    test += "\nmask = torch.zeros(4, dtype=torch.bool)\n"
+    test += "\nacc = torch.zeros(4, dtype=torch.float64)\n"
+    write_file(op_dir / "test_demo.py", test)
+    finding = run_rule(mod, op_dir, "OL30")
+    assert finding.status == "PASS", finding.message
+
+
+def test_ol30_uint8_not_covered_by_int8(tmp_path: Path):
+    """反向边界回归：SPEC 声明 uint8，test 仅有 int8 → FAIL 点名 uint8。"""
+    mod = load_lint_module()
+    op_dir = build_stateless_op_dir(tmp_path, "demo")
+    _write_spec_with_dtypes(op_dir, '["bfloat16", "uint8"]')
+    test = (op_dir / "test_demo.py").read_text(encoding="utf-8")
+    test += "\nw = torch.full((4,), 7, dtype=torch.int8)\n"
+    write_file(op_dir / "test_demo.py", test)
+    finding = run_rule(mod, op_dir, "OL30")
+    assert finding.status == "FAIL"
+    assert "uint8" in finding.message
+
+
+def test_ol30_unrecognized_dtype_warn(tmp_path: Path):
+    """SPEC 声明词表外 dtype（拼写错误）→ WARN 提示无法识别，不再静默丢弃。"""
+    mod = load_lint_module()
+    op_dir = build_stateless_op_dir(tmp_path, "demo")
+    _write_spec_with_dtypes(op_dir, '["bfloat16", "floa16"]')
+    finding = run_rule(mod, op_dir, "OL30")
+    assert finding.status == "WARN"
+    assert "无法识别" in finding.message
+    assert "floa16" in finding.message

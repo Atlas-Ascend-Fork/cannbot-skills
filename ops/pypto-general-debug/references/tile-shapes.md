@@ -94,12 +94,12 @@ Always verify the current device's exact budgets if the error message quotes a l
 ## 2. Symptom → Root cause routing table
 
 Before proposing anything, route the failure by matching the error message or
-the reported tile-shape violation.
+lint OL48 output.
 
 | Symptom (in error / CI output) | Category | Jump to |
 |---|---|---|
-| 2-element-list arity error on `set_cube_tile_shapes` | Arity  | §3 |
-| `L1 % L0 == 0` / `requires L0 <= L1` | Divisibility / ordering | §4 |
+| 2-element-list arity error (from lint OL48) | Arity  | §3 |
+| `L1 % L0 == 0` / `requires L0 <= L1` (from lint OL48) | Divisibility / ordering | §4 |
 | `tile shape not set` | Missing call | §5 |
 | `L0A size exceeded` / `L0B size exceeded` / `L0C size exceeded` / "L0 ... overflow" | L0 budget | §6 |
 | `L1 size exceeded` / "L1 buffer out of range" | L1 budget | §7 |
@@ -114,8 +114,8 @@ If the error doesn't match any row, fall back to the systematic procedure in §1
 
 ## 3. Arity fix — lists must be `[L0, L1]`
 
-**Symptom**: `m` (or `k` / `n`) must be a 2-element list `[L0, L1]` but is a
-1-element (or 3+-element) list.
+**Symptom**: lint **OL48 (S0)** reports that `m` (or `k` / `n`) must be a
+2-element list `[L0, L1]` but got a 1-element (or 3+-element) list.
 
 **Cause**: A code block like:
 

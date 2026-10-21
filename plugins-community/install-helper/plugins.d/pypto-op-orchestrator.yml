@@ -9,8 +9,8 @@ configFile: AGENTS.md
 configRootConfigLink: false
 installSkills:
   - dir: ops
-    skills: [pypto-orchestration-manual, pypto-intent-understand, pypto-op-plan, pypto-api-explore, pypto-docs-search, pypto-golden-generate, pypto-op-design, pypto-op-construct, pypto-op-develop, pypto-op-verify, pypto-op-review, pypto-precision-compare, pypto-precision-debug, pypto-general-debug, pypto-op-perf-tune, pypto-op-knowledge, pypto-memory-template]
-installAgents: [pypto-op-planner, pypto-op-mathematician, pypto-op-architect, pypto-op-designer, pypto-op-coder, pypto-op-verifier, pypto-op-debugger, pypto-op-optimizer]
+    skills: [pypto-orchestration-manual, pypto-intent-understand, pypto-op-plan, pypto-api-explore, pypto-docs-search, pypto-golden-generate, pypto-op-design, pypto-op-develop, pypto-op-verify, pypto-op-review, pypto-precision-compare, pypto-precision-debug, pypto-general-debug, pypto-op-perf-tune, pypto-op-perf-panko-manual, pypto-op-knowledge, pypto-memory-template]
+installAgents: [pypto-op-planner, pypto-op-mathematician, pypto-op-architect, pypto-op-coder, pypto-op-verifier, pypto-op-debugger, pypto-op-optimizer, pypto-op-auto-tuner-panko]
 externalRepos:
   - url: https://gitcode.com/cann/pypto.git
     dir: plugins-official/pypto-op-orchestrator/pypto

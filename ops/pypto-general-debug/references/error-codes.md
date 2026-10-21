@@ -2,9 +2,9 @@
 
 **Audience:** Agents working on complex PyPTO kernels under this bundle.
 
-**Do not skip:** This file is part of the mandatory path when stuck — see **skill `pypto-orchestration-manual`'s `references/rules.md` → Zero tolerance**.
+**Do not skip:** This file is part of the mandatory path when stuck — see **skill `pypto-orchestration-manual`'s `../../pypto-orchestration-manual/references/rules.md` → Zero tolerance**.
 
-**Policy:** **`Errcode: FFFFF!`**, **`UNKNOWN`**, **`0x3FFFF`**, or other opaque / scary-looking error codes are **not** a reason to end the session, report failure, or "give up" until the **Stop Conditions** in skill `pypto-orchestration-manual`'s `references/rules.md` actually apply. **Token and turn budget are not a constraint** for this workflow: keep iterating, gathering evidence, and trying the next structured strategy until the problem is resolved or a true blocker is proven.
+**Policy:** **`Errcode: FFFFF!`**, **`UNKNOWN`**, **`0x3FFFF`**, or other opaque / scary-looking error codes are **not** a reason to end the session, report failure, or "give up" until the **Stop Conditions** in skill `pypto-orchestration-manual`'s `../../pypto-orchestration-manual/references/rules.md` actually apply. **Token and turn budget are not a constraint** for this workflow: keep iterating, gathering evidence, and trying the next structured strategy until the problem is resolved or a true blocker is proven.
 
 **What "give up" looks like (forbidden here):** stopping after only printing the error code, declaring the task impossible without consulting docs, skipping logs, or refusing to try another angle.
 
@@ -105,15 +105,15 @@ This preserves the search trail for future bisection and for the verification ha
 
 ## 3. Kernel-specific: narrow the blast radius
 
-1. Confirm which **staged file** is current (`<op>_module12.py`, etc. — see **skill `pypto-orchestration-manual`'s `references/rules.md`** rule 14). Run **`extract_pypto_calls.py`** on **that** file (or the final kernel).
-2. Run **`python3 skills/pypto-op-review/scripts/extract_pypto_calls.py <kernel.py>`** and follow the **op-by-op check protocol** in skill `pypto-general-debug` (SKILL.md auto-loads).
+1. Confirm which **staged file** is current (`<op>_module12.py`, etc. — see **skill `pypto-orchestration-manual`'s `../../pypto-orchestration-manual/references/rules.md`** rule 14). Run **`extract_pypto_calls.py`** on **that** file (or the final kernel).
+2. Run **`python3 ../../pypto-op-review/scripts/extract_pypto_calls.py <kernel.py>`** and follow the **op-by-op check protocol** in skill `pypto-general-debug` (SKILL.md auto-loads).
 3. Stay in **one active module** at a time; stub downstream with golden-fed tensors if needed.
 4. Re-run **module boundary** checks with **`detailed_tensor_compare`** and log results in **Per-module verification log**.
-5. After fixes, re-run the **current staged file** and/or **`test_<operator_name>.py`** and confirm **every** kernel output (see **skill `pypto-orchestration-manual`'s `references/rules.md`** rule 10 / **skill `pypto-orchestration-manual`'s `references/rules.md`** rule 10) — not only the first tensor.
+5. After fixes, re-run the **current staged file** and/or **`test_<operator_name>.py`** and confirm **every** kernel output (see **skill `pypto-orchestration-manual`'s `../../pypto-orchestration-manual/references/rules.md`** rule 10 / **skill `pypto-orchestration-manual`'s `../../pypto-orchestration-manual/references/rules.md`** rule 10) — not only the first tensor.
 
 ### 3a. Layout CI and pass regressions (quick pointers)
 
-- **Layout / loops:** re-check the layout and structure requirements in **skill `pypto-op-review`'s `references/CI.md`** — memory / `test_<op>.py` / staged naming, **and** no Python loop driving kernel work. Express that iteration with **`pypto.loop`** in **`_your_op_kernel_impl`** / the JIT kernel: a host wrapper must not drive the kernel with `for ... in range(...)`, and `while` or non-range Python `for` is not allowed inside the JIT graph — both per **skill `pypto-orchestration-manual`'s `references/rules.md`** Prohibition B / rule 18.
+- **Layout / loops:** layout and structure rules are enforced automatically by the pypto-op-lint hooks (on file write and at the phase / stage gates) — there is no separate layout script to run. A lint **FAIL** means fix memory / `test_<op>.py` / staged naming (OL44 etc.) **or** remove the Python loop in kernel code — express that iteration with **`pypto.loop`** in **`_your_op_kernel_impl`** / the JIT kernel. Host wrapper kernel-driving `for ... in range(...)` is **OL45**; `while` or non-range Python `for` inside the JIT graph is **OL57** — both per **skill `pypto-orchestration-manual`'s `../../pypto-orchestration-manual/references/rules.md`** Prohibition B / rule 18.
 - **Pass / compile failure right after a graph edit:** If logs show **PASS**-range codes (**`F4` / `F5`**, see **`https://raw.gitcode.com/cann/pypto/raw/master/docs/zh/trouble_shooting/README.md`** → **`pass.md`**), **bisect** the PyPTO graph (e.g. last known-good **staged** file vs current), and re-check API constraints by reading the op's API doc `pypto-<op>.md` (use `pypto-docs-search` to find it, or read the raw URL `https://raw.gitcode.com/cann/pypto/raw/master/docs/zh/api/operation/pypto-<op>.md`) before large rewrites. Re-run **`extract_pypto_calls.py`** on the failing file to see whether a new op ordering triggered the pass.
 
 ---
@@ -148,7 +148,7 @@ This preserves the search trail for future bisection and for the verification ha
 
 ### If it still fails
 
-- **Invalid args or zeros** — ensure all args are positive integers. Refer to **`https://raw.gitcode.com/cann/pypto/raw/master/docs/zh/api/config/pypto-set_vec_tile_shapes.md`** for your PyPTO version's requirements (see **skill `pypto-orchestration-manual`'s `references/rules.md`** rule 16 / **skill `pypto-op-develop`'s `references/pypto-kernel-design-format.md`** §11c).
+- **Invalid args or zeros** — ensure all args are positive integers. Refer to **`https://raw.gitcode.com/cann/pypto/raw/master/docs/zh/api/config/pypto-set_vec_tile_shapes.md`** for your PyPTO version's requirements (see **skill `pypto-orchestration-manual`'s `../../pypto-orchestration-manual/references/rules.md`** rule 16 / **skill `pypto-op-develop`'s `../../pypto-op-develop/references/pypto-kernel-design-format.md`** §11c).
 - **Wrong order** — anything that **adds ops** (reshape, view, passes inserting copy) must run **after** **`set_vec_tile_shapes`** on that execution path.
 - **Symbolic / dynamic shapes** — ensure tile args resolve to **concrete positive integers** (see **`set_vec_tile_shapes`** + **`SymbolicScalar`** in `python/pypto/_controller.py` in your tree).
 
@@ -158,7 +158,7 @@ This preserves the search trail for future bisection and for the verification ha
 
 ## 6. Error-code quick reference (repo)
 
-- skill `pypto-op-develop`'s `references/error-code-troubleshooting.md` — flow for `Errcode: Fxxxxx!`.
+- skill `pypto-op-develop`'s `../../pypto-op-develop/references/error-code-troubleshooting.md` — flow for `Errcode: Fxxxxx!`.
 - `https://raw.gitcode.com/cann/pypto/raw/master/docs/zh/trouble_shooting/function.md` — e.g. **INVALID_VAL (0x21004)**, **UNKNOWN (0x3FFFF)**.
 - **F21004 / vec tile / `REGISTER_COPY`:** see **§4** above.
 
@@ -166,7 +166,7 @@ This preserves the search trail for future bisection and for the verification ha
 
 ## 7. When stopping is allowed
 
-Only align with the **Stop Conditions** in skill `pypto-orchestration-manual`'s `references/rules.md` (missing reference, impossible golden, fundamental framework block, **missing** user-provided logs when required, or **proven** blind speculation after exhaustive structured attempts). **A single cryptic error line is never enough.**
+Only align with the **Stop Conditions** in skill `pypto-orchestration-manual`'s `../../pypto-orchestration-manual/references/rules.md` (missing reference, impossible golden, fundamental framework block, **missing** user-provided logs when required, or **proven** blind speculation after exhaustive structured attempts). **A single cryptic error line is never enough.**
 
 ---
 

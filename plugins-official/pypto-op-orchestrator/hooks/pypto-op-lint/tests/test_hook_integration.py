@@ -10,6 +10,9 @@
 # ----------------------------------------------------------------------------------------------------------
 
 """Hook 入口集成测试 — 以子进程方式调用 pypto_op_lint.py，验证完整调用链。"""
+
+from __future__ import annotations
+
 import json
 import os
 import subprocess
@@ -48,7 +51,9 @@ _STUB_INTEGRATED_IMPL = """# placeholder created by Stage 4 scaffolding.
 """
 
 
-def _run_hook(hook: str, payload: dict, env_extra: dict | None = None) -> tuple[int, str]:
+def _run_hook(
+    hook: str, payload: dict, env_extra: dict | None = None
+) -> tuple[int, str]:
     """以子进程执行 hook，返回 (exit_code, stdout)"""
     env = os.environ.copy()
     if env_extra:
@@ -56,7 +61,10 @@ def _run_hook(hook: str, payload: dict, env_extra: dict | None = None) -> tuple[
     result = subprocess.run(
         [PYTHON, SCRIPT, "--hook", hook],
         input=json.dumps(payload),
-        capture_output=True, text=True, timeout=15, env=env,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        env=env,
     )
     return result.returncode, result.stdout.strip()
 
@@ -75,6 +83,7 @@ def _post_edit_decision(file_path: str) -> tuple[int, str]:
 
 # ── post-edit: 非算子文件 → 无输出 ──
 
+
 def test_post_edit_non_operator_file_silent():
     rc, out = _run_hook("post-edit", {"tool_input": {"file_path": "readme.md"}})
     assert rc == 0
@@ -82,6 +91,7 @@ def test_post_edit_non_operator_file_silent():
 
 
 # ── post-edit: 算子 impl 文件 → 返回结构化 JSON ──
+
 
 def test_post_edit_impl_returns_hook_json(tmp_path: Path):
     op_dir = build_stateless_op_dir(tmp_path, "demo")
@@ -96,6 +106,7 @@ def test_post_edit_impl_returns_hook_json(tmp_path: Path):
 
 
 # ── post-edit: S1 违规 → decision=block ──
+
 
 def test_post_edit_blocks_on_s1_violation(tmp_path: Path):
     op_dir = build_stateless_op_dir(tmp_path, "demo")
@@ -169,6 +180,7 @@ def test_post_edit_module_file_allow_when_clean(tmp_path: Path):
 
 # ── post-bash: 非测试命令 → 无输出 ──
 
+
 def test_post_bash_non_test_command_silent():
     rc, out = _run_hook("post-bash", {"tool_input": {"command": "ls -la"}})
     assert rc == 0
@@ -176,6 +188,7 @@ def test_post_bash_non_test_command_silent():
 
 
 # ── post-bash: 测试命令 → 返回判定结果 ──
+
 
 def test_post_bash_test_command_returns_verdict():
     payload = {
@@ -195,6 +208,7 @@ def test_post_bash_test_command_returns_verdict():
 
 # ── pre-edit-backup: 非 impl 文件 → 无输出 ──
 
+
 def test_pre_edit_backup_non_impl_silent():
     rc, out = _run_hook("pre-edit-backup", {"tool_input": {"file_path": "readme.md"}})
     assert rc == 0
@@ -203,6 +217,7 @@ def test_pre_edit_backup_non_impl_silent():
 
 # ── stop: 非算子目录 → 无输出 ──
 
+
 def test_stop_non_operator_dir_silent():
     rc, out = _run_hook("stop", {"cwd": "."})
     assert rc == 0
@@ -210,6 +225,7 @@ def test_stop_non_operator_dir_silent():
 
 
 # ── stop: 算子目录有 S1 违规 → exit 2 ──
+
 
 def test_stop_blocks_on_s1_violation(tmp_path: Path):
     op_dir = build_stateless_op_dir(tmp_path, "demo")
@@ -230,6 +246,7 @@ def test_stop_blocks_on_s1_violation(tmp_path: Path):
 
 # ── 边界场景: 空 stdin → 安全退出 ──
 
+
 def test_hook_empty_stdin():
     """所有 hook 在空输入时应安全退出"""
     for hook in ("post-edit", "post-bash", "pre-edit-backup", "stop"):
@@ -242,9 +259,18 @@ def test_hook_empty_stdin():
 
 def _run_phase_gate(op_dir: Path, phase: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [PYTHON, SCRIPT, "--check-phase-gate",
-         "--op-dir", str(op_dir), "--phase", phase],
-        capture_output=True, text=True, timeout=15,
+        [
+            PYTHON,
+            SCRIPT,
+            "--check-phase-gate",
+            "--op-dir",
+            str(op_dir),
+            "--phase",
+            phase,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
     )
 
 
@@ -272,12 +298,16 @@ def test_phase_gate_m1_ignores_stub_integrated_impl(tmp_path: Path):
     # M1 module: 干净
     write_file(op_dir / "modules" / "demo_module1_impl.py", _GOOD_MODULE_IMPL)
     r = _run_phase_gate(op_dir, "M1")
-    assert r.returncode == 0, f"expected pass, got rc={r.returncode}\nstdout={r.stdout[:500]}"
+    assert r.returncode == 0, (
+        f"expected pass, got rc={r.returncode}\nstdout={r.stdout[:500]}"
+    )
     data = json.loads(r.stdout)
     # 确认不会报告顶层 stub 的 OL01 FAIL
     fails = [f for f in data["findings"] if f["status"] == "FAIL"]
     integrated_fails = [f for f in fails if f.get("file") == "demo_impl.py"]
-    assert not integrated_fails, f"unexpected fail on integrated stub: {integrated_fails}"
+    assert not integrated_fails, (
+        f"unexpected fail on integrated stub: {integrated_fails}"
+    )
 
 
 def test_phase_gate_m1_blocks_on_module1_violation(tmp_path: Path):
@@ -301,8 +331,9 @@ def test_phase_gate_m2_ignores_module1(tmp_path: Path):
     # module1 保持旧违规代码，相当于已 verified 的快照
     write_file(op_dir / "modules" / "demo_module1_impl.py", _BAD_MODULE_IMPL_OL01)
     # module12 干净，是 M2 phase 当前工作对象
-    good_m12 = _GOOD_MODULE_IMPL.replace("demo_module1_kernel", "demo_module12_kernel") \
-                                .replace("demo_module1_wrapper", "demo_module12_wrapper")
+    good_m12 = _GOOD_MODULE_IMPL.replace(
+        "demo_module1_kernel", "demo_module12_kernel"
+    ).replace("demo_module1_wrapper", "demo_module12_wrapper")
     write_file(op_dir / "modules" / "demo_module12_impl.py", good_m12)
     r = _run_phase_gate(op_dir, "M2")
     assert r.returncode == 0, (
@@ -317,8 +348,9 @@ def test_phase_gate_m2_blocks_on_module12_violation(tmp_path: Path):
     # M1 干净
     write_file(op_dir / "modules" / "demo_module1_impl.py", _GOOD_MODULE_IMPL)
     # M2 违规
-    bad_m12 = _BAD_MODULE_IMPL_OL01.replace("demo_module1_kernel", "demo_module12_kernel") \
-                                    .replace("demo_module1_wrapper", "demo_module12_wrapper")
+    bad_m12 = _BAD_MODULE_IMPL_OL01.replace(
+        "demo_module1_kernel", "demo_module12_kernel"
+    ).replace("demo_module1_wrapper", "demo_module12_wrapper")
     write_file(op_dir / "modules" / "demo_module12_impl.py", bad_m12)
     r = _run_phase_gate(op_dir, "M2")
     assert r.returncode != 0
@@ -335,7 +367,9 @@ def test_phase_gate_missing_phase_arg_errors(tmp_path: Path):
     op_dir = build_stateless_op_dir(tmp_path, "demo")
     r = subprocess.run(
         [PYTHON, SCRIPT, "--check-phase-gate", "--op-dir", str(op_dir)],
-        capture_output=True, text=True, timeout=15,
+        capture_output=True,
+        text=True,
+        timeout=15,
     )
     assert r.returncode != 0
 
@@ -373,8 +407,12 @@ def test_phase_gate_skips_test_and_gate_rules(tmp_path: Path):
 def test_post_edit_ignores_other_module_stubs(tmp_path: Path):
     """post-edit on module1: 不误报其他 module stub 的 OL01 等违规。"""
     op_dir = build_stateless_op_dir(tmp_path, "demo")
-    state = {"operator_name": "demo", "max_stage": 7,
-             "current_stage": 5, "stage_status": {"5": "in_progress"}}
+    state = {
+        "operator_name": "demo",
+        "max_stage": 7,
+        "current_stage": 5,
+        "stage_status": {"5": "in_progress"},
+    }
     write_file(op_dir / ".orchestrator_state.json", json.dumps(state))
     # Remove top-level integrated impl so it can't interfere
     (op_dir / "demo_impl.py").unlink()
@@ -386,7 +424,9 @@ pass
 """
     write_file(op_dir / "modules" / "demo_module12_impl.py", stub_m12)
     # M3 stub also exists (typical Stage 4 scaffolding output)
-    write_file(op_dir / "modules" / "demo_module123_impl.py", stub_m12.replace("M12", "M123"))
+    write_file(
+        op_dir / "modules" / "demo_module123_impl.py", stub_m12.replace("M12", "M123")
+    )
     # Coder writes a clean M1 implementation
     good_m1 = """import pypto
 @pypto.frontend.jit
@@ -407,7 +447,9 @@ def demo_module1_wrapper(x, y):
         data = json.loads(out)
         decision = data["hookSpecificOutput"].get("decision", "allow")
         reason = data["hookSpecificOutput"].get("reason", "")
-        assert decision != "block", f"post-edit on clean M1 should not block; reason={reason[:400]}"
+        assert decision != "block", (
+            f"post-edit on clean M1 should not block; reason={reason[:400]}"
+        )
         # And the reason must not mention the other modules
         assert "module12_impl.py" not in reason
         assert "module123_impl.py" not in reason
@@ -416,8 +458,12 @@ def demo_module1_wrapper(x, y):
 def test_post_edit_blocks_only_on_written_file_violation(tmp_path: Path):
     """post-edit 即使 block 违规，也只限定在本次写入的 file_path。"""
     op_dir = build_stateless_op_dir(tmp_path, "demo")
-    state = {"operator_name": "demo", "max_stage": 7,
-             "current_stage": 5, "stage_status": {"5": "in_progress"}}
+    state = {
+        "operator_name": "demo",
+        "max_stage": 7,
+        "current_stage": 5,
+        "stage_status": {"5": "in_progress"},
+    }
     write_file(op_dir / ".orchestrator_state.json", json.dumps(state))
     (op_dir / "demo_impl.py").unlink()
     # Other-module stub
@@ -456,8 +502,12 @@ pass
 def test_pending_stub_excluded_from_default_scan(tmp_path: Path):
     """default mode (no scope): pending stubs filtered out of _impl_files_to_scan."""
     op_dir = build_stateless_op_dir(tmp_path, "demo")
-    state = {"operator_name": "demo", "max_stage": 7,
-             "current_stage": 5, "stage_status": {"5": "in_progress"}}
+    state = {
+        "operator_name": "demo",
+        "max_stage": 7,
+        "current_stage": 5,
+        "stage_status": {"5": "in_progress"},
+    }
     write_file(op_dir / ".orchestrator_state.json", json.dumps(state))
     (op_dir / "demo_impl.py").unlink()
     # module1 是干净的 impl
@@ -468,7 +518,10 @@ def test_pending_stub_excluded_from_default_scan(tmp_path: Path):
     # Run --check-gate --stage 5 (default mode, scans all impl files)
     r = subprocess.run(
         [PYTHON, SCRIPT, "--check-gate", "--op-dir", str(op_dir), "--stage", "5"],
-        capture_output=True, text=True, timeout=20)
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
     data = json.loads(r.stdout)
     fail_findings = [f for f in data["findings"] if f["status"] == "FAIL"]
     fails = [f for f in fail_findings if f["severity"] in ("S0", "S1")]
@@ -483,8 +536,19 @@ def test_pending_stub_excluded_from_phase_gate(tmp_path: Path):
     _write_memory_md(op_dir, "M1")
     write_file(op_dir / "modules" / "demo_module1_impl.py", _PENDING_STUB)
     r = subprocess.run(
-        [PYTHON, SCRIPT, "--check-phase-gate", "--op-dir", str(op_dir), "--phase", "M1"],
-        capture_output=True, text=True, timeout=15)
+        [
+            PYTHON,
+            SCRIPT,
+            "--check-phase-gate",
+            "--op-dir",
+            str(op_dir),
+            "--phase",
+            "M1",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
     # phase file is pending → no impl files to scan → all D1 rules SKIP → exit 0
     assert r.returncode == 0
 
@@ -492,11 +556,15 @@ def test_pending_stub_excluded_from_phase_gate(tmp_path: Path):
 def test_pending_stub_excluded_from_post_edit(tmp_path: Path):
     """post-edit: if the just-written file is a pending stub → skip lint."""
     op_dir = build_stateless_op_dir(tmp_path, "demo")
-    state = {"operator_name": "demo", "max_stage": 7,
-             "current_stage": 5, "stage_status": {"5": "in_progress"}}
+    state = {
+        "operator_name": "demo",
+        "max_stage": 7,
+        "current_stage": 5,
+        "stage_status": {"5": "in_progress"},
+    }
     write_file(op_dir / ".orchestrator_state.json", json.dumps(state))
     (op_dir / "demo_impl.py").unlink()
-    # Designer commits a stub
+    # Architect commits a stub
     impl_path = op_dir / "modules" / "demo_module2_impl.py"
     write_file(impl_path, _PENDING_STUB)
     rc, out = _run_hook("post-edit", {"tool_input": {"file_path": str(impl_path)}})
@@ -510,8 +578,12 @@ def test_pending_stub_excluded_from_post_edit(tmp_path: Path):
 def test_pending_stub_marker_removed_then_lint_runs(tmp_path: Path):
     """Coder removes the marker → file is no longer a pending stub → lint runs."""
     op_dir = build_stateless_op_dir(tmp_path, "demo")
-    state = {"operator_name": "demo", "max_stage": 7,
-             "current_stage": 5, "stage_status": {"5": "in_progress"}}
+    state = {
+        "operator_name": "demo",
+        "max_stage": 7,
+        "current_stage": 5,
+        "stage_status": {"5": "in_progress"},
+    }
     write_file(op_dir / ".orchestrator_state.json", json.dumps(state))
     (op_dir / "demo_impl.py").unlink()
     impl_path = op_dir / "modules" / "demo_module1_impl.py"
@@ -536,8 +608,12 @@ def demo_module1_wrapper(x, y):
 def test_post_edit_top_level_impl_still_scoped(tmp_path: Path):
     """post-edit on top-level <op>_impl.py: scope to that file only (not module stubs)。"""
     op_dir = build_stateless_op_dir(tmp_path, "demo")
-    state = {"operator_name": "demo", "max_stage": 7,
-             "current_stage": 6, "stage_status": {"5": "completed", "6": "in_progress"}}
+    state = {
+        "operator_name": "demo",
+        "max_stage": 7,
+        "current_stage": 6,
+        "stage_status": {"5": "completed", "6": "in_progress"},
+    }
     write_file(op_dir / ".orchestrator_state.json", json.dumps(state))
     # module stub exists from Stage 4 scaffolding
     write_file(op_dir / "modules" / "demo_module1_impl.py", "# stub\n")
@@ -561,3 +637,173 @@ def demo_wrapper(x, y):
         # Top-level clean → not block, module stub ignored
         assert decision != "block"
 
+
+# ── post-edit: SPEC.md 冻结豁免（仅减少 supported_dtypes 放行） ──
+
+
+def _make_stage5_op_dir(tmp_path: Path) -> Path:
+    op_dir = build_stateless_op_dir(tmp_path, "demo")
+    state = {
+        "operator_name": "demo",
+        "max_stage": 7,
+        "current_stage": 5,
+        "stage_status": {"5": "in_progress"},
+    }
+    write_file(op_dir / ".orchestrator_state.json", json.dumps(state))
+    return op_dir
+
+
+def _post_edit_spec(
+    spec_path: Path, old_string: str, new_string: str
+) -> tuple[int, str]:
+    rc, out = _run_hook(
+        "post-edit",
+        {
+            "tool_input": {
+                "file_path": str(spec_path),
+                "old_string": old_string,
+                "new_string": new_string,
+            }
+        },
+    )
+    return rc, out
+
+
+def test_post_edit_spec_dtypes_reduction_allowed(tmp_path: Path):
+    """Stage>=2 时仅减少 supported_dtypes 的 Edit 应放行（冻结豁免）。"""
+    op_dir = _make_stage5_op_dir(tmp_path)
+    spec_path = op_dir / "SPEC.md"
+    # 磁盘上是缩减后的内容（post-edit 视角）
+    rc, out = _post_edit_spec(
+        spec_path,
+        old_string="supported_dtypes: [bfloat16, int32]",
+        new_string="supported_dtypes: [bfloat16]",
+    )
+    assert rc == 0
+    if out:
+        assert json.loads(out)["hookSpecificOutput"].get("decision") != "block"
+
+
+def test_post_edit_spec_dtypes_increase_blocked(tmp_path: Path):
+    """增加 supported_dtypes 仍被冻结 block。"""
+    op_dir = _make_stage5_op_dir(tmp_path)
+    spec_path = op_dir / "SPEC.md"
+    content = spec_path.read_text(encoding="utf-8")
+    write_file(
+        spec_path,
+        content.replace(
+            "supported_dtypes: [bfloat16]", "supported_dtypes: [bfloat16, int32]"
+        ),
+    )
+    rc, out = _post_edit_spec(
+        spec_path,
+        old_string="supported_dtypes: [bfloat16]",
+        new_string="supported_dtypes: [bfloat16, int32]",
+    )
+    assert rc == 0
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == "block"
+
+
+def test_post_edit_spec_non_dtypes_edit_blocked(tmp_path: Path):
+    """改动 supported_dtypes 以外内容仍被冻结 block。"""
+    op_dir = _make_stage5_op_dir(tmp_path)
+    spec_path = op_dir / "SPEC.md"
+    content = spec_path.read_text(encoding="utf-8")
+    write_file(spec_path, content.replace("# SPEC", "# SPEC v2"))
+    rc, out = _post_edit_spec(spec_path, old_string="# SPEC", new_string="# SPEC v2")
+    assert rc == 0
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == "block"
+
+
+def test_post_edit_spec_dtypes_replace_blocked(tmp_path: Path):
+    """替换（一增一减）不属于"只减不增"，仍 block。"""
+    op_dir = _make_stage5_op_dir(tmp_path)
+    spec_path = op_dir / "SPEC.md"
+    content = spec_path.read_text(encoding="utf-8")
+    write_file(
+        spec_path,
+        content.replace("supported_dtypes: [bfloat16]", "supported_dtypes: [int32]"),
+    )
+    rc, out = _post_edit_spec(
+        spec_path,
+        old_string="supported_dtypes: [bfloat16]",
+        new_string="supported_dtypes: [int32]",
+    )
+    assert rc == 0
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == "block"
+
+
+# ── post-edit: {op}_pypto_impl.py 桥接文件豁免 ──
+
+
+def test_post_edit_bridge_adapter_exempt(tmp_path: Path):
+    """纯 torch 桥接文件（{op}_pypto_impl.py, 无 import pypto）不套用 impl 规则。"""
+    op_dir = build_stateless_op_dir(tmp_path, "demo")
+    bridge_path = op_dir / "demo_pypto_impl.py"
+    write_file(
+        bridge_path,
+        """import torch
+
+class ModelNew(torch.nn.Module):
+    def forward(self, x):
+        return x
+""",
+    )
+    rc, out = _run_hook("post-edit", {"tool_input": {"file_path": str(bridge_path)}})
+    assert rc == 0
+    if out:
+        assert json.loads(out)["hookSpecificOutput"].get("decision") != "block"
+
+
+def test_post_edit_bridge_with_pypto_not_exempt(tmp_path: Path):
+    """文件名匹配但含 import pypto 时按 kernel impl 处理（OL01 缺 @jit → block）。"""
+    op_dir = build_stateless_op_dir(tmp_path, "demo")
+    bridge_path = op_dir / "demo_pypto_impl.py"
+    write_file(
+        bridge_path,
+        """import pypto
+
+def demo_wrapper(x):
+    return x
+""",
+    )
+    rc, decision = _post_edit_decision(str(bridge_path))
+    assert rc == 0
+    assert decision == "block"
+
+
+def test_post_edit_bridge_with_pypto_utils_still_exempt(tmp_path: Path):
+    """桥接文件 import pypto_utils（同名前缀独立包）仍应豁免（AST 判定回归）。"""
+    op_dir = build_stateless_op_dir(tmp_path, "demo")
+    bridge_path = op_dir / "demo_pypto_impl.py"
+    write_file(
+        bridge_path,
+        """import torch
+import pypto_utils
+
+class ModelNew(torch.nn.Module):
+    def forward(self, x):
+        return x
+""",
+    )
+    rc, out = _run_hook("post-edit", {"tool_input": {"file_path": str(bridge_path)}})
+    assert rc == 0
+    if out:
+        assert json.loads(out)["hookSpecificOutput"].get("decision") != "block"
+
+
+def test_post_edit_bridge_with_from_pypto_import_not_exempt(tmp_path: Path):
+    """from 形式 import pypto 也应识别：不豁免，按 kernel impl 检查（缺 @jit → block）。"""
+    op_dir = build_stateless_op_dir(tmp_path, "demo")
+    bridge_path = op_dir / "demo_pypto_impl.py"
+    write_file(
+        bridge_path,
+        """from pypto import frontend
+
+def demo_wrapper(x):
+    return x
+""",
+    )
+    rc, decision = _post_edit_decision(str(bridge_path))
+    assert rc == 0
+    assert decision == "block"

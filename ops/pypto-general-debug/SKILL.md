@@ -1,6 +1,6 @@
 ---
 name: pypto-general-debug
-description: PyPTO debugging router for stuck or opaque failures, including tile-shape/L0/L1/alignment/set_cube_tile_shapes issues; route through DEBUG_GUIDEBOOK.md to the matching topic reference or sub-skill. Use when a PyPTO kernel run is stuck or failing opaquely.
+description: PyPTO debugging router for stuck or opaque failures, including tile-shape/L0/L1/alignment/set_cube_tile_shapes issues; route through DEBUG_GUIDEBOOK.md to the matching topic reference or sub-skill. Use when a PyPTO kernel development session is stuck or hits opaque failures and needs routing to the right debug reference.
 ---
 
 # PyPTO Complex Kernel — Debugging
@@ -36,9 +36,9 @@ This is mandatory.
 
 These rules are mandatory.
 
-- repeated compile error → re-check kernel structure against the skeleton (JIT structure, interface, shapes, dtypes)
+- repeated compile error → check the post-edit lint hook output (OL01-OL54 covers JIT structure, interface, shapes, dtypes); re-check kernel structure
 - repeated runtime error → run `diagnose_error(error_log=..., kernel_code=...)`; if no match, follow `references/error-codes.md`
-- repeated accuracy mismatch → rule out write-back bugs first (every declared output actually written via `pypto.assemble(..., name)` / `name[:] = ...`)
+- repeated accuracy mismatch → check the post-edit lint hook output to rule out write-back bugs (OL02/OL51)
 - repeated same failure after three evidence-based attempts → revisit module boundaries or architecture
 - integrated graph memory-conflict / copy-pass failure → stop assuming a local line fix; use staged fallback or create a minimal repro
 - opaque PyPTO error after the above → run `extract_pypto_calls.py`, then follow the op-by-op check protocol below
@@ -47,7 +47,7 @@ These rules are mandatory.
 
 ## PyPTO op-by-op check protocol (when the agent is stuck)
 
-**Goal:** When hitting PyPTO-specific failures not resolved by structural self-review, `diagnose_error`, or docs, use this mechanical sequence so debugging converges.
+**Goal:** When hitting PyPTO-specific failures not resolved by the post-edit lint hook, `diagnose_error`, or docs, use this mechanical sequence so debugging converges.
 
 ### Step 0 — Enumerate every `pypto` call (mandatory checklist)
 
@@ -79,7 +79,7 @@ If the graph runs but outputs are wrong:
 
 Disabling arbitrary `pypto` lines inside one fused `@jit` usually invalidates the graph or hides the real bug.
 
-- Prefer module-at-a-time stubs (see skill `pypto-orchestration-manual`'s `references/rules.md` → Module-at-a-time enforcement): shrink the live region, then re-run Step 0 on the smaller file.
+- Prefer module-at-a-time stubs (see skill `pypto-orchestration-manual`'s `../pypto-orchestration-manual/references/rules.md` → Module-at-a-time enforcement): shrink the live region, then re-run Step 0 on the smaller file.
 - If you must bisect inside one module, insert one intermediate checkpoint between call sites k and k+1 and binary-search k using the numbered list — do not remove ops unless the minimal repro requires it.
 
 ### Step 4 — Plan file log (handoff-safe)
@@ -127,6 +127,6 @@ count ≤ 4.
   appears, unload the current sub-skill first.
 - Do **not** pre-load sub-skills speculatively.
 - If no row matches, stay in this SKILL.md + the leaf selected by `references/DEBUG_GUIDEBOOK.md`. Do not escalate.
-- skill `pypto-orchestration-manual`'s `references/rules.md` takes precedence over any sub-skill guidance on conflict.
+- skill `pypto-orchestration-manual`'s `../pypto-orchestration-manual/references/rules.md` takes precedence over any sub-skill guidance on conflict.
 - Log the dispatch decision to `custom/<op>/MEMORY.md` under **Development &
   debug log** (which row matched, which sub-skill was loaded, outcome).

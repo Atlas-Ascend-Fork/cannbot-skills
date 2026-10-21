@@ -1,6 +1,6 @@
 ---
 name: pypto-op-plan
-description: PyPTO Kernel requirement planning — structurally-similar example search and feasibility setup. Use when planning a new operator's development.
+description: PyPTO 算子开发需求规划（requirement planning）——结构相似样例检索与可行性准备。触发：启动新算子开发的需求规划阶段、检索结构相似参考实现时使用。
 ---
 
 # PyPTO Complex Kernel — Planning
@@ -9,14 +9,17 @@ description: PyPTO Kernel requirement planning — structurally-similar example 
 
 ## Requirements and environment (optional)
 
-**If requirements are unstructured:** structure them into `SPEC.md` (task summary lives in SPEC.md, not MEMORY.md).
+**If requirements are unstructured:** 第 1 步，structure them into `SPEC.md` (task summary lives in SPEC.md, not MEMORY.md).
+
+**SPEC.md front matter 的 `supported_dtypes`** 仅收录 P0 输入/输出 tensor 的 dtype 集合，必须与 `REQUIRE.md` 声明一致；权重 buffer 与中间计算 dtype 不写入。模板与生成指引见 skill `pypto-intent-understand`（`templates/spec-template.md`）。
 
 **If environment issues arise:** confirm with the caller whether to ignore them and continue planning.
 
 ## Find structurally similar examples
 
-Search for existing kernels with similar structure —— 用 `pypto-docs-search` 搜索 "<kernel type>" 的 算子参考实现与 golden 用法；另可扫描当前工作树 `grep -rn "<kernel type>" custom/`。
+第 2 步，search for existing kernels with similar structure —— 两个并列手段，回答"如何找范本"时须同时给出：
 
-Note: golden/用法 is an **API-usage reference only**, not the production implementation standard — its simplified forms (e.g. `pypto.Tensor([])`) may violate the production coding constraints / gates. When a sample conflicts with those constraints, the constraints take priority; do NOT cite such a sample to justify a deviation.
+1. 用 `pypto-docs-search` 搜索 "<kernel type>" 的算子参考实现与 golden 用法；
+2. 用 `grep -rn "<kernel type>" custom/` 扫描当前工作树，找结构相似的已有 kernel 范本。
 
-
+Note: golden/用法 is an **API-usage reference only**, not the production implementation standard — its simplified forms (e.g. `pypto.Tensor([])`) may violate lint / gates. When it conflicts with lint, lint takes priority; do NOT cite such a sample to declare lint a false positive.

@@ -1,6 +1,6 @@
 ---
 name: pypto-orchestration-manual
-description: pypto-op-orchestrator entry point for PyPTO Kernel development. Bundles the 3 control documents (principles, team roster, mandatory rules) as one skill with progressive-disclosure references. Read this file first, then load the references on demand. Use when orchestrating the PyPTO operator-development team.
+description: pypto-op-orchestrator entry point. Bundles the 3 control documents (principles, team roster, mandatory rules) as one skill with progressive-disclosure references. Read this file first, then load the references on demand. 触发：PyPTO 算子开发团队编排入口，加载编排原则、团队名册与强制规则时使用。
 ---
 
 # pypto-op-orchestrator — PyPTO Kernel Development
@@ -14,7 +14,7 @@ the team as a set of progressive-disclosure references.
 > **⚠️ Orchestrator-only.** This skill — including all three referenced
 > documents (`principles.md`, `agents.md`, `rules.md`)
 > — is loaded **only by `pypto-op-orchestrator`**. No
-> sub-agent (planner / mathematician / architect / designer / coder /
+> sub-agent (planner / mathematician / architect / coder /
 > verifier / debugger / optimizer) reads this skill, and no sub-agent
 > Mandatory-reads list references any file under this directory.
 >
@@ -39,8 +39,9 @@ the team as a set of progressive-disclosure references.
 | # | Reference | Purpose | Load when |
 |--:|-----------|---------|-----------|
 | 1 | `references/principles.md` | 4 behavioral guidelines (Think, Simplify, Surgical, Goal-Driven) | Always load before the first dispatch of any session |
-| 2 | `references/agents.md` | Sub-agent dispatch contract: roster (stage column), per-agent deliverables / gates / handoff, verifier modes, `failure_category` enum, debugger iteration cap. Sub-agent-internal skill loading lives in each `agents/<name>.md` Mandatory reads. | Load before the first sub-agent dispatch; keep it at hand across the whole session |
-| 3 | `references/rules.md` | mandatory rules, module-at-a-time enforcement, 3 prohibitions. Every sub-agent output must pass these | On demand — sub-agents enforce these via their own skills |
+| 2 | `references/agents.md` | Sub-agent dispatch contract: roster (stage column), per-agent deliverables / gates / handoff, verifier modes, `failure_category` enum, debugger iteration cap. Sub-agent-internal skill loading lives in each `../../agents/<name>.md` Mandatory reads. | Load before the first sub-agent dispatch; keep it at hand across the whole session |
+| 3 | `references/rules.md` | mandatory rules, module-at-a-time enforcement, 3 prohibitions. Every sub-agent output must pass these | On demand — sub-agents enforce these via their own skills + lint |
+| 4 | `references/lint-gate-rules.md` | pypto-op-lint 门禁规则速查（OL 规则语义、严重级别、适用阶段） | 门禁报 `[OLxx][Sx]` 需要查规则语义或向 subagent 解释拦截原因时 |
 
 These references were previously top-level files under `.agents/`. They
 have been relocated here to enforce the skill-library structure: the pypto-op-orchestrator
@@ -54,7 +55,6 @@ All sub-agents read and write one shared file: `custom/<op>/MEMORY.md`. This
 memory file is the single source of truth for stage status, gate evidence,
 debug log, and module contracts. Every handoff between agents is a memory
 update, not a direct message. Template:
-skill `pypto-memory-template`'s `templates/MEMORY.template.md`.
+skill `pypto-memory-template`'s `../pypto-memory-template/templates/MEMORY.template.md`.
 
 ---
-

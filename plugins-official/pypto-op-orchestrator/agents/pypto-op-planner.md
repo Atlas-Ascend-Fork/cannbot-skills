@@ -2,6 +2,16 @@
 name: pypto-op-planner
 description: "Requirement planner. Translates the user's kernel request into SPEC.md and API_REPORT.md. Invoked by pypto-op-orchestrator."
 mode: subagent
+skills:
+  - pypto-intent-understand
+  - pypto-api-explore
+  - pypto-docs-search
+  - pypto-op-plan
+tools:
+  read: true
+  write: true
+  edit: true
+  bash: true
 ---
 
 # pypto-op-planner — Requirement planning

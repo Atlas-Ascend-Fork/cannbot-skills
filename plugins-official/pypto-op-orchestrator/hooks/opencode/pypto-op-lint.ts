@@ -1,10 +1,12 @@
-// Copyright (c) 2025-2026 Huawei Technologies Co., Ltd.
+// ----------------------------------------------------------------------------------------------------------
+// Copyright (c) 2026 Huawei Technologies Co., Ltd.
 // This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 // CANN Open Software License Agreement Version 2.0 (the "License").
 // Please refer to the License for details. You may not use this file except in compliance with the License.
 // THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
+// ----------------------------------------------------------------------------------------------------------
 
 import type { Plugin } from "@opencode-ai/plugin";
 import path from "node:path";
@@ -23,7 +25,7 @@ function appendMessage(output: { output?: string }, message: string): void {
 
 function formatPluginError(scope: string, error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error);
-  return `[pypto-op-lint plugin-error] ${scope} 自动检查失败：${detail}`;
+  return `[pypto-op-lint plugin-error] ${scope} auto-check failed: ${detail}`;
 }
 
 function parseHookOutput(raw: string): { additionalContext: string; decision: "allow" | "block"; reason: string } {
@@ -38,7 +40,7 @@ function parseHookOutput(raw: string): { additionalContext: string; decision: "a
     };
   } catch (error) {
     return {
-      additionalContext: formatPluginError("post-edit 输出解析", error),
+      additionalContext: formatPluginError("post-edit output parsing", error),
       decision: "allow",
       reason: "",
     };
@@ -192,16 +194,20 @@ export const PyptoOpLintPlugin: Plugin = async (input) => {
   // chat agent by session and activate this workflow only for the classic
   // PyPTO team. This positive allowlist prevents unrelated agents from
   // inheriting classic PyPTO lint behavior.
+  // Harness compatibility: in "node-as-agent" workflows the stage node runs
+  // as general-executor (acting body) / general-verifier (judge); without
+  // these entries every edit by a harness node would silently skip lint.
   const LINT_RUN_AGENTS = new Set([
     "pypto-op-orchestrator",
     "pypto-op-planner",
     "pypto-op-mathematician",
     "pypto-op-architect",
-    "pypto-op-designer",
     "pypto-op-coder",
     "pypto-op-verifier",
     "pypto-op-debugger",
     "pypto-op-optimizer",
+    "general-executor",
+    "general-verifier",
   ]);
   const agentBySession = new Map<string, string>();
   function rememberAgent(input: { sessionID?: unknown; agent?: unknown }): void {

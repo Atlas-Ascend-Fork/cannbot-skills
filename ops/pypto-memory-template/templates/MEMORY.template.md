@@ -2,15 +2,14 @@
 
 Copy to: `custom/<operator_name>/MEMORY.md` and keep **machine-readable** fields current every turn.
 
-**Agent:** Do **not** skip **skill `pypto-orchestration-manual`'s `references/rules.md`** or sub-skill obligations (staged files, all-output compare, memory logs). See **skill `pypto-orchestration-manual`'s `references/rules.md`** — *Zero tolerance*. **Code layout:** every staged file and the full kernel **must** follow **skill `pypto-op-develop`'s `templates/impl_template.py`** (layers A–L); document exceptions here. Layout / structure requirements are listed in **skill `pypto-op-review`'s `references/CI.md`** — re-check them after every file write and at each phase / stage boundary.
+**Agent:** Do **not** skip **skill `pypto-orchestration-manual`'s `references/rules.md`** or sub-skill obligations (staged files, all-output compare, memory logs). See **skill `pypto-orchestration-manual`'s `references/rules.md`** — *Zero tolerance*. **Code layout:** every staged file and the full kernel **must** follow **skill `pypto-op-develop`'s `templates/impl_template.py.tmpl`** (layers A–L); document exceptions here. Layout / structure rules are enforced automatically by the pypto-op-lint hooks on file write and at the phase / stage gates — there is no separate layout script to run.
 
 ## Agent status (minimal)
 
 ```yaml
 phase: 0|1|2|3|4|5|6
-decomposition_level: L0|L1                    # from DESIGN.md §0.3; L0 = single module, L1 = multi-module
-module_count: 1                               # from DESIGN.md §0.3; 1 for L0, ≥2 for L1
-total_complexity: 0.67                        # from DESIGN.md §0.2 (snapshot)
+decomposition_level: L0|L1                    # from DESIGN.md 「分解与模块边界」; L0 = single module, L1 = multi-module
+module_count: 1                               # from DESIGN.md 「分解与模块边界」; 1 for L0, ≥2 for L1
 active_module: M1   # or M2, …, none          # for L1 only; L0 sets active_module: M1 (single)
 current_staged_file: custom/<operator_name>/<operator_name>_module1.py   # L1 only; L0 uses custom/<operator_name>/<operator_name>_impl.py
 modules_pypto_verified:
@@ -23,8 +22,8 @@ optimization: not_started | … | complete | skipped_user_request
 blockers: []
 ```
 
-> **L0 vs L1 path** (see DESIGN.md §0 and skill `pypto-op-construct`'s **Decomposition Gate**):
-> - `module_count == 1` (L0): skip Stage 4 module decomposition; produce single `<op>_impl.py` directly; verify with one `detailed_tensor_compare` on the final output (see skill `pypto-op-verify`'s **L0 path**).
+> **L0 vs L1 path** (see DESIGN.md 「分解与模块边界」):
+> - `module_count == 1` (L0): skip multi-module test preparation; produce a single `<op>_impl.py` and compare every final output with golden (see skill `pypto-op-verify`'s **L0 path**).
 > - `module_count ≥ 2` (L1): follow the staged file chain, freeze per module, per-module verification log applies as usual.
 
 ## Task summary
@@ -36,31 +35,30 @@ blockers: []
 ## Validation (mandatory)
 
 - **Runner:** `custom/<operator_name>/test_<operator_name>.py`
-- **Command (repo root):** `python custom/<operator_name>/test_<operator_name>.py` — the test file's path-bootstrap preamble locates `detailed_tensor_compare` automatically; no `PYTHONPATH` env var needed. (Legacy fallback if the preamble is somehow stripped: `PYTHONPATH=skills/pypto-op-verify/scripts python custom/<operator_name>/test_<operator_name>.py`.)
-- **Comparison:** `from detailed_tensor_compare import detailed_tensor_compare` (bundled: skill `pypto-op-verify`'s `scripts/detailed_tensor_compare.py`). **Do not** use `pytest` as the default for this golden vs PyPTO check unless documented under **blockers** as an exception.
+- **Command (any cwd):** `python custom/<operator_name>/test_<operator_name>.py` — the test file's path-bootstrap preamble resolves everything from `__file__`; no `PYTHONPATH` env var, and no dependency on the agent framework's skills directory. (If the preamble was stripped, regenerate the test with `gen_module_test.py` rather than patching `PYTHONPATH`.)
+- **Comparison:** `from detailed_tensor_compare import detailed_tensor_compare` — resolved from `custom/<operator_name>/detailed_tensor_compare.py`, a vendored copy that `gen_module_test.py` refreshes from skill `pypto-op-verify`'s `scripts/detailed_tensor_compare.py` on every generation. This keeps `custom/<operator_name>/` portable. **Do not** use `pytest` as the default for this golden vs PyPTO check unless documented under **blockers** as an exception.
 - **All outputs:** the runner must call **`detailed_tensor_compare`** on **every** leaf output tensor (tuple/list/dict/nested structures — **not** only `outputs[0]`). If any output is intentionally skipped, document under **blockers** with justification.
 
 ## Module decomposition (mandatory)
 
 Document **how** the kernel is split and **why**, per `decomposition_level`:
 
-- **L0 (`module_count == 1`)**: fill one row covering the entire kernel; rationale = "single complexity unit (total_complexity = {value} < 1.3 per DESIGN.md §0.3)".
-- **L1 (`module_count ≥ 2`)**: fill `module_count` rows. Boundary tensors come from DESIGN.md §0.5 (architect-chosen breakpoints); each module ≈ 1 complexity unit; every row must have **≥ 1 heavy op** (skill `pypto-op-construct` Module Boundary Rules R2).
+- **L0 (`module_count == 1`)**: record the single module and the actual reason for keeping its computation together, as stated in DESIGN.md.
+- **L1 (`module_count ≥ 2`)**: record each module from DESIGN.md and eval/module_interfaces.yaml. Follow the confirmed boundaries; do not impose a fixed complexity score or require a matrix operation in every module.
 
 ### Modules (overview)
 
-| ID | One-line role | Boundary tensors (golden checkpoint names) | Heavy ops (≥1) | Light ops merged | CU estimate | Depends on |
-|----|---------------|---------------------------------------------|----------------|------------------|-------------|------------|
-| M1 | …             | …                                           | matmul, …      | view (entry), …  | ~1.0        | —          |
-| M2 | …             | …                                           | matmul, …      | assemble (exit)  | ~1.0        | M1         |
+| ID | Role | Output tensors (golden checkpoint names) | Main computation | Input sources |
+|----|------|-----------------------------------------|------------------|---------------|
+| M1 | …    | …                                       | …                | …             |
+| M2 | …    | …                                       | …                | …             |
 
 ### Rationale
 
-- **Decomposition level:** `L0 | L1`, from DESIGN.md §0.3 (total_complexity = {value}, module_count = {value}).
-- **Heavy/light classification:** see DESIGN.md §0.4.
-- **Why these breakpoints:** (from DESIGN.md §0.5 — semantic stage boundaries on the data flow)
+- **Decomposition level:** `L0 | L1`, from DESIGN.md 「分解与模块边界」 (module_count = {value}).
+- **Why these breakpoints:** (from DESIGN.md 「分解与模块边界」 — semantic stage boundaries on the data flow)
 - **Why this order:** (dependency / debuggability)
-- **Alternatives considered and rejected:** (optional; e.g. "merging M1+M2 considered but module would exceed 1.5 CU")
+- **Alternatives considered and rejected:** (optional; reference the actual design reason, such as the cost of storing a large intermediate tensor).
 
 ## Staged module files (L1 path only)
 
@@ -88,17 +86,13 @@ Every time a **module boundary** is validated (golden vs PyPTO at that checkpoin
 
 *On failure:* add a **Development & debug log** entry and keep the failed row or add a follow-up row after fix.
 
-## Per-module structural-defect log (mandatory when a write is rejected)
+## Per-module lint history (mandatory when post-edit lint blocks)
 
-Each time a `modules/<op>_module*_impl.py` write is rejected for a structural
-defect, append a row: record the defect verbatim as reported, and the one-line
-fix. If the **same** defect recurs on 5 consecutive write attempts at the same
-`file:line`, stop self-retrying and let the orchestrator dispatch
-`pypto-op-debugger`.
+Each time the `pypto-op-lint` PostToolUse hook returns `decision: block` on a `modules/<op>_module*_impl.py` write, append a row. The hook's `blocking_rules:` line in the tool-call error / `additionalContext` is the authoritative source — copy it verbatim. If the same `OLxx` blocks 5 consecutive Write attempts on the same `file:line`, stop self-retrying and let the orchestrator dispatch `pypto-op-debugger`.
 
-| When | Module | File | Defect | Resolution (one-line) |
-|------|--------|------|--------|------------------------|
-| | M1 | `modules/<op>_module1_impl.py` | missing JIT decorator | added `@pypto.frontend.jit` decorator |
+| When | Module | File | blocking_rules | Resolution (one-line) |
+|------|--------|------|----------------|------------------------|
+| | M1 | `modules/<op>_module1_impl.py` | OL01 | added `@pypto.frontend.jit` decorator |
 
 ## Vector tile config
 
@@ -124,7 +118,7 @@ List **every operation** in the PyPTO-friendly golden. *Stage 5 Coder 从 `<op>_
 
 ## Experience Preflight
 
-*Generated by Experience Preflight scan (see `pypto-op-knowledge/references/experience_preflight.md`) by Coder at Stage 5 before writing impl. All entries use `- [x]`/`- [-]`/`- [ ]` format. Rules marked `🤖` (AST scan) or `🔧` (other automated scan) are covered automatically — Coder only needs to manually check rules without any marker. References (tile shapes, tolerances) go in `### References` subsection without `-` prefix.*
+*Generated by Experience Preflight scan (see `pypto-op-knowledge/references/experience_preflight.md`) by Coder at Stage 5 before writing impl. All entries use `- [x]`/`- [-]`/`- [ ]` format. Rules marked `🤖` (OL61 AST) or `🔧` (other OL rules) are automatically scanned — Coder only needs to manually check rules without any marker. References (tile shapes, tolerances) go in `### References` subsection without `-` prefix.*
 
 *This section is created by the preflight process — no placeholder content needed here.*
 
@@ -132,11 +126,12 @@ List **every operation** in the PyPTO-friendly golden. *Stage 5 Coder 从 `<op>_
 
 Coder must fill in **one section per Phase M_k** before returning control
 to the orchestrator. The orchestrator's next action after Coder returns is
-`state_transition(action=submit_for_verify, phase=M_k)`, and that gate expects
-this section to be present with the 6 structural items marked `- [x]`. The
-valid-shape audit item is a mandatory Coder handoff kept beside them. If any
-skeleton item cannot be checked, do NOT return to the orchestrator yet — fix
-first.
+`state_transition(action=submit_for_verify, phase=M_k)`, which runs the
+phase-scoped lint gate including OL54 — that rule enforces presence of
+this section with the 6 structural items marked `- [x]`. The valid-shape
+audit item is a mandatory Coder handoff kept beside them; it is not a new
+lint rule. If any skeleton item cannot be checked, do NOT return to the
+orchestrator yet — fix first.
 
 Copy this skeleton at the start of each new phase:
 
@@ -144,13 +139,13 @@ Copy this skeleton at the start of each new phase:
 ## Phase M_k self-review
 
 - [ ] host_wrapper **signature** matches `eval/module_interfaces.yaml`
-      (primary_inputs order). Evidence: `<op>_module<suffix>_impl.py:Lxx`
+      (primary_inputs order; OL50). Evidence: `<op>_module<suffix>_impl.py:Lxx`
 - [ ] All declared **output** tensors are written via
-      `pypto.assemble(..., name)` / `name[:] = ...`.
+      `pypto.assemble(..., name)` / `name[:] = ...` (OL51).
       Evidence: output names = [...], write sites = Lxx, Lyy
 - [ ] All `pypto.view(t, shape=[...], offsets=[...], valid_shape=[...])`
-      satisfy: (a) shape / offsets / valid_shape have **matching rank**,
-      and (b) **`valid_shape[i] ≤ shape[i]` per axis** — when
+      satisfy: (a) shape / offsets / valid_shape have **matching rank**
+      (OL52), and (b) **`valid_shape[i] ≤ shape[i]` per axis** — when
       `shape[i]` is a literal and `valid_shape[i]` is a SymbolicScalar
       expression (e.g. `B - offset`), it MUST be clamped via `.min(TILE)`
       (see `pypto-op-design/SKILL.md` §3.1 尾块处理; production reference:
@@ -158,10 +153,10 @@ Copy this skeleton at the start of each new phase:
       gated/递归类算子范本）.
       Evidence: scanned N view sites, clamp expr at Lxx
 - [ ] SPEC `Golden function inventory` cross-check: every row owned by this
-      phase has `✅` + impl line ref (any gap blocks cleanup).
-- [ ] Layer K wrapper contains NO `for ... in range(...)`.
+      phase has `✅` + impl line ref (OL53 will block at cleanup).
+- [ ] Layer K wrapper contains NO `for ... in range(...)` (OL45).
       Evidence: greppped, no hits
-- [ ] Layer K wrapper calls JIT **exactly once** (design rule).
+- [ ] Layer K wrapper calls JIT **exactly once** (OL45/design rule).
       Evidence: single `<op>_kernel_npu(...)` call at Lxx
 - [ ] Valid-shape audit complete. Evidence: non-full-valid tensors = [...];
       each producer op classified as inherited / transformed / re-inferred /
@@ -170,8 +165,8 @@ Copy this skeleton at the start of each new phase:
 ```
 
 Every skeleton item must be `- [x]` (lowercase x) AND carry at least a line
-reference or a one-line evidence note. The gate checks the 6 structural items;
-Coder must still complete the valid-shape audit before returning.
+reference or a one-line evidence note. OL54 gate-enforces the 6 structural
+items; Coder must still complete the valid-shape audit before returning.
 
 ## Module contracts
 
@@ -179,20 +174,20 @@ Coder must still complete the valid-shape audit before returning.
 
 ## Design format compliance
 
-- **Template:** skill `pypto-op-develop`'s `templates/impl_template.py` — **mandatory** skeleton for each `*_module*.py` and the integrated kernel (same layers; trim unused sections only with justification below).
+- **Template:** skill `pypto-op-develop`'s `templates/impl_template.py.tmpl` — **mandatory** skeleton for each `*_module*.py` and the integrated kernel (same layers; trim unused sections only with justification below).
 - Layers A–L from `docs/pypto-kernel-design-format.md` (copy in this bundle: skill `pypto-op-develop`'s `references/pypto-kernel-design-format.md`): which apply, which omitted, why.
 
 ## PyPTO call-site checklist (when debugging)
 
 Paste output of:
 
-`python3 skills/pypto-op-review/scripts/extract_pypto_calls.py custom/<operator_name>/<operator_name>_module1234.py` *(or current staged / final kernel file)*
+`python3 ../../pypto-op-review/scripts/extract_pypto_calls.py custom/<operator_name>/<operator_name>_module1234.py` *(or current staged / final kernel file)*
 
 | # | Line | Call | doc OK? | notes |
 
 ## skill `pypto-general-debug`'s `references/DEBUG_GUIDEBOOK.md` §9 — pre-write checklist
 
-Before writing each module's PyPTO code, review the matching subsections from **skill `pypto-general-debug`'s `references/DEBUG_GUIDEBOOK.md` §9**. Check off after reading. See full lookup table in **skill `pypto-op-construct` (SKILL.md auto-loads)** → **Before writing PyPTO code**.
+Before writing each module's PyPTO code, review the matching subsections from **skill `pypto-general-debug`'s `references/DEBUG_GUIDEBOOK.md` §9**. Check off after reading. See full lookup table in **skill `pypto-op-design` (SKILL.md auto-loads)** → **Before writing PyPTO code**.
 
 | Subsection | Applies to this kernel? | Reviewed? |
 |------------|------------------------|-----------|
@@ -212,6 +207,14 @@ Before writing each module's PyPTO code, review the matching subsections from **
 ## Development & debug log
 
 | When | Action | Result | Next |
+
+## 已否决方案表（Rejected Approaches）
+
+verifier/debugger 每次 FAIL 归因后，若结论为「此路线不可行」（而非「此实现有错」），必须向本表追加一行；orchestrator dispatch coder/debugger 时注入本表全文；表中方案不得重试，除非携带新证据并在返回中显式说明；每阶段最多保留 10 行，超出部分由 orchestrator 合并同类项。
+
+| 方案 | 否决证据（报错/会话/时间） | 否决时间 |
+|------|---------------------------|----------|
+| | | |
 
 ## Human review milestones (optional)
 

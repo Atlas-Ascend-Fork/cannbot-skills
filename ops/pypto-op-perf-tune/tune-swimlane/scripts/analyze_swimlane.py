@@ -56,42 +56,48 @@ Merge Tuning Guide:
   Groups by hashOrder for each merge type, uses t/iter to guide granularity.
 """
 
-import logging
 import argparse
 import json
+import logging
 import re
 
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 
 def parse_hashorder_hint(hint_text):
     result = {}
-    for line in hint_text.split('\n'):
+    for line in hint_text.split("\n"):
         line = line.strip()
-        m = re.match(r'(\w+) hashOrder: (\S+), subGraphCount: (\d+)', line)
+        m = re.match(r"(\w+) hashOrder: (\S+), subGraphCount: (\d+)", line)
         if m:
             result[m.group(1)] = {
-                'hashOrder': m.group(2),
-                'subGraphCount': int(m.group(3))
+                "hashOrder": m.group(2),
+                "subGraphCount": int(m.group(3)),
             }
     return result
 
 
-def main():
+def _parse_args():
     parser = argparse.ArgumentParser(
-        description="Analyze swimlane data: leafHash stats, hashOrder, merge tuning guide")
+        description="Analyze swimlane data: leafHash stats, hashOrder, merge tuning guide"
+    )
     parser.add_argument("output_dir", help="Output directory with swimlane data")
-    parser.add_argument("--outer-loops", type=int, default=1,
-                        help="Outer loop iteration count (default=1; " \
-                             "manually calculate from kernel code for correct t/iter)")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--outer-loops",
+        type=int,
+        default=1,
+        help="Outer loop iteration count (default=1; "
+        "manually calculate from kernel code for correct t/iter)",
+    )
+    return parser.parse_args()
 
-    base_dir = args.output_dir.rstrip("/")
 
-    with open(f"{base_dir}/merged_swimlane.json", "r") as f:
-        data = json.load(f)
-    events = data.get("traceEvents", data)
+def _load_json(path):
+    with open(path, "r") as json_file:
+        return json.load(json_file)
 
+
+def _map_tid_to_core(events):
     tid_core = {}
     for ev in events:
         if ev.get("ph") == "M" and ev.get("name") == "thread_name":
@@ -103,7 +109,10 @@ def main():
                 tid_core[tid] = "AIV"
             else:
                 tid_core[tid] = name
+    return tid_core
 
+
+def _collect_leaf_data(events, tid_core):
     leaf_stats = {}
     leaf_hashorder = {}
     leaf_root = {}
@@ -139,14 +148,10 @@ def main():
 
         if lh not in leaf_root and root_hash:
             leaf_root[lh] = root_hash
+    return leaf_stats, leaf_hashorder, leaf_root
 
-    if not leaf_hashorder:
-        logging.warning("No hashOrder-hint found in merged_swimlane.json. "
-                        "Please ensure the runtime supports hashOrder-hint output.")
 
-    with open(f"{base_dir}/program.json", "r") as f:
-        prog = json.load(f)
-
+def _extract_program_metadata(prog):
     root_name = {}
     for func in prog["functions"]:
         if func.get("graphtype") == 2:
@@ -155,20 +160,36 @@ def main():
             root_name[h] = magic.replace("TENSOR_LOOP_", "")
 
     leaf_ops = {}
-    skip_ops = {"COPY_IN", "COPY_OUT", "SYNC_SRC", "SYNC_DST", "PHASE1", "PHASE2", "PHASE3"}
+    skip_ops = {
+        "COPY_IN",
+        "COPY_OUT",
+        "SYNC_SRC",
+        "SYNC_DST",
+        "PHASE1",
+        "PHASE2",
+        "PHASE3",
+    }
     for func in prog["functions"]:
         if func.get("graphtype") == 3:
             h = str(func.get("hash", ""))
             opcodes = [op.get("opcode", "?") for op in func.get("operations", [])]
-            compute = [o for o in opcodes if o not in skip_ops]
+            compute = [opcode for opcode in opcodes if opcode not in skip_ops]
             leaf_ops[h] = "+".join(compute) if compute else "(pure copy)"
+    return root_name, leaf_ops
 
-    outer_loops = args.outer_loops
 
-    logging.info(f"{'#':<3} {'leafHash':<22} "
-          f"{'min(us)':>9} {'max(us)':>9} {'avg(us)':>9} {'total(us)':>10} "
-          f"{'core':>4} {'hashOrder':<12} {'subGCnt':>7} {'t/iter':>6} "
-          f"{'root_name':<42} {'compute_ops'}")
+def _log_leaf_stats(leaf_data, program_data, outer_loops):
+    leaf_stats = leaf_data["stats"]
+    leaf_hashorder = leaf_data["hashorder"]
+    leaf_root = leaf_data["root"]
+    root_name = program_data["root_name"]
+    leaf_ops = program_data["leaf_ops"]
+    logging.info(
+        f"{'#':<3} {'leafHash':<22} "
+        f"{'min(us)':>9} {'max(us)':>9} {'avg(us)':>9} {'total(us)':>10} "
+        f"{'core':>4} {'hashOrder':<12} {'subGCnt':>7} {'t/iter':>6} "
+        f"{'root_name':<42} {'compute_ops'}"
+    )
     logging.info("-" * 240)
 
     sorted_items = sorted(leaf_stats.items(), key=lambda x: -sum(x[1]["durs"]))
@@ -196,89 +217,111 @@ def main():
 
         sgc_str = str(sgc) if sgc > 0 else "?"
         tpi_str = f"{t_per_iter:.1f}" if sgc > 0 else "?"
-        logging.info(f"{i:<3} {lh:<22} "
-              f"{min(durs):>9.2f} {max(durs):>9.2f} {sum(durs)/len(durs):>9.2f} {sum(durs):>10.2f} "
-              f"{ct:>4} {ho:<12} {sgc_str:>7} {tpi_str:>6} {rn:<42} {ops}")
+        average = sum(durs) / len(durs)
+        logging.info(
+            f"{i:<3} {lh:<22} "
+            f"{min(durs):>9.2f} {max(durs):>9.2f} {average:>9.2f} {sum(durs):>10.2f} "
+            f"{ct:>4} {ho:<12} {sgc_str:>7} {tpi_str:>6} {rn:<42} {ops}"
+        )
 
     logging.info(f"\nouter_loops={outer_loops}")
 
-    def build_merge_stats(info_key):
-        merge_stats = {}
-        for lh, st in leaf_stats.items():
-            ho_info = leaf_hashorder.get(lh, {})
-            info = ho_info.get(info_key)
-            if not info:
-                continue
-            ho = info['hashOrder']
-            sgc = info['subGraphCount']
-            if ho not in merge_stats:
-                merge_stats[ho] = {'subGraphCount': sgc, 'durs': [], 'core': st['core']}
-            merge_stats[ho]['durs'].extend(st['durs'])
-        return merge_stats
 
-    l1_stats = build_merge_stats('l1ReuseInfo')
-    cube_stats = build_merge_stats('cubeMergeInfo')
-    vec_stats = build_merge_stats('vecMergeInfo')
+def build_merge_stats(leaf_stats, leaf_hashorder, info_key):
+    merge_stats = {}
+    for leaf_hash, stats in leaf_stats.items():
+        info = leaf_hashorder.get(leaf_hash, {}).get(info_key)
+        if not info:
+            continue
+        hash_order = info["hashOrder"]
+        if hash_order not in merge_stats:
+            merge_stats[hash_order] = {
+                "subGraphCount": info["subGraphCount"],
+                "durs": [],
+            }
+        merge_stats[hash_order]["durs"].extend(stats["durs"])
+    return merge_stats
 
+
+def _format_merge_suggestion(hash_order, tasks_per_iteration, is_vector):
+    values = [value for value in [2, 4, 8, 16] if value <= tasks_per_iteration * 4]
+    values_text = "/".join(str(value) for value in values)
+    if is_vector:
+        return (
+            f"\n    -> integer key: {{-1: {values_text}}} (global)"
+            f"\n    -> func key:    "
+            f'{{"DEFAULT": 1, "{hash_order}": {values_text}}} (specific)'
+        )
+
+    default_text = "/".join(str(value) for value in values[:2])
+    return (
+        f"\n    -> integer key: {{-1: {values_text}}} (global)"
+        f"\n    -> func key:    "
+        f'{{"DEFAULT": {default_text}, "{hash_order}": {values_text}}} (specific)'
+    )
+
+
+def _log_merge_stats(title, merge_stats, outer_loops, is_vector=False):
+    if not merge_stats:
+        return
+
+    logging.info(f"\n{title}:")
+    ordered_hashes = sorted(
+        merge_stats,
+        key=lambda hash_order: -sum(merge_stats[hash_order]["durs"]),
+    )
+    for hash_order in ordered_hashes:
+        stats = merge_stats[hash_order]
+        subgraph_count = stats["subGraphCount"]
+        tasks_per_iteration = subgraph_count / outer_loops
+        average = sum(stats["durs"]) / len(stats["durs"])
+        line = (
+            f"  hashOrder={hash_order}: subGraphCount={subgraph_count}, "
+            f"t/iter={tasks_per_iteration:.0f}, avg={average:.2f}us"
+        )
+        if tasks_per_iteration > 1:
+            line += _format_merge_suggestion(hash_order, tasks_per_iteration, is_vector)
+        logging.info(line)
+
+
+def _log_merge_guide(leaf_stats, leaf_hashorder, outer_loops):
     logging.info(f"\n{'=' * 80}")
     logging.info("Merge Tuning Guide (hashOrder = merge key)")
     logging.info(f"{'=' * 80}")
+    categories = (
+        ("[AIC] cube_l1_reuse_setting", "l1ReuseInfo", False),
+        ("[AIC] cube_nbuffer_setting", "cubeMergeInfo", False),
+        ("[AIV] vec_nbuffer_setting", "vecMergeInfo", True),
+    )
+    for title, info_key, is_vector in categories:
+        merge_stats = build_merge_stats(leaf_stats, leaf_hashorder, info_key)
+        _log_merge_stats(title, merge_stats, outer_loops, is_vector)
 
-    if l1_stats:
-        logging.info(f"\n[AIC] cube_l1_reuse_setting:")
-        for ho in sorted(l1_stats.keys(), key=lambda x: -sum(l1_stats[x]['durs'])):
-            st = l1_stats[ho]
-            sgc = st['subGraphCount']
-            tpi = sgc / outer_loops
-            avg = sum(st['durs']) / len(st['durs'])
-            line = f"  hashOrder={ho}: subGraphCount={sgc}, t/iter={tpi:.0f}, avg={avg:.2f}us"
-            if tpi > 1:
-                vals = [v for v in [2, 4, 8, 16] if v <= tpi * 4]
-                vals_str = '/'.join(str(v) for v in vals)
-                default_str = '/'.join(str(v) for v in vals[:2])
-                line += f"\n    -> integer key: {{-1: {vals_str}}} (global)"
-                line += (
-                    f"\n    -> func key:    "
-                    f"{{\"DEFAULT\": {default_str}, \"{ho}\": {vals_str}}} (specific)"
-                )
-            logging.info(line)
 
-    if cube_stats:
-        logging.info(f"\n[AIC] cube_nbuffer_setting:")
-        for ho in sorted(cube_stats.keys(), key=lambda x: -sum(cube_stats[x]['durs'])):
-            st = cube_stats[ho]
-            sgc = st['subGraphCount']
-            tpi = sgc / outer_loops
-            avg = sum(st['durs']) / len(st['durs'])
-            line = f"  hashOrder={ho}: subGraphCount={sgc}, t/iter={tpi:.0f}, avg={avg:.2f}us"
-            if tpi > 1:
-                vals = [v for v in [2, 4, 8, 16] if v <= tpi * 4]
-                vals_str = '/'.join(str(v) for v in vals)
-                default_str = '/'.join(str(v) for v in vals[:2])
-                line += f"\n    -> integer key: {{-1: {vals_str}}} (global)"
-                line += (
-                    f"\n    -> func key:    "
-                    f"{{\"DEFAULT\": {default_str}, \"{ho}\": {vals_str}}} (specific)"
-                )
-            logging.info(line)
+def main():
+    args = _parse_args()
+    base_dir = args.output_dir.rstrip("/")
+    data = _load_json(f"{base_dir}/merged_swimlane.json")
+    events = data.get("traceEvents", data)
 
-    if vec_stats:
-        logging.info(f"\n[AIV] vec_nbuffer_setting:")
-        for ho in sorted(vec_stats.keys(), key=lambda x: -sum(vec_stats[x]['durs'])):
-            st = vec_stats[ho]
-            sgc = st['subGraphCount']
-            tpi = sgc / outer_loops
-            avg = sum(st['durs']) / len(st['durs'])
-            line = f"  hashOrder={ho}: subGraphCount={sgc}, t/iter={tpi:.0f}, avg={avg:.2f}us"
-            if tpi > 1:
-                vals = [v for v in [2, 4, 8, 16] if v <= tpi * 4]
-                vals_str = '/'.join(str(v) for v in vals)
-                line += f"\n    -> integer key: {{-2: 1, -1: {vals_str}}} (global)"
-                line += (
-                    f"\n    -> func key:    "
-                    f"{{\"DEFAULT\": 1, \"{ho}\": {vals_str}}} (specific)"
-                )
-            logging.info(line)
+    tid_core = _map_tid_to_core(events)
+    leaf_stats, leaf_hashorder, leaf_root = _collect_leaf_data(events, tid_core)
+    leaf_data = {
+        "stats": leaf_stats,
+        "hashorder": leaf_hashorder,
+        "root": leaf_root,
+    }
+    if not leaf_hashorder:
+        logging.warning(
+            "No hashOrder-hint found in merged_swimlane.json. "
+            "Please ensure the runtime supports hashOrder-hint output."
+        )
+
+    program = _load_json(f"{base_dir}/program.json")
+    root_name, leaf_ops = _extract_program_metadata(program)
+    program_data = {"root_name": root_name, "leaf_ops": leaf_ops}
+    _log_leaf_stats(leaf_data, program_data, args.outer_loops)
+    _log_merge_guide(leaf_stats, leaf_hashorder, args.outer_loops)
 
 
 if __name__ == "__main__":

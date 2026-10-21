@@ -94,7 +94,9 @@ def build_stateless_op_dir(base: Path, op_name: str = "demo") -> Path:
     write_file(op_dir / "DESIGN.md", DESIGN_TEMPLATE.replace("demo", op_name))
     write_file(op_dir / "API_REPORT.md", API_TEMPLATE.replace("demo", op_name))
     write_file(op_dir / f"{op_name}_impl.py", IMPL_TEMPLATE.replace("demo", op_name))
-    write_file(op_dir / f"{op_name}_golden.py", GOLDEN_TEMPLATE.replace("demo", op_name))
+    write_file(
+        op_dir / f"{op_name}_golden.py", GOLDEN_TEMPLATE.replace("demo", op_name)
+    )
     write_file(op_dir / f"test_{op_name}.py", TEST_TEMPLATE)
     write_file(op_dir / "README.md", "# readme\n")
     return op_dir

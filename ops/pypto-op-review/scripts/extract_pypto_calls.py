@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Copyright (c) 2024-2026 Huawei Technologies Co., Ltd.
+# ----------------------------------------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
 # This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 # CANN Open Software License Agreement Version 2.0 (the "License").
 # Please refer to the License for details. You may not use this file except in compliance with the License.
 # THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE in the root of the software repository for the full text of the License.
+# ----------------------------------------------------------------------------------------------------------
+
 """
 List PyPTO API call sites in a Python file (line number + call expression).
 
@@ -50,42 +53,83 @@ def _attr_chain(func: ast.AST) -> Optional[List[str]]:
     return None
 
 
-def _collect_pypto_imports(tree: ast.AST) -> "tuple[Set[str], Set[str]]":
-    """Return (pypto module roots, short `from pypto import ...` names)."""
-    pypto_roots: Set[str] = set()
-    short_from_pypto: Set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            pypto_roots.update(alias.asname or "pypto" for alias in node.names if alias.name == "pypto")
-        elif isinstance(node, ast.ImportFrom) and node.module == "pypto":
-            short_from_pypto.update(alias.asname or alias.name for alias in node.names if alias.name != "*")
-    return pypto_roots, short_from_pypto
+class _Finder:
+    def __init__(self) -> None:
+        self.pypto_roots: Set[str] = set()
+        self.short_from_pypto: Set[str] = set()
+        self.sites: List[CallSite] = []
 
+    def collect(self, tree: ast.AST) -> List[CallSite]:
+        """Collect imports first, then resolve calls against those aliases."""
+        nodes = list(ast.walk(tree))
+        for node in nodes:
+            if isinstance(node, ast.Import):
+                self._record_import(node)
+            elif isinstance(node, ast.ImportFrom):
+                self._record_import_from(node)
+        for node in nodes:
+            if isinstance(node, ast.Call):
+                self._record_call(node)
+        return sorted(self.sites, key=lambda site: (site.line, site.col))
 
-def _collect_call_sites(tree: ast.AST, pypto_roots: Set[str], short_from_pypto: Set[str]) -> List[CallSite]:
-    sites: List[CallSite] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
+    def _record_import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            if alias.name == "pypto":
+                self.pypto_roots.add(alias.asname or "pypto")
+
+    def _record_import_from(self, node: ast.ImportFrom) -> None:
+        if node.module == "pypto" and node.names:
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                self.short_from_pypto.add(alias.asname or alias.name)
+
+    def _record_call(self, node: ast.Call) -> None:
         func = node.func
         chain = _attr_chain(func)
-        if chain and chain[0] in pypto_roots:
-            sites.append(CallSite(line=node.lineno, col=node.col_offset, call=f"{'.'.join(chain)}(...)", kind="attr"))
-        elif isinstance(func, ast.Name) and func.id in short_from_pypto:
-            sites.append(CallSite(line=node.lineno, col=node.col_offset, call=f"{func.id}(...)", kind="short_import"))
-    return sites
+        if chain and chain[0] in self.pypto_roots:
+            call_str = ".".join(chain)
+            self.sites.append(
+                CallSite(
+                    line=node.lineno,
+                    col=node.col_offset,
+                    call=f"{call_str}(...)",
+                    kind="attr",
+                )
+            )
+        elif isinstance(func, ast.Name) and func.id in self.short_from_pypto:
+            self.sites.append(
+                CallSite(
+                    line=node.lineno,
+                    col=node.col_offset,
+                    call=f"{func.id}(...)",
+                    kind="short_import",
+                )
+            )
 
 
 def extract_pypto_calls(source: str, path: str) -> List[CallSite]:
     tree = ast.parse(source, filename=path)
-    pypto_roots, short_from_pypto = _collect_pypto_imports(tree)
-    sites = _collect_call_sites(tree, pypto_roots, short_from_pypto)
-    return sorted(sites, key=lambda s: (s.line, s.col))
+    return _Finder().collect(tree)
+
+
+def _emit_json_lines(sites: List[CallSite]) -> None:
+    output_logger = logging.getLogger("extract_pypto_calls.json")
+    output_logger.handlers.clear()
+    output_logger.propagate = False
+    output_logger.setLevel(logging.INFO)
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    output_logger.addHandler(handler)
+    for site in sites:
+        output_logger.info(json.dumps(asdict(site), ensure_ascii=False))
 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    ap = argparse.ArgumentParser(description="Extract pypto call sites for op-by-op debugging.")
+    ap = argparse.ArgumentParser(
+        description="Extract pypto call sites for op-by-op debugging."
+    )
     ap.add_argument("path", type=Path, help="Python source file")
     ap.add_argument("--json", action="store_true", help="JSON lines output")
     args = ap.parse_args()
@@ -103,7 +147,7 @@ def main() -> None:
         sys.exit(2)
 
     if args.json:
-        logging.info(json.dumps([asdict(s) for s in sites], indent=2))
+        _emit_json_lines(sites)
         return
 
     logging.info("# %s — %d pypto-related call site(s)\n", p, len(sites))

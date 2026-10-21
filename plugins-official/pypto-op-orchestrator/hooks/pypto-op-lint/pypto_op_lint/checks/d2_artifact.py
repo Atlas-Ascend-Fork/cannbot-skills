@@ -52,26 +52,36 @@ def _first_section(content: str, *keywords: str) -> str:
 def _spec_content_issues(content: str) -> list[str]:
     headings = _extract_markdown_headings(content)
     missing = [
-        heading for heading in _REQUIRED_SPEC_HEADINGS
+        heading
+        for heading in _REQUIRED_SPEC_HEADINGS
         if not _has_heading_like(headings, heading)
     ]
     issues: list[str] = []
     if missing:
         issues.append(
-            f"缺少必需章节: {', '.join(missing)}"
-            f"（关键词可能因 heading 使用英文等价词而未匹配）"
+            f"Missing required sections: {', '.join(missing)}"
+            f"(a keyword may fail to match if the heading uses an English equivalent)"
         )
     math_text = _first_section(content, "数学", "算法", "基础信息")
     formula_tokens = ("$$", "=", "\\begin{equation}", "round", "clamp")
     if not math_text or not any(token in math_text for token in formula_tokens):
-        issues.append("数学定义章节内容不足（缺少可解析公式特征）")
+        issues.append(
+            "Math definition section content is insufficient (missing parseable formula traits)"
+        )
     io_text = _first_section(content, "输入输出规格", "数据规格")
     if not io_text or "dtype" not in io_text.lower() or "shape" not in io_text.lower():
-        issues.append("输入输出规格章节内容不足（需包含 shape/dtype）")
+        issues.append(
+            "Input/output spec section content is insufficient (must include shape/dtype)"
+        )
     precision_text = _extract_section_text(content, "精度")
     tolerance_tokens = ("atol", "rtol", "mare")
-    if not precision_text or not any(token in precision_text.lower() for token in tolerance_tokens):
-        issues.append("精度要求章节内容不足（需包含 atol/rtol 或指标阈值）")
+    if not precision_text or not any(
+        token in precision_text.lower() for token in tolerance_tokens
+    ):
+        issues.append(
+            "Accuracy requirements section content is insufficient "
+            "(must include atol/rtol or metric thresholds)"
+        )
     return issues
 
 
@@ -79,25 +89,25 @@ def _spec_schema_issues(content: str) -> list[str]:
     spec_meta, _ = _parse_front_matter(content)
     if not spec_meta:
         return [
-            "缺少 front matter"
-            "（必须以 --- 开头，含 schema_version/op_name/supported_dtypes/p0_shapes/tolerance）"
+            "Missing front matter"
+            "(must start with ---, include schema_version/op_name/supported_dtypes/p0_shapes/tolerance)"
         ]
     schema_errors = _validate_doc_schema("SPEC", spec_meta)
     if schema_errors:
-        return [f"front matter schema 非法: {'; '.join(schema_errors)}"]
+        return [f"front matter schema invalid: {'; '.join(schema_errors)}"]
     return []
 
 
 @register("OL09")
 def check_ol09(ctx: CheckContext) -> Finding:
     if not ctx.file_exists(SPEC_FILE):
-        return ctx.make_finding("OL09", "FAIL", f"{SPEC_FILE} 不存在")
+        return ctx.make_finding("OL09", "FAIL", f"{SPEC_FILE} does not exist")
     content = ctx.read_file(SPEC_FILE)
     if ctx.op_name not in content:
         return ctx.make_finding(
             "OL09",
             "FAIL",
-            f"{SPEC_FILE} 中未包含算子名 '{ctx.op_name}'",
+            f"{SPEC_FILE} does not contain operator name '{ctx.op_name}'",
             file=SPEC_FILE,
         )
 
@@ -108,14 +118,16 @@ def check_ol09(ctx: CheckContext) -> Finding:
         return ctx.make_finding(
             "OL09",
             "FAIL",
-            f"{SPEC_FILE} 存在 {len(issues)} 个问题:\n" + "\n".join(f"  - {i}" for i in issues),
+            f"{SPEC_FILE} has {len(issues)} issues:\n"
+            + "\n".join(f"  - {i}" for i in issues),
             file=SPEC_FILE,
         )
 
     return ctx.make_finding(
         "OL09",
         "PASS",
-        f"{SPEC_FILE} 含算子名、公式、输入输出规格与精度要求，front matter schema 合法",
+        f"{SPEC_FILE} contains operator name, formulas, input/output spec "
+        "and accuracy requirements; front matter schema is valid",
         file=SPEC_FILE,
     )
 
@@ -136,19 +148,20 @@ _CHECKLIST_ITEM_RE = re.compile(
 
 
 _REQUIRED_SELF_REVIEW_KEYWORDS = [
-    "signature",        # host_wrapper signature == module_interfaces.yaml
-    "output",           # outputs written via assemble / slice
-    "view",             # pypto.view shape/offsets rank
-    "inventory",        # SPEC golden inventory cross-check
+    "signature",  # host_wrapper signature == module_interfaces.yaml
+    "output",  # outputs written via assemble / slice
+    "view",  # pypto.view shape/offsets rank
+    "inventory",  # SPEC golden inventory cross-check
     "for ... in range",  # Layer K Python for-range absent
-    "exactly once",     # Layer K JIT call exactly once
+    "exactly once",  # Layer K JIT call exactly once
 ]
 
 
 def _self_review_section(text: str, phase_scope: str) -> str | None:
     target = next(
         (
-            match for match in _SELF_REVIEW_HEADING_TMPL.finditer(text)
+            match
+            for match in _SELF_REVIEW_HEADING_TMPL.finditer(text)
             if match.group(1).upper() == phase_scope.upper()
         ),
         None,
@@ -157,7 +170,10 @@ def _self_review_section(text: str, phase_scope: str) -> str | None:
         return None
     start = target.end()
     next_heading = re.search(r"^\s*##\s+", text[start:], re.MULTILINE)
-    return text[start: start + next_heading.start()] if next_heading else text[start:]
+    if next_heading is None:
+        return text[start:]
+    end = start + next_heading.start()
+    return text[start:end]
 
 
 def _self_review_problems(body: str) -> list[str]:
@@ -171,14 +187,17 @@ def _self_review_problems(body: str) -> list[str]:
     }
     missing = [keyword for keyword, item in matched.items() if item is None]
     unchecked = [
-        keyword for keyword, item in matched.items()
+        keyword
+        for keyword, item in matched.items()
         if item is not None and item[0].strip().lower() not in ("x", "✓")
     ]
     problems: list[str] = []
     if missing:
-        problems.append(f"必填项缺失 ({len(missing)} 个): {', '.join(missing)}")
+        problems.append(
+            f"Missing required items ({len(missing)}): {', '.join(missing)}"
+        )
     if unchecked:
-        problems.append(f"未勾选 ({len(unchecked)} 个): {', '.join(unchecked)}")
+        problems.append(f"Unchecked items ({len(unchecked)}): {', '.join(unchecked)}")
     return problems
 
 
@@ -200,14 +219,16 @@ def check_ol54(ctx: CheckContext) -> Finding:
     phase_scope = getattr(ctx, "phase_scope", None)
     if not phase_scope:
         return ctx.make_finding(
-            "OL54", "SKIP",
-            "phase_scope 未设置 — 该规则仅在 complete_phase 时生效",
+            "OL54",
+            "SKIP",
+            "phase_scope not set — this rule only takes effect during complete_phase",
         )
     memory_file = "MEMORY.md"
     if not ctx.file_exists(memory_file):
         return ctx.make_finding(
-            "OL54", "FAIL",
-            f"{memory_file} 不存在 — Phase {phase_scope} self-review 为必填项",
+            "OL54",
+            "FAIL",
+            f"{memory_file} does not exist — Phase {phase_scope} self-review is required",
             file=memory_file,
         )
     text = ctx.read_file(memory_file)
@@ -215,26 +236,29 @@ def check_ol54(ctx: CheckContext) -> Finding:
     body = _self_review_section(text, phase_scope)
     if body is None:
         return ctx.make_finding(
-            "OL54", "FAIL",
-            f"{memory_file} 缺少 `{expected_heading}` 章节。"
-            f"complete_phase 之前必须填写 6 项必填检查清单。"
-            f"模板见 skill `pypto-memory-template` SKILL.md。",
+            "OL54",
+            "FAIL",
+            f"{memory_file} is missing the `{expected_heading}` section."
+            f"All 6 required checklist items must be completed before complete_phase."
+            f"See skill `pypto-memory-template` SKILL.md for the template.",
             file=memory_file,
         )
     problems = _self_review_problems(body)
     if problems:
         return ctx.make_finding(
-            "OL54", "FAIL",
-            f"{memory_file} `{expected_heading}` 章节的自我评审未完成。\n"
+            "OL54",
+            "FAIL",
+            f"{memory_file} `{expected_heading}` section self-review is not complete.\n"
             + "\n".join(f"  - {p}" for p in problems)
-            + "\n修正方针: 每个条目按 `- [x] <说明>` 填写, 必要时附 evidence "
-              "(impl 行号或对应代码片段)。只要存在一个 `- [ ]` / 缺失项, "
-              "complete_phase 都不会通过。",
+            + "\nFix policy: fill each item as `- [x] <description>`, attach evidence when necessary "
+            "(impl line number or corresponding code snippet). Once any `- [ ]` / missing item exists, "
+            "complete_phase will not pass.",
             file=memory_file,
         )
     return ctx.make_finding(
-        "OL54", "PASS",
-        f"Phase {phase_scope} self-review 6 项均已 ✅",
+        "OL54",
+        "PASS",
+        f"Phase {phase_scope} self-review: all 6 items ✅",
         file=memory_file,
     )
 
@@ -242,29 +266,29 @@ def check_ol54(ctx: CheckContext) -> Finding:
 @register("OL10")
 def check_ol10(ctx: CheckContext) -> Finding:
     if not ctx.file_exists(API_REPORT_FILE):
-        return ctx.make_finding("OL10", "FAIL", f"{API_REPORT_FILE} 不存在")
+        return ctx.make_finding("OL10", "FAIL", f"{API_REPORT_FILE} does not exist")
     content = ctx.read_file(API_REPORT_FILE)
     headings = _extract_markdown_headings(content)
     missing: list[str] = []
-    if not _has_heading_like(headings, "API 映射"):
-        missing.append("API 映射")
-    if not _has_heading_like(headings, "约束"):
-        missing.append("约束")
+    if not _has_heading_like(headings, "API mapping"):
+        missing.append("API mapping")
+    if not _has_heading_like(headings, "constraints"):
+        missing.append("constraints")
     if not _has_heading_like(headings, "Tiling"):
         missing.append("Tiling")
     if missing:
         return ctx.make_finding(
             "OL10",
             "FAIL",
-            f"{API_REPORT_FILE} 缺少必需内容: {', '.join(missing)}\n"
-            f"提示: 以上关键词可能因 heading 使用了英文等价词（如 API Mapping）"
-            f"而未匹配，请检查对应章节的 heading 是否包含上述中文关键词。",
+            f"{API_REPORT_FILE} is missing required content: {', '.join(missing)}\n"
+            f"Note: the above keywords may not match if the heading uses an English equivalent (e.g. API Mapping). "
+            f"Please check whether the corresponding section heading contains the above keywords.",
             file=API_REPORT_FILE,
         )
     return ctx.make_finding(
         "OL10",
         "PASS",
-        f"{API_REPORT_FILE} 含 API 映射、约束与 Tiling 说明",
+        f"{API_REPORT_FILE} contains API mapping, constraints, and Tiling description",
         file=API_REPORT_FILE,
     )
 
@@ -274,7 +298,7 @@ def check_ol11(ctx: CheckContext) -> Finding:
     """进入 Stage 4 需 {op}_golden.py 可导入"""
     golden_file = f"{ctx.op_name}_golden.py"
     if not ctx.file_exists(golden_file):
-        return ctx.make_finding("OL11", "FAIL", f"{golden_file} 不存在")
+        return ctx.make_finding("OL11", "FAIL", f"{golden_file} does not exist")
     probe_code = (
         "import importlib, sys\n"
         f"sys.path.insert(0, {json.dumps(ctx.op_dir)})\n"
@@ -289,50 +313,56 @@ def check_ol11(ctx: CheckContext) -> Finding:
         )
     except subprocess.TimeoutExpired:
         return ctx.make_finding(
-            "OL11", "FAIL", f"{golden_file} 导入超时（>10s）", file=golden_file
+            "OL11", "FAIL", f"{golden_file} import timed out (>10s)", file=golden_file
         )
     except OSError as e:
         return ctx.make_finding(
-            "OL11", "FAIL", f"{golden_file} 导入探测失败: {e}", file=golden_file
+            "OL11", "FAIL", f"{golden_file} import probe failed: {e}", file=golden_file
         )
     if result.returncode != 0:
         return ctx.make_finding(
             "OL11",
             "FAIL",
-            f"{golden_file} 导入失败: {result.stderr[:200]}",
+            f"{golden_file} import failed: {result.stderr[:200]}",
             file=golden_file,
         )
-    return ctx.make_finding("OL11", "PASS", f"{golden_file} 可导入", file=golden_file)
+    return ctx.make_finding(
+        "OL11", "PASS", f"{golden_file} can be imported", file=golden_file
+    )
 
 
 @register("OL12")
 def check_ol12(ctx: CheckContext) -> Finding:
     if not ctx.file_exists(DESIGN_FILE):
-        return ctx.make_finding("OL12", "FAIL", f"{DESIGN_FILE} 不存在")
+        return ctx.make_finding("OL12", "FAIL", f"{DESIGN_FILE} does not exist")
     content = ctx.read_file(DESIGN_FILE)
     headings = _extract_markdown_headings(content)
     missing: list[str] = []
     if not _has_heading_like(headings, "计算图") and not _has_heading_like(
         headings, "API 映射"
     ):
-        missing.append("计算图")
+        missing.append("compute graph")
     if not _has_heading_like(headings, "Tiling") and not _has_heading_like(
         headings, "数据切分"
     ):
         missing.append("Tiling")
-    if not _has_heading_like(headings, "验证方案"):
-        missing.append("验证方案")
+    if not _has_heading_like(headings, "verification plan"):
+        missing.append("verification plan")
     if missing:
         return ctx.make_finding(
             "OL12",
             "FAIL",
-            f"{DESIGN_FILE} 缺少必需内容: {', '.join(missing)}\n"
-            f"提示: 以上关键词可能因 heading 使用了英文等价词（如 Compute Graph、Verification Plan）"
-            f"而未匹配，请检查对应章节的 heading 是否包含上述中文关键词。",
+            f"{DESIGN_FILE} is missing required content: {', '.join(missing)}\n"
+            "Note: the above keywords may not match if the heading uses an "
+            "English equivalent (e.g. Compute Graph, Verification Plan). "
+            f"Please check whether the corresponding section heading contains the above keywords.",
             file=DESIGN_FILE,
         )
     return ctx.make_finding(
-        "OL12", "PASS", f"{DESIGN_FILE} 含计算图、Tiling 与验证方案", file=DESIGN_FILE
+        "OL12",
+        "PASS",
+        f"{DESIGN_FILE} contains compute graph, Tiling and verification plan",
+        file=DESIGN_FILE,
     )
 
 
@@ -349,9 +379,9 @@ def check_ol13(ctx: CheckContext) -> Finding:
         return ctx.make_finding(
             "OL13",
             "FAIL",
-            f"Stage 5 cleanup 三件套不完整，缺少: {', '.join(missing)}",
+            f"Stage 5 cleanup artifact trio is incomplete, missing: {', '.join(missing)}",
         )
-    return ctx.make_finding("OL13", "PASS", "Stage 5 cleanup 三件套完整")
+    return ctx.make_finding("OL13", "PASS", "Stage 5 cleanup artifact trio is complete")
 
 
 # module_count 来源: MEMORY.md (`module_count: 1`, construct skill 写) 为主,
@@ -394,6 +424,40 @@ def _phase_artifacts(op_name: str, suffix: str) -> list[str]:
     ]
 
 
+def _ol44_active_phase(ctx: CheckContext) -> tuple:
+    """当前活跃 Phase；无法判定、状态不可用或 L0 单模块时返回对应 Finding。
+
+    返回 (active_phase, finding)：finding 非 None 时调用方应直接返回它。
+    """
+    state_path = ctx.file_path(".orchestrator_state.json")
+    if not os.path.isfile(state_path):
+        return None, ctx.make_finding(
+            "OL44",
+            "SKIP",
+            ".orchestrator_state.json does not exist (stateless run), cannot determine Stage 5 modules/ status",
+        )
+    state, state_error = _load_state_file(state_path)
+    if state_error is not None:
+        return None, ctx.make_finding(
+            "OL44", "FAIL", f"Failed to parse .orchestrator_state.json: {state_error}"
+        )
+    active_phase = _state_active_phase(state or {})
+    if not active_phase:
+        return None, ctx.make_finding(
+            "OL44", "SKIP", "No active Phase M_k recorded in stage5_phases"
+        )
+
+    # L0 单模块: module_count == 1 时 Stage 5 直接产出 <op>_impl.py, 无 modules/
+    # 目录, 强制三件套会误伤 L0 算子。仅当确定为 L0 时跳过, 否则维持 L1 行为。
+    if _detect_module_count(ctx) == 1:
+        return None, ctx.make_finding(
+            "OL44",
+            "SKIP",
+            "L0 single-module: modules/ not expected (module_count == 1)",
+        )
+    return active_phase, None
+
+
 @register("OL44")
 def check_ol44(ctx: CheckContext) -> Finding:
     """Stage 5 当前 Phase 三件套：modules/<op>_module<k>_impl.py +
@@ -405,39 +469,19 @@ def check_ol44(ctx: CheckContext) -> Finding:
     L0 单模块（module_count == 1）：Stage 5 直接产出 <op>_impl.py，无
     modules/ 目录，故跳过本规则。module_count 无法判定时维持 L1 行为。
     """
-    state_path = ctx.file_path(".orchestrator_state.json")
-    if not os.path.isfile(state_path):
-        return ctx.make_finding(
-            "OL44",
-            "SKIP",
-            ".orchestrator_state.json 不存在（无状态运行），无法判断 Stage 5 modules/ 状态",
-        )
-    state, state_error = _load_state_file(state_path)
-    if state_error is not None:
-        return ctx.make_finding(
-            "OL44", "FAIL", f"无法解析 .orchestrator_state.json: {state_error}"
-        )
-    active_phase = _state_active_phase(state or {})
-    if not active_phase:
-        return ctx.make_finding("OL44", "SKIP", "stage5_phases 中未记录活跃 Phase M_k")
-
-    # L0 单模块: module_count == 1 时 Stage 5 直接产出 <op>_impl.py, 无 modules/
-    # 目录, 强制三件套会误伤 L0 算子。仅当确定为 L0 时跳过, 否则维持 L1 行为。
-    if _detect_module_count(ctx) == 1:
-        return ctx.make_finding(
-            "OL44", "SKIP",
-            "L0 single-module: modules/ not expected (module_count == 1)",
-        )
+    active_phase, finding = _ol44_active_phase(ctx)
+    if finding is not None:
+        return finding
 
     if not isinstance(active_phase, str):
         return ctx.make_finding(
-            "OL44", "FAIL", f"格式异常的 active_phase: {active_phase!r}"
+            "OL44", "FAIL", f"Malformed active_phase: {active_phase!r}"
         )
     try:
         suffix = _phase_to_module_suffix(active_phase)
     except ValueError as e:
         return ctx.make_finding(
-            "OL44", "FAIL", f"格式异常的 active_phase: {active_phase!r} ({e})"
+            "OL44", "FAIL", f"Malformed active_phase: {active_phase!r} ({e})"
         )
 
     modules_dir = ctx.file_path("modules")
@@ -445,7 +489,7 @@ def check_ol44(ctx: CheckContext) -> Finding:
         return ctx.make_finding(
             "OL44",
             "FAIL",
-            "Stage 5 已激活但 custom/<op>/modules/ 目录不存在",
+            "Stage 5 is active but the custom/<op>/modules/ directory does not exist",
         )
 
     expected = _phase_artifacts(ctx.op_name, suffix)
@@ -454,12 +498,12 @@ def check_ol44(ctx: CheckContext) -> Finding:
         return ctx.make_finding(
             "OL44",
             "FAIL",
-            f"活跃 Phase {active_phase} 三件套不完整，缺少: {', '.join(missing)}",
+            f"Active Phase {active_phase} artifact trio is incomplete, missing: {', '.join(missing)}",
         )
     return ctx.make_finding(
         "OL44",
         "PASS",
-        f"活跃 Phase {active_phase} 三件套完整（impl + golden + test）",
+        f"Active Phase {active_phase} artifact trio is complete (impl + golden + test)",
     )
 
 
@@ -468,7 +512,7 @@ def check_ol14(ctx: CheckContext) -> Finding:
     """Stage 6（结构验证）进入前需要 Stage 5（含 cleanup）已完成。"""
     state_path = ctx.file_path(".orchestrator_state.json")
     if not os.path.isfile(state_path):
-        return ctx.make_finding("OL14", "FAIL", "状态文件不存在")
+        return ctx.make_finding("OL14", "FAIL", "State file does not exist")
     try:
         with open(state_path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -477,14 +521,16 @@ def check_ol14(ctx: CheckContext) -> Finding:
         # 进入 Stage 6 = 结构验证前完成。
         if status.get("5") == "completed":
             return ctx.make_finding(
-                "OL14", "PASS", "Stage 5 已完成，可进入 Stage 6（结构验证）"
+                "OL14",
+                "PASS",
+                "Stage 5 complete, ready to enter Stage 6 (structure verification)",
             )
     except ValueError:
         pass
     return ctx.make_finding(
         "OL14",
         "FAIL",
-        "Stage 6 入口被阻止：Stage 5 尚未完成",
+        "Stage 6 entry blocked: Stage 5 not yet complete",
     )
 
 
@@ -493,12 +539,14 @@ def check_ol24(ctx: CheckContext) -> Finding:
     """.orchestrator_state.json 结构合法（schema v2.0）。"""
     state_path = ctx.file_path(".orchestrator_state.json")
     if not os.path.isfile(state_path):
-        return ctx.make_finding("OL24", "FAIL", ".orchestrator_state.json 不存在")
+        return ctx.make_finding(
+            "OL24", "FAIL", ".orchestrator_state.json does not exist"
+        )
     try:
         with open(state_path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        return ctx.make_finding("OL24", "FAIL", f"JSON 解析失败: {e}")
+        return ctx.make_finding("OL24", "FAIL", f"JSON parse failed: {e}")
     # schema v2.0 必需字段（同时兼容 v1 旧格式 — max_stage 缺失时视为旧版放行）。
     required = ["operator_name", "current_stage", "stage_status"]
     missing = [k for k in required if k not in data]
@@ -506,14 +554,15 @@ def check_ol24(ctx: CheckContext) -> Finding:
         return ctx.make_finding(
             "OL24",
             "FAIL",
-            f"缺少必需字段: {', '.join(missing)}",
+            f"Missing required fields: {', '.join(missing)}",
         )
     # 软检查：max_stage 缺失时警告（旧版 schema）。
     if "max_stage" not in data:
         return ctx.make_finding(
             "OL24",
             "WARN",
-            "状态文件未声明 max_stage（schema v1 旧格式）；建议通过 state_transition 重新初始化以升级到 v2.0",
+            "State file does not declare max_stage (old schema v1 format); "
+            "reinitialize via state_transition to upgrade to v2.0",
         )
     # v2.0 字段为可选，但若存在则必须格式正确。
     if "stage5_phases" in data:
@@ -522,21 +571,23 @@ def check_ol24(ctx: CheckContext) -> Finding:
             return ctx.make_finding(
                 "OL24",
                 "FAIL",
-                "stage5_phases 必须是包含 phase_status 的字典",
+                "stage5_phases must be a dict containing phase_status",
             )
     if "rollback_history" in data and not isinstance(data["rollback_history"], list):
         return ctx.make_finding(
             "OL24",
             "FAIL",
-            "rollback_history 必须是列表",
+            "rollback_history must be a list",
         )
     if "artifact_hashes" in data and not isinstance(data["artifact_hashes"], dict):
         return ctx.make_finding(
             "OL24",
             "FAIL",
-            "artifact_hashes 必须是字典",
+            "artifact_hashes must be a dict",
         )
-    return ctx.make_finding("OL24", "PASS", "状态文件结构合法 (schema v2.0)")
+    return ctx.make_finding(
+        "OL24", "PASS", "State file structure is valid (schema v2.0)"
+    )
 
 
 @register("OL59")
@@ -546,9 +597,9 @@ def check_ol59(ctx: CheckContext) -> Finding:
         return ctx.make_finding(
             "OL59",
             "FAIL",
-            f"{GOLDEN_PERF_REPORT_FILE} 不存在 — 请按照 pypto-golden-generate SKILL.md §15 的指引，"
-            f"使用 profile_golden.py 采集真实 NPU 性能数据并生成报告。"
-            f"对于有语义约束的算子，使用 --factory _make_inputs 模式。",
+            f"{GOLDEN_PERF_REPORT_FILE} does not exist — follow the guidance in pypto-golden-generate SKILL.md §15, "
+            f"run profile_golden.py to collect real NPU performance data and generate the report. "
+            f"For operators with semantic constraints, use the --factory _make_inputs mode.",
             file=GOLDEN_PERF_REPORT_FILE,
         )
     content = ctx.read_file(GOLDEN_PERF_REPORT_FILE)
@@ -556,14 +607,15 @@ def check_ol59(ctx: CheckContext) -> Finding:
         return ctx.make_finding(
             "OL59",
             "FAIL",
-            f"{GOLDEN_PERF_REPORT_FILE} 缺少 Op Performance 表头 — 报告格式不符合要求，"
-            f"请按照 pypto-golden-generate SKILL.md §15 重新生成。",
+            f"{GOLDEN_PERF_REPORT_FILE} is missing the Op Performance header "
+            "— report format does not meet requirements, "
+            f"please regenerate following pypto-golden-generate SKILL.md §15.",
             file=GOLDEN_PERF_REPORT_FILE,
         )
     return ctx.make_finding(
         "OL59",
         "PASS",
-        f"{GOLDEN_PERF_REPORT_FILE} 存在且包含 Op Performance 表头",
+        f"{GOLDEN_PERF_REPORT_FILE} exists and contains the Op Performance header",
         file=GOLDEN_PERF_REPORT_FILE,
     )
 
@@ -598,47 +650,49 @@ _PREFLIGHT_PLACEHOLDERS = (
 
 
 def _preflight_format_failures(section: str) -> list[str]:
-    if not section or any(placeholder in section for placeholder in _PREFLIGHT_PLACEHOLDERS):
+    if not section or any(
+        placeholder in section for placeholder in _PREFLIGHT_PLACEHOLDERS
+    ):
         return [
-            "[R5 Experience Preflight 未执行]: MEMORY.md → "
-            "'## Experience Preflight' 仍为占位符或不存在。\n"
-            "修正方针: Coder 必须在 Stage 5 写 impl 前执行 preflight scan "
-            "(pypto-op-knowledge → references/experience_preflight.md)，"
-            "将 checklist 写入 MEMORY.md。"
+            "[R5 Experience Preflight not executed]: MEMORY.md → "
+            "'## Experience Preflight' is still a placeholder or missing.\n"
+            "Fix policy: Coder must run the preflight scan before writing impl in Stage 5 "
+            "(pypto-op-knowledge → references/experience_preflight.md), "
+            "and write the checklist into MEMORY.md."
         ]
     failures: list[str] = []
     if _PREFLIGHT_TABLE_RE.search(section):
         failures.append(
-            "[Preflight 格式违规]: MEMORY.md → "
-            "'## Experience Preflight' 使用了表格格式（| ... |）。\n"
-            "修正方针: 必须使用标准 markdown checklist 格式 "
-            "（`- [x]`/`- [-]`/`- [ ]`），表格无法承载 "
-            "`> ⚠️ 待验证` 子注释且无法被门禁解析。"
+            "[Preflight format violation]: MEMORY.md → "
+            "'## Experience Preflight' uses table format (| ... |).\n"
+            "Fix policy: must use the standard markdown checklist format "
+            "(`- [x]`/`- [-]`/`- [ ]`), tables cannot carry "
+            "the `> ⚠️ pending verification` sub-annotation and cannot be parsed by the gate."
         )
     checklist_items = _PREFLIGHT_CHECKLIST_ITEM_RE.findall(section)
     if not checklist_items:
         failures.append(
-            "[Preflight 格式违规]: MEMORY.md → "
-            "'## Experience Preflight' 未检测到 checklist 条目。\n"
-            "修正方针: 每个条目必须独占一行 "
-            "`- [x]/[-] [S0/S1/S2] {描述}`。"
+            "[Preflight format violation]: MEMORY.md → "
+            "'## Experience Preflight': no checklist items detected.\n"
+            "Fix policy: each item must have its own line "
+            "`- [x]/[-] [S0/S1/S2] {description}`."
         )
     elif len(checklist_items) > 20:
         failures.append(
-            f"[Preflight 条数超限]: MEMORY.md → "
-            f"'## Experience Preflight' 包含 {len(checklist_items)} 条，超过上限 20 条。\n"
-            f"修正方针: 精简 checklist，删除 N/A 项（算子不使用的 API 规则）、"
-            f"与固定清单重复项、S2/S3 项、DEBUG_GUIDEBOOK 独立条目。"
+            f"[Preflight item count exceeded]: MEMORY.md → "
+            f"'## Experience Preflight' contains {len(checklist_items)} items, exceeding the limit of 20.\n"
+            f"Fix policy: trim the checklist, remove N/A items (API rules unused by the operator), "
+            f"items duplicated with the fixed checklist, S2/S3 items, and standalone DEBUG_GUIDEBOOK entries."
         )
     pending_count = len(_PREFLIGHT_PENDING_RE.findall(section))
     warning_count = len(_PREFLIGHT_WARNING_ANNOTATION_RE.findall(section))
     if pending_count > 0 and warning_count < pending_count:
         failures.append(
-            f"[Preflight [-] 项缺少待验证注释]: "
-            f"检测到 {pending_count} 个 `[-]` 条目，但仅有 "
-            f"{warning_count} 个 `> ⚠️ 待验证` 子注释。\n"
-            "修正方针: 每个 `[-]` 条目下方必须紧跟 "
-            "`> ⚠️ 待验证：{具体待确认项}` 子注释行。"
+            f"[Preflight [-] items missing pending-verification annotation]: "
+            f"Detected {pending_count} `[-]` items, but only "
+            f"{warning_count} `> ⚠️ pending verification` sub-annotations.\n"
+            "Fix policy: each `[-]` item must be immediately followed by "
+            "a `> ⚠️ pending verification: {specific item to confirm}` sub-annotation line."
         )
     return failures
 
@@ -665,20 +719,20 @@ def _unresolved_preflight_count(section: str) -> int:
 def _stage5_preflight_failures(section: str) -> list[str]:
     if not section:
         return [
-            "[OL61 Impl 阶段]: MEMORY.md → "
-            "'## Experience Preflight' 不存在。\n"
-            "修正方针: Preflight checklist 必须在 Stage 5 写 impl 前生成。"
+            "[OL61 Impl stage]: MEMORY.md → "
+            "'## Experience Preflight' does not exist.\n"
+            "Fix policy: the Preflight checklist must be generated before writing impl in Stage 5."
         ]
     unresolved = _unresolved_preflight_count(section)
     if unresolved == 0:
         return []
     return [
-        f"[OL61 Stage 5 Preflight [-] 未消除]: "
-        f"MEMORY.md → '## Experience Preflight' 中仍有 "
-        f"{unresolved} 个未消除的 `[-]` 条目。\n"
-        "修正方针: 每个 `[-]` 必须在 coder dispatch 前消除：\n"
-        "  (a) 改为 `- [x]`（已验证合规），或\n"
-        "  (b) 将 `> ⚠️ 待验证` 改为 `> ✅ 已知风险，接受`（确认风险后保留）。"
+        f"[OL61 Stage 5 Preflight [-] not resolved]: "
+        f"MEMORY.md → '## Experience Preflight' still has "
+        f"{unresolved} unresolved `[-]` items.\n"
+        "Fix policy: every `[-]` must be resolved before coder dispatch:\n"
+        "  (a) change to `- [x]` (verified compliant), or\n"
+        "  (b) change `> ⚠️ pending verification` to `> ✅ known risk, accepted` (keep after confirming the risk)."
     ]
 
 
@@ -705,16 +759,19 @@ def check_ol61(ctx: CheckContext) -> Finding:
             _ol61_code_scan(ctx, failures)
             if failures:
                 return ctx.make_finding(
-                    "OL61", "FAIL",
-                    f"Stage 5 OL61 AST code scan 失败 ({len(failures)} 项):\n"
+                    "OL61",
+                    "FAIL",
+                    f"Stage 5 OL61 AST code scan failed ({len(failures)} items):\n"
                     + "\n".join(failures),
                     file=DESIGN_FILE,
                 )
-            return ctx.make_finding("OL61", "PASS", "AST code scan 通过", file=DESIGN_FILE)
+            return ctx.make_finding(
+                "OL61", "PASS", "AST code scan passed", file=DESIGN_FILE
+            )
         return ctx.make_finding(
             "OL61",
             "SKIP",
-            f"{DESIGN_FILE} 不存在",
+            f"{DESIGN_FILE} does not exist",
             file=DESIGN_FILE,
         )
 
@@ -730,7 +787,7 @@ def check_ol61(ctx: CheckContext) -> Finding:
         return ctx.make_finding(
             "OL61",
             "FAIL",
-            f"Stage {ctx.stage} OL61 检查失败 ({len(failures)} 项):\n"
+            f"Stage {ctx.stage} OL61 check failed ({len(failures)} items):\n"
             + "\n".join(failures),
             file=DESIGN_FILE,
         )
@@ -739,7 +796,7 @@ def check_ol61(ctx: CheckContext) -> Finding:
     return ctx.make_finding(
         "OL61",
         "PASS",
-        f"Stage {ctx.stage} Experience Preflight 校验通过（存在性 + 格式 + [-] 消除 + AST scan）",
+        f"Stage {ctx.stage} Experience Preflight validation passed (existence + format + [-] resolution + AST scan)",
         file=DESIGN_FILE,
     )
 
@@ -786,14 +843,17 @@ def _is_pypto_cast_result(node: ast.AST, aliases: set[str]) -> bool:
     return _get_pypto_call_name(node, aliases) == "cast"
 
 
-def _tensor_annotation_dtype(annotation: ast.AST | None, aliases: set[str]) -> str | None:
+def _tensor_annotation_dtype(
+    annotation: ast.AST | None, aliases: set[str]
+) -> str | None:
     if not isinstance(annotation, ast.Call):
         return None
     if not _is_pypto_attr(annotation.func, aliases, "Tensor"):
         return None
     return next(
         (
-            arg.attr for arg in annotation.args
+            arg.attr
+            for arg in annotation.args
             if isinstance(arg, ast.Attribute) and arg.attr.startswith("DT_")
         ),
         None,
@@ -825,8 +885,10 @@ def _ol61_code_scan(ctx: CheckContext, failures: list[str]) -> None:
 
 
 def _ol61_5a_cast_path(
-    tree: ast.Module, aliases: set[str],
-    param_dtypes: dict[str, str], impl_file: str,
+    tree: ast.Module,
+    aliases: set[str],
+    param_dtypes: dict[str, str],
+    impl_file: str,
     failures: list[str],
 ) -> None:
     for node in ast.walk(tree):
@@ -855,17 +917,19 @@ def _ol61_5a_cast_path(
         legal = _LEGAL_CAST_PATHS.get(src_dt, set())
         if target_dt not in legal:
             failures.append(
-                f"[OL61 Preflight F4 非法 cast 路径] {impl_file}: "
-                f"pypto.cast({src_dt} → {target_dt}) 不在合法直转路径表中。\n"
-                f"修正方针: 使用跳板 cast，如 INT8→FP32 须经 FP16: "
-                f"pypto.cast(pypto.cast(x, pypto.DT_FP16), pypto.DT_FP32)。\n"
-                f"合法直转: {src_dt} → {{{', '.join(sorted(legal))}}}"
+                f"[OL61 Preflight F4 illegal cast path] {impl_file}: "
+                f"pypto.cast({src_dt} → {target_dt}) is not in the legal direct-cast path table.\n"
+                f"Fix policy: use a stepping-stone cast, e.g. INT8→FP32 must go via FP16: "
+                f"pypto.cast(pypto.cast(x, pypto.DT_FP16), pypto.DT_FP32).\n"
+                f"Legal direct casts: {src_dt} → {{{', '.join(sorted(legal))}}}"
             )
 
 
 def _ol61_5b_element_wrap(
-    tree: ast.Module, aliases: set[str],
-    impl_file: str, failures: list[str],
+    tree: ast.Module,
+    aliases: set[str],
+    impl_file: str,
+    failures: list[str],
 ) -> None:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -874,21 +938,25 @@ def _ol61_5b_element_wrap(
         if call_name is None:
             continue
         for arg in node.args:
-            if (isinstance(arg, ast.Call)
-                    and _is_pypto_attr(arg.func, aliases, "Element")):
+            if isinstance(arg, ast.Call) and _is_pypto_attr(
+                arg.func, aliases, "Element"
+            ):
                 failures.append(
-                    f"[OL61 Preflight F2 Element 双重包装] {impl_file}: "
+                    f"[OL61 Preflight F2 Element double wrapping] {impl_file}: "
                     f"pypto.{call_name}(..., pypto.Element(...), ...) — "
-                    f"pypto.Element() 作为参数传入其他 pypto 运算会导致二次封装崩溃。\n"
-                    f"修正方针: 直接用 Python 标量，如 pypto.mul(tensor, 127.0)，"
-                    f"不要构造 pypto.Element(DT_FP32, 127.0)。"
+                    "Passing pypto.Element() as an argument to other pypto "
+                    "operations causes double-wrapping crashes.\n"
+                    f"Fix policy: use a plain Python scalar directly, e.g. pypto.mul(tensor, 127.0), "
+                    f"do not construct pypto.Element(DT_FP32, 127.0)."
                 )
                 break
 
 
 def _ol61_5c_scalar_first_arg(
-    tree: ast.Module, aliases: set[str],
-    impl_file: str, failures: list[str],
+    tree: ast.Module,
+    aliases: set[str],
+    impl_file: str,
+    failures: list[str],
 ) -> None:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -901,17 +969,19 @@ def _ol61_5c_scalar_first_arg(
         first = node.args[0]
         if isinstance(first, ast.Constant) and isinstance(first.value, (int, float)):
             failures.append(
-                f"[OL61 Preflight F1 scalar 首参] {impl_file}: "
+                f"[OL61 Preflight F1 scalar first argument] {impl_file}: "
                 f"pypto.{call_name}({first.value!r}, ...) — "
-                f"第一参数是 Python 标量，必须是 Tensor。\n"
-                f"修正方针: 交换参数顺序，如 pypto.{call_name}(tensor, {first.value!r})，"
-                f"或用 pypto.full() 构造标量 Tensor。"
+                f"The first argument is a Python scalar and must be a Tensor.\n"
+                f"Fix policy: swap the argument order, e.g. pypto.{call_name}(tensor, {first.value!r}), "
+                f"or construct a scalar Tensor with pypto.full()."
             )
 
 
 def _ol61_5d_alloc_dtype(
-    tree: ast.Module, aliases: set[str],
-    impl_file: str, failures: list[str],
+    tree: ast.Module,
+    aliases: set[str],
+    impl_file: str,
+    failures: list[str],
 ) -> None:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -924,9 +994,125 @@ def _ol61_5d_alloc_dtype(
         for _, arg in enumerate(node.args):
             if isinstance(arg, ast.Attribute) and arg.attr.startswith("DT_"):
                 failures.append(
-                    f"[OL61 Preflight F8 {call_name} dtype 位置] {impl_file}: "
+                    f"[OL61 Preflight F8 {call_name} dtype position] {impl_file}: "
                     f"pypto.{call_name}(..., {arg.attr}) — "
-                    f"dtype 被位置参数 *size 吞掉，必须用关键字参数。\n"
-                    f"修正方针: pypto.{call_name}(shape, dtype={arg.attr})"
+                    f"dtype is swallowed by the positional *size argument; use a keyword argument instead.\n"
+                    f"Fix policy: pypto.{call_name}(shape, dtype={arg.attr})"
                 )
                 break
+
+
+def _stage7_tuning_mode(ctx: CheckContext) -> str:
+    """Which Stage 7 path this operator is on, per the authoritative state file.
+
+    Returns "" when the state file is absent or unreadable, which callers treat
+    the same as "stepwise": a run with no orchestrator state has not declared a
+    PANKO run, and a gate must not assume one.
+    """
+    path = ctx.file_path(".orchestrator_state.json")
+    if not os.path.isfile(path):
+        return ""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            mode = json.load(f).get("stage7_tuning_mode")
+    except (json.JSONDecodeError, OSError):
+        return ""
+    return mode if isinstance(mode, str) else ""
+
+
+def _ol63_off_path(ctx: CheckContext, mode, have_state) -> Finding:
+    """The verdict for a run that is not on the PANKO path.
+
+    A state file with no declared mode is the inconsistency, not a skip: PANKO
+    demonstrably ran -- only panko_harness.py writes that file -- but the run was
+    never declared, and skipping there would let the gate be switched off simply
+    by not recording the mode.
+    """
+    if have_state:
+        return ctx.make_finding(
+            "OL63",
+            "FAIL",
+            "optimization/search_state.json exists (PANKO ran) but "
+            f"stage7_tuning_mode is {mode or 'unset'} — record the path with "
+            'state_transition(action="start_stage", stage=7, tuning_mode="panko") '
+            "so the Stage 7 stop gate applies to this run",
+            file=".orchestrator_state.json",
+        )
+    return ctx.make_finding(
+        "OL63",
+        "SKIP",
+        f"stage7_tuning_mode={mode or 'unset'} (stepwise path) — OL63 governs "
+        "the PANKO auto-tuning path only",
+    )
+
+
+def _ol63_progress(ctx: CheckContext, state_path):
+    """(progress, failure) for the harness state file; exactly one is set."""
+    try:
+        with open(state_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        return None, ctx.make_finding(
+            "OL63", "FAIL", f"search_state.json failed to parse as JSON: {e}"
+        )
+    progress = data.get("progress")
+    if not isinstance(progress, dict):
+        return None, ctx.make_finding(
+            "OL63", "FAIL", "search_state.json has no progress field"
+        )
+    return progress, None
+
+
+@register("OL63")
+def check_ol63(ctx: CheckContext) -> Finding:
+    """Stage 7 completion gate: block complete_stage(7) until the harness recorded a real STOP.
+
+    Applies to the PANKO tuning path ONLY. The path is read from
+    .orchestrator_state.json's stage7_tuning_mode, which start_stage(7) records
+    and which nothing else may write. It is not inferred from the artifacts: the
+    stepwise path leaves no search_state.json, and so does a PANKO run the
+    orchestrator abandoned before the first init -- exactly the failure this gate
+    exists to catch. Absent or "stepwise" means the stepwise path, which this
+    rule does not govern, so the gate returns SKIP and the default Stage 7 flow
+    completes as it always has.
+
+    On the PANKO path the orchestrator is a thin relay with no authority to end
+    the search on "good enough" (background: an orchestrator once called
+    complete_stage(7) long before the harness stop() would have fired,
+    discarding most of the unexplored action space). The stop decision belongs to
+    panko_harness.py's stop(), which persists it to progress.stop_reason in
+    optimization/search_state.json. This gate only checks that the marker is
+    non-empty; it does not duplicate the stop logic, so the two cannot drift.
+    """
+    mode = _stage7_tuning_mode(ctx)
+    state_path = ctx.file_path(os.path.join("optimization", "search_state.json"))
+    have_state = os.path.isfile(state_path)
+    if mode != "panko":
+        return _ol63_off_path(ctx, mode, have_state)
+    if not have_state:
+        return ctx.make_finding(
+            "OL63",
+            "FAIL",
+            "stage7_tuning_mode=panko but optimization/search_state.json does not "
+            "exist — the harness never ran, so no stop was decided; cannot "
+            "complete_stage(7)",
+        )
+    progress, failure = _ol63_progress(ctx, state_path)
+    if failure is not None:
+        return failure
+    reason = progress.get("stop_reason")
+    if not isinstance(reason, str) or not reason.strip():
+        return ctx.make_finding(
+            "OL63",
+            "FAIL",
+            "the harness recorded no STOP (progress.stop_reason is empty) — the "
+            "orchestrator must not end Stage 7 on its own judgement; relay to "
+            "pypto-op-auto-tuner-panko until the harness stop() emits STOP",
+            file="optimization/search_state.json",
+        )
+    return ctx.make_finding(
+        "OL63",
+        "PASS",
+        f"harness STOP recorded (stop_reason={reason})",
+        file="optimization/search_state.json",
+    )

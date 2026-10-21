@@ -112,8 +112,8 @@ VERSION="1.0.0"
 # --- Plugin-specific filters ---
 EXCLUDED_SKILL=""
 # Skill whitelist (space-separated list) - references shared ops.
-# PyPTO 算子生成团队 skill 集（17）：编排手册 + Stage 1-7 各阶段 skill + 支撑 skill。
-INCLUDED_SKILLS="pypto-orchestration-manual pypto-intent-understand pypto-op-plan pypto-api-explore pypto-docs-search pypto-golden-generate pypto-op-design pypto-op-construct pypto-op-develop pypto-op-verify pypto-op-review pypto-precision-compare pypto-precision-debug pypto-general-debug pypto-op-perf-tune pypto-op-knowledge pypto-memory-template"
+# PyPTO 算子生成团队 skill 集（17）：编排手册 + Stage 1-7 各阶段 skill + 支撑 skill（gym 独有的校验/监控类资产不随本插件安装；pypto-op-construct 已并入 pypto-op-design）。
+INCLUDED_SKILLS="pypto-api-explore pypto-docs-search pypto-general-debug pypto-golden-generate pypto-intent-understand pypto-memory-template pypto-op-design pypto-op-develop pypto-op-knowledge pypto-op-perf-tune pypto-op-plan pypto-op-review pypto-op-verify pypto-orchestration-manual pypto-op-perf-panko-manual pypto-precision-compare pypto-precision-debug"
 # Agent whitelist (shell pattern) - uses local agents/. pypto-* catches the 8 stage
 # subagents.
 INCLUDED_AGENT_PATTERN="pypto-*"
@@ -279,6 +279,28 @@ else
 fi
 
 CANNBOT_DIR="$CONFIG_ROOT"
+
+# Keep primary-Agent selection isolated: refuse a different existing primary
+# before creating or replacing any installation resource.
+config_src="$PLUGIN_ROOT/AGENTS.md"
+if [ "$TOOL" = "claude" ]; then
+    if [ "$LEVEL" = "project" ]; then
+        preflight_config_target="$INSTALL_BASE/CLAUDE.md"
+    else
+        preflight_config_target="$CONFIG_ROOT/CLAUDE.md"
+    fi
+elif [ "$LEVEL" = "project" ]; then
+    preflight_config_target="$INSTALL_BASE/AGENTS.md"
+else
+    preflight_config_target="$CONFIG_ROOT/AGENTS.md"
+fi
+if { [ -e "$preflight_config_target" ] || [ -L "$preflight_config_target" ]; } &&
+   [ "$config_src" != "$preflight_config_target" ] &&
+   ! diff -q "$config_src" "$preflight_config_target" >/dev/null 2>&1; then
+    err "$(basename "$preflight_config_target") already belongs to another configuration"
+    exit 1
+fi
+
 SKILL_DISCOVERY_ROOT="$CONFIG_ROOT/skills"
 AGENT_DISCOVERY_ROOT="$CONFIG_ROOT/agents"
 if [ "$TOOL" = "codex" ]; then
@@ -291,7 +313,7 @@ fi
 
 # Clean up legacy cannbot subdirectory from previous installations
 if [ -e "$CONFIG_ROOT/$BRAND" ] || [ -L "$CONFIG_ROOT/$BRAND" ]; then
-    rm -rf "$CONFIG_ROOT/$BRAND"
+    rm -rf "${CONFIG_ROOT:?}/$BRAND"
 fi
 # OpenCode: also clean legacy teams link
 if [ "$TOOL" = "opencode" ] && [ -L "$CONFIG_ROOT/teams" ]; then
@@ -675,6 +697,22 @@ else
             agent_link_count=$((agent_link_count + 1))
         done
         ok "Agents: $agent_link_count compatible TOML files"
+        # Every whitelisted agent (agents/*.md minus the primary orchestrator) MUST
+        # land a TOML adapter in .codex/agents/; a missing adapter means codex
+        # silently loses a required role, so fail loudly instead of reporting success.
+        missing_toml=""
+        for agent_md in "$LOCAL_AGENT_ROOT"/*.md; do
+            [ -e "$agent_md" ] || continue
+            base="$(basename "$agent_md" .md)"
+            [[ "$base" != $INCLUDED_AGENT_PATTERN ]] && continue
+            [ -n "$EXCLUDED_AGENT" ] && [ "$base" = "$EXCLUDED_AGENT" ] && continue
+            [ -f "$AGENT_DISCOVERY/$base.toml" ] || missing_toml="$missing_toml $base"
+        done
+        if [ -n "$missing_toml" ]; then
+            err "Missing codex TOML adapters for required agents:$missing_toml"
+            err "Add agents/codex/<name>.toml for each required agent and re-run init.sh"
+            exit 1
+        fi
     else
         # Pre-clean existing agents (only whitelist items)
         for agent_entry in "$AGENT_SOURCE_ROOT"/*; do
@@ -709,40 +747,34 @@ else
 fi
 echo ""
 
-# --- Step 4: Clone PyPTO source repository ---
-step "[4/5] Preparing PyPTO source repository..."
+# --- Step 4: Confirm resource provisioning boundary ---
+step "[4/5] Checking resource provisioning..."
+info "Development resources are provisioned on demand by the installed Skills."
+info "PyPTO source docs/ops/tests are assembled by ops/pypto-docs-search/scripts/sync_devkit.py"
+info "into the shared cache \$PYPTO_DEVKIT_DIR (default: \${XDG_CACHE_HOME:-\$HOME/.cache}/pypto-devkit)."
 
-PYPTO_DIR="$PLUGIN_ROOT/pypto"
-if [ -d "$PYPTO_DIR" ] && [ -d "$PYPTO_DIR/.git" ]; then
-    ok "PyPTO already exists: $PYPTO_DIR"
-else
-    mkdir -p "$(dirname "$PYPTO_DIR")"
-    if command -v git &> /dev/null; then
-        info "Cloning PyPTO source repository..."
-        if git clone https://gitcode.com/cann/pypto.git "$PYPTO_DIR" 2>/dev/null; then
-            ok "Cloned pypto to $PYPTO_DIR"
-        else
-            warn "Clone failed — clone manually: git clone https://gitcode.com/cann/pypto.git $PYPTO_DIR"
-        fi
+# The installer writes generated config files (AGENTS.md / CLAUDE.md) and the tool
+# config directory into the target project; keep them out of the user's git status
+# via .git/info/exclude (append-only and idempotent: existing entries are preserved).
+if [ "$LEVEL" = "project" ] &&
+   git -C "$INSTALL_BASE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git_common_dir="$(git -C "$INSTALL_BASE" rev-parse --git-common-dir)"
+    git_common_dir="$(cd "$INSTALL_BASE" && cd "$git_common_dir" && pwd -P)"
+    mkdir -p "$git_common_dir/info"
+    touch "$git_common_dir/info/exclude"
+    repo_root="$(git -C "$INSTALL_BASE" rev-parse --show-toplevel)"
+    rel_config_root="${CONFIG_ROOT#"$repo_root"/}"
+    if [ "$rel_config_root" != "$CONFIG_ROOT" ]; then
+        grep -Fqx "/$rel_config_root/" "$git_common_dir/info/exclude" ||
+            printf "/%s/\n" "$rel_config_root" >> "$git_common_dir/info/exclude"
+    fi
+    if [ "$TOOL" = "claude" ]; then
+        installed_config_entry="/CLAUDE.md"
     else
-        warn "git not found — install git and clone manually: git clone https://gitcode.com/cann/pypto.git $PYPTO_DIR"
+        installed_config_entry="/AGENTS.md"
     fi
-fi
-
-# For global mode: also symlink pypto into CONFIG_ROOT so it can be discovered
-# from any working directory (not just the plugin directory)
-if [ "$LEVEL" = "global" ] && [ -d "$PYPTO_DIR" ]; then
-    ln -sfn "$(realpath "$PYPTO_DIR")" "$CONFIG_ROOT/pypto"
-    ok "pypto → $CONFIG_ROOT/"
-fi
-
-# For project-level with custom target: also symlink pypto into INSTALL_BASE
-# so relative references from agents/workflows work correctly
-if [ "$LEVEL" = "project" ] && [ -d "$PYPTO_DIR" ]; then
-    if [ "$INSTALL_BASE" != "$SCRIPT_DIR" ]; then
-        ln -sfn "$(realpath "$PYPTO_DIR")" "$INSTALL_BASE/pypto"
-        ok "pypto → $INSTALL_BASE/"
-    fi
+    grep -Fqx "$installed_config_entry" "$git_common_dir/info/exclude" ||
+        printf '%s\n' "$installed_config_entry" >> "$git_common_dir/info/exclude"
 fi
 echo ""
 
@@ -763,19 +795,12 @@ for target in "$SKILL_DISCOVERY_ROOT" "$AGENT_DISCOVERY_ROOT"; do
   fi
 done
 
-# Check PyPTO source repository
-if [ -d "$PYPTO_DIR/docs" ]; then
-    ok "PyPTO source present"
+# Check PyPTO devkit cache (assembled on demand by sync_devkit.py, not by init.sh)
+DEVKIT_CACHE="${PYPTO_DEVKIT_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/pypto-devkit}"
+if [ -d "$DEVKIT_CACHE/docs" ]; then
+    ok "PyPTO devkit cache present: $DEVKIT_CACHE"
 else
-    health_errors="${health_errors}\n  $(echo -e "${YELLOW}⚠${NC}") pypto repo not found — API Explorer / Design skills need docs/"
-fi
-# Check global pypto symlink
-if [ "$LEVEL" = "global" ] && [ ! -d "$CONFIG_ROOT/pypto" ]; then
-  health_errors="${health_errors}\n  ${YELLOW}⚠${NC} pypto symlink missing in $CONFIG_ROOT"
-fi
-# When installed to a custom directory, also check the symlink there
-if [ "$LEVEL" = "project" ] && [ "$INSTALL_BASE" != "$SCRIPT_DIR" ] && [ ! -d "$INSTALL_BASE/pypto" ]; then
-  health_errors="${health_errors}\n  ${YELLOW}⚠${NC} pypto symlink missing in $INSTALL_BASE"
+    health_errors="${health_errors}\n  $(echo -e "${YELLOW}⚠${NC}") pypto devkit cache not assembled yet — API Explorer / Design skills will run ops/pypto-docs-search/scripts/sync_devkit.py on demand"
 fi
 
 # Check config file

@@ -5,7 +5,7 @@ description: 当需要生成 golden 参考实现时使用此 skill。基于算�
 
 # PyPTO Golden 参考实现生成（NPU）
 
-基于算子规格信息，自动生成 torch + torch_npu NPU golden 参考实现及完整验证代码。计算的 golden 脚本用于开发阶段快速验证算子实现的正确性，可以作为独立模块被 `test_{op}.py` 等其他脚本导入调用。基于固定模板 [templates/golden-template.py](templates/golden-template.py) 生成（在§9 生成文件结构阶段读取该模板）。使用 torch 标准操作在 NPU 上执行；torch_npu 未安装时直接报错引导安装，仅无 NPU 硬件（`device_count() == 0`）时回退 CPU。禁止引入 pypto。性能采集不写入 golden 文件，统一由通用脚本 [scripts/profile_golden.py](scripts/profile_golden.py) 执行。
+基于算子规格信息，自动生成 torch + torch_npu NPU golden 参考实现及完整验证代码。计算的 golden 脚本用于开发阶段快速验证算子实现的正确性，可以作为独立模块被 `test_{op}.py` 等其他脚本导入调用。基于固定模板 [templates/golden-template.py.tmpl](templates/golden-template.py.tmpl) 生成（在§9 生成文件结构阶段读取该模板）。使用 torch 标准操作在 NPU 上执行；torch_npu 未安装时直接报错引导安装，仅无 NPU 硬件（`device_count() == 0`）时回退 CPU。禁止引入 pypto。性能采集不写入 golden 文件，统一由通用脚本 [scripts/profile_golden.py](scripts/profile_golden.py) 执行。
 
 1. 从用户输入提取算子名称、公式、输入输出规格等必要信息
 2. 如果信息不足，向用户逐步提问补充
@@ -33,7 +33,7 @@ description: 当需要生成 golden 参考实现时使用此 skill。基于算�
 >
 > ```bash
 > python3 scripts/gen_golden_scaffold.py --spec custom/<op>/SPEC.md \
->     --template templates/golden-template.py --out custom/<op>/<op>_golden.py
+>     --template templates/golden-template.py.tmpl --out custom/<op>/<op>_golden.py
 > ```
 >
 > 脚本读取 SPEC.md front matter（`op_name` / `p0_shapes` / `default_params` …）与 §5 输入/参数表，缺少必须字段时非零退出（吸收下表检查），并生成已填好**函数签名、`_make_inputs` 张量构造（按 p0_shapes + 参数表 concrete shape）、`_validate` 骨架**的 `<op>_golden.py`；仅在数式本体、受约束输入、算子固有属性检查处留 `# TODO`。LLM 只需填这些 TODO。
@@ -326,7 +326,7 @@ python3 {op}_golden.py
 
 ## 9. 生成文件结构
 
-文件骨架由 [`scripts/gen_golden_scaffold.py`](scripts/gen_golden_scaffold.py)（见 §3）**确定性生成**：脚本读取固定模板 [`templates/golden-template.py`](templates/golden-template.py)，机械替换 `{op}` 占位符、写入函数签名与 `_make_inputs` 张量构造，**不需要 LLM 手工拼骨架**。LLM 只填脚本留下的 `# TODO`（数式本体、受约束输入、固有属性检查）。生成文件包含以下结构：
+文件骨架由 [`scripts/gen_golden_scaffold.py`](scripts/gen_golden_scaffold.py)（见 §3）**确定性生成**：脚本读取固定模板 [`templates/golden-template.py.tmpl`](templates/golden-template.py.tmpl)，机械替换 `{op}` 占位符、写入函数签名与 `_make_inputs` 张量构造，**不需要 LLM 手工拼骨架**。LLM 只填脚本留下的 `# TODO`（数式本体、受约束输入、固有属性检查）。生成文件包含以下结构：
 
 - `import torch` + `import torch_npu` + NPU 设备初始化
 - 文件级 docstring（算子名、公式、置信度）
@@ -410,14 +410,14 @@ attention_golden 验证报告
 
 > **⚠️ 执行 §13 前必须先阅读** [references/reference-normalization.md](references/reference-normalization.md)。该文档包含强制规则、L0/L1 路径判断逻辑、Full vs Tiled 策略选择、PyPTO 不友好模式审计清单等**不可跳过的操作步骤**。
 
-> **机械审计（确定性）**：`<op>_golden.py` 写完/编辑后，立即自查两条零误报硬规则——`import pypto`（禁止）、`.T` / `.t()`（禁止，须用 `torch.transpose`）。命中即视为不合格，必须当场改掉，不要用「这个 golden 是否 PyPTO 友好」的对话推断代替这两条检查。需要 dtype/shape 数据流的规则（§4 matmul `.float()`、隐式 broadcast、shape 注释）不在此断言，仍由人工审阅与 NPU 精度验证负责。
+> **机械审计（确定性，自动）**：`<op>_golden.py` 写完/编辑后，post-edit lint 钩子会**即时**运行规则 **OL15**，机械审计零误报的硬规则——`import pypto`（禁止）、`.T` / `.t()`（禁止，须用 `torch.transpose`）——命中即 FAIL 并阻断本次 Edit，替代「这个 golden 是否 PyPTO 友好」的对话推断。无需手动运行脚本。需要 dtype/shape 数据流的规则（§4 matmul `.float()`、隐式 broadcast、shape 注释）不在此断言，仍由 LLM／精度 lint／NPU 验证负责。
 
 ---
 
 ## 14. 升级路径（仅在 pre-check 触发约束时只读查阅）
 
 当 golden 在 pre-check 阶段触发归约（reduction）对齐或 matmul 相关约束时，只读查阅
-`pypto-general-debug` 中 `references/DEBUG_GUIDEBOOK.md` 的归约对齐与 matmul 章节即可，
+`pypto-general-debug` 中 `../pypto-general-debug/references/DEBUG_GUIDEBOOK.md` 的归约对齐与 matmul 章节即可，
 **不要** fork 到 debug 子流程。本 skill 只生成纯 torch 的 golden，调试流程归 debugger 拥有。
 
 ---

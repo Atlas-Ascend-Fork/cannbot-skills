@@ -72,10 +72,10 @@
           "deepseek-v4-flash": 150000
         },
         "ascend_platforms": ["A2"],
-        "distractor_skills": ["precision-binary-search", "precision-pass", "ops-precision-standard"]
+        "distractor_skills": ["precision-binary-search", "ops-precision-standard"]
       },
       "prompt": "PyPTO 算子精度不对，想用文件保存对比法定位精度问题。",
-      "expected_output": "回复应聚焦工具对比法的核心方法：使用 pass_verify_save 和 torch.save 保存中间结果文件并对比，与二分定位法（修改 kernel 签名）和 Pass 校验法（PreCheck/PostCheck）形成区分。",
+      "expected_output": "回复应聚焦工具对比法的核心方法：使用 pass_verify_save 和 torch.save 保存中间结果文件并对比，与二分定位法（修改 kernel 签名）形成区分。",
       "files": [],
       "expectations": []
     }

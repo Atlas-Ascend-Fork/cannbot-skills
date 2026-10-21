@@ -1,21 +1,23 @@
-# Layout / structure requirements
+# Layout / structure enforcement
 
-Every `custom/<operator_name>/` directory must satisfy the requirements below: MEMORY.md / `test_<op>.py` presence, staged `*_module*_impl.py` naming, host wrappers must not drive kernels with Python `for ... in range(...)`, JIT-graph iteration may use only `pypto.loop`, `pypto.loop_unroll`, or `range(...)`, view-rank consistency, cube-tile validity, and use of the standard compare helper.
+Every `custom/<operator_name>/` directory must satisfy the requirements below: MEMORY.md / `test_<op>.py` presence, staged `*_module*_impl.py` naming, host wrappers must not drive kernels with Python `for ... in range(...)`, JIT-graph iteration may use only `pypto.loop`, `pypto.loop_unroll`, or `range(...)`, view-rank consistency, cube-tile validity, and use of the standard compare helper — all enforced **automatically by the pypto-op-lint hooks** (there is no separate layout script to run).
 
-## When to re-check
+## How it fires
 
-- **After every file write.** Re-read the file you just wrote against the rows below that apply to it (`*_impl.py` → impl rows, `test_*.py` → test rows). Fix violations in place before moving on.
-- **At each phase / stage boundary.** Re-check the whole set, because several requirements are cross-file (the trio naming and the three-piece set can only be judged directory-wide).
+- **On every file write** (PostToolUse[Write|Edit]): the hook runs the rule set for the edited file (`*_impl.py` → impl rules, `test_*.py` → test rules). An S0/S1 **FAIL** blocks the write in-band; fix and re-write the same file.
+- **At the phase / stage gates** (complete_phase / complete_stage / stop): the broader rule set runs for cross-file consistency.
 
-## Requirements
+## Rule map (formerly the standalone layout script)
 
-| Area | Requirement |
-|------|-------------|
-| Three-piece set | `test_<op>.py` exists alongside the impl and golden files |
-| Comparison helper | Test assertions use `assert_allclose` or `detailed_tensor_compare` |
-| Staged naming | The module trio is present for each active phase |
-| Host wrapper | The host wrapper does not drive the kernel with `for ... in range(...)` |
-| Kernel iteration | Inside the JIT graph, only `pypto.loop` / `pypto.loop_unroll` / `range(...)` |
-| Views | `pypto.view` rank consistency — shape / offsets / valid_shape ranks match; it is not a reshape |
-| Cube tiles | `set_cube_tile_shapes` m/k/n = `[L0, L1]`, `0 < L0 <= L1`, `L1 % L0 == 0`; tile args are int literals |
-| Dynamic axes | `pypto.loop` is used for dynamic-axis iteration |
+| Check | Lint rule |
+|-------|-----------|
+| `test_<op>.py` exists (three-piece set) | OL13 / OL44 |
+| Test uses `assert_allclose` or `detailed_tensor_compare` | OL19 |
+| Staged module trio per active phase | OL44 |
+| Host wrapper must not drive the kernel with `for ... in range(...)` | OL45 |
+| Only `pypto.loop` / `pypto.loop_unroll` / `range(...)` inside the JIT graph | OL57 |
+| `pypto.view` rank consistency (not a reshape) | OL52 |
+| `set_cube_tile_shapes` m/k/n = `[L0, L1]`, 0<L0<=L1, L1%L0==0; tile args are literals | OL48 |
+| `pypto.loop` present for dynamic-axis iteration | OL23 / OL43 |
+
+See `../../../hooks/pypto-op-lint/rules.json` for the full rule registry.

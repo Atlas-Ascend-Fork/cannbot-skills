@@ -2,7 +2,7 @@
 
 ## 说明
 
-**⛔ 强制步骤**：验证通过后，**必须**使用通用脚本 `scripts/profile_golden.py` 调用 `{op}_golden.py`，并通过 `torch_npu.profiler` 采集 golden 算子在 NPU 上的性能数据。golden 文件本身不包含 profiling 代码。
+**⛔ 强制步骤**：验证通过后，**必须**使用通用脚本 `../scripts/profile_golden.py` 调用 `{op}_golden.py`，并通过 `torch_npu.profiler` 采集 golden 算子在 NPU 上的性能数据。golden 文件本身不包含 profiling 代码。
 
 **核心目标**：对所有算子的 golden 都必须成功采集到正确的性能数据。无论算子输入多复杂，都要找到一种方式让 profiling 成功运行。
 
@@ -34,7 +34,7 @@
 **适用条件**：所有 tensor 接受任意随机值，或仅少量 tensor 有简单值域约束。
 
 ```bash
-python3 skills/pypto-golden-generate/scripts/profile_golden.py \
+python3 ../scripts/profile_golden.py \
   custom/{op}/{op}_golden.py \
   --function {op}_golden \
   --input <tensor_param_name>:<SHAPE>:<DTYPE> \
@@ -64,7 +64,7 @@ python3 skills/pypto-golden-generate/scripts/profile_golden.py \
 # golden 签名: ds_v4_hc_pre_golden(x, hc_fn, hc_scale, hc_base, hc=4, d=4096, ...)
 # SPEC p0_shapes: [[1024, 16384]]  (只有 x 的 shape，其余是 weights)
 
-python3 skills/pypto-golden-generate/scripts/profile_golden.py \
+python3 ../scripts/profile_golden.py \
   custom/pto_case/ds_v4_hc_pre/ds_v4_hc_pre_golden.py \
   --function ds_v4_hc_pre_golden \
   --input x:1024x16384:bfloat16 \
@@ -92,7 +92,7 @@ python3 skills/pypto-golden-generate/scripts/profile_golden.py \
 **执行方式**：
 
 ```bash
-python3 skills/pypto-golden-generate/scripts/profile_golden.py \
+python3 ../scripts/profile_golden.py \
   custom/{op}/{op}_golden.py \
   --function {op}_golden \
   --factory _make_inputs \
@@ -130,7 +130,7 @@ def _make_inputs(device):
 # 约束: block_table 需要合法索引、start_pos_dy 需要 ratio-2、
 #       state 需要 zeros 初始化、shape 间有依赖关系
 
-python3 skills/pypto-golden-generate/scripts/profile_golden.py \
+python3 ../scripts/profile_golden.py \
   custom/pto_case/ds_v4_compressor/ds_v4_compressor_golden.py \
   --function ds_v4_compressor_golden \
   --factory _make_inputs \

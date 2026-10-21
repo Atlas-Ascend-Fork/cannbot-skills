@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 # coding: utf-8
-# Copyright (c) 2025-2026 Huawei Technologies Co., Ltd.
+# ----------------------------------------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
 # This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 # CANN Open Software License Agreement Version 2.0 (the "License").
 # Please refer to the License for details. You may not use this file except in compliance with the License.
 # THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE in the root of the software repository for the full text of the License.
+# ----------------------------------------------------------------------------------------------------------
 
 """
 Analyze core usage rate per leafHash from swimlane data.
@@ -33,15 +35,15 @@ which returns chip-level cube_core_num (AIC) and vector_core_num (AIV),
 corresponding to SoC::GetAICCoreNum() / SoC::GetAIVCoreNum() in platform.h.
 """
 
-import logging
 import argparse
+import importlib
 import json
+import logging
 import os
 import re
-import sys
 from collections import defaultdict
 
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 
 def get_theoretical_cores(device_id):
@@ -50,8 +52,8 @@ def get_theoretical_cores(device_id):
     Returns (aic_cores, aiv_cores) or (None, None) on failure.
     """
     try:
-        import torch
-        import torch_npu
+        torch = importlib.import_module("torch")
+        importlib.import_module("torch_npu")
         prop = torch.npu.get_device_properties(device_id)
         return prop.cube_core_num, prop.vector_core_num
     except Exception as e:
@@ -101,100 +103,190 @@ def parse_swimlane(events):
     return tid_to_core, leafhash_cores, leafhash_info
 
 
-def main():
+def _parse_args():
     parser = argparse.ArgumentParser(
-        description="Analyze per-leafHash core usage rate from swimlane data.")
-    parser.add_argument("output_dir",
-                        help="Path to output directory containing merged_swimlane.json")
-    parser.add_argument("--device-id", type=int, default=0,
-                        help="NPU device ID for querying theoretical core count (default: 0)")
-    args = parser.parse_args()
+        description="Analyze per-leafHash core usage rate from swimlane data."
+    )
+    parser.add_argument(
+        "output_dir", help="Path to output directory containing merged_swimlane.json"
+    )
+    parser.add_argument(
+        "--device-id",
+        type=int,
+        default=0,
+        help="NPU device ID for querying theoretical core count (default: 0)",
+    )
+    return parser.parse_args()
 
-    base_dir = args.output_dir.rstrip("/")
 
+def _load_events(base_dir):
     swimlane_path = os.path.join(base_dir, "merged_swimlane.json")
     if not os.path.exists(swimlane_path):
-        logging.error(f"{swimlane_path} not found")
-        sys.exit(1)
+        raise FileNotFoundError(f"{swimlane_path} not found")
 
-    with open(swimlane_path, "r") as f:
-        data = json.load(f)
-    events = data.get("traceEvents", [])
+    with open(swimlane_path, "r") as swimlane_file:
+        data = json.load(swimlane_file)
+    return data.get("traceEvents", [])
 
-    tid_to_core, leafhash_cores, leafhash_info = parse_swimlane(events)
 
-    # Get theoretical core count (guaranteed int after fallback)
-    aic_theoretical, aiv_theoretical = get_theoretical_cores(args.device_id)
+def _resolve_theoretical_cores(tid_to_core, device_id):
+    aic_theoretical, aiv_theoretical = get_theoretical_cores(device_id)
 
     if aic_theoretical is None or aiv_theoretical is None:
-        all_real = {tid_to_core[tid] for tid in tid_to_core
-                    if "Fake" not in tid_to_core.get(tid, "")}
+        all_real = {
+            tid_to_core[tid]
+            for tid in tid_to_core
+            if "Fake" not in tid_to_core.get(tid, "")
+        }
         aic_theoretical = len([c for c in all_real if "AIC" in c])
         aiv_theoretical = len([c for c in all_real if "AIV" in c])
+    return aic_theoretical, aiv_theoretical
 
-    logging.info(f"Theoretical cores: AIC={aic_theoretical}, AIV={aiv_theoretical}")
 
-    # Print table header
-    header = (f'{"psgId":>5} | {"type":>4} | {"tasks":>5} | '
-              f'{"used/total (usage%)":>22} | {"avg(us)":>8} | {"total(us)":>9} | '
-              f'{"status":>9} | suggestion')
-    sep = "-" * len(header)
+def _make_usage_record(info, cores, aic_theoretical, aiv_theoretical):
+    real_cores = {core for core in cores if "Fake" not in core}
+    if not real_cores:
+        return None
 
+    is_aic = any("AIC" in core for core in real_cores)
+    core_type = "AIC" if is_aic else "AIV"
+    theoretical = aic_theoretical if is_aic else aiv_theoretical
+    if theoretical == 0:
+        return None
+
+    used = len(real_cores)
+    average = info["total_dur"] / info["cnt"] if info["cnt"] > 0 else 0
+    usage_pct = used / theoretical * 100
+    is_full = used >= theoretical
+    return {
+        "psgId": info["psgId"],
+        "cnt": info["cnt"],
+        "total_dur": info["total_dur"],
+        "core_type": core_type,
+        "used": used,
+        "theoretical": theoretical,
+        "average": average,
+        "usage_pct": usage_pct,
+        "is_full": is_full,
+    }
+
+
+def _collect_usage_records(
+    leafhash_cores, leafhash_info, aic_theoretical, aiv_theoretical
+):
+    ordered_hashes = sorted(
+        leafhash_info,
+        key=lambda leaf_hash: leafhash_info[leaf_hash]["total_dur"],
+        reverse=True,
+    )
+    records = []
+    for leaf_hash in ordered_hashes:
+        record = _make_usage_record(
+            leafhash_info[leaf_hash],
+            leafhash_cores[leaf_hash],
+            aic_theoretical,
+            aiv_theoretical,
+        )
+        if record is not None:
+            records.append(record)
+    return records
+
+
+def _table_header():
+    header = (
+        f"{'psgId':>5} | {'type':>4} | {'tasks':>5} | "
+        f"{'used/total (usage%)':>22} | {'avg(us)':>8} | {'total(us)':>9} | "
+        f"{'status':>9} | suggestion"
+    )
+    return header
+
+
+def _log_usage_table(records, header):
     logging.info("")
     logging.info(header)
-    logging.info(sep)
-
-    not_full_items = []
+    logging.info("-" * len(header))
     full_items = []
-
-    sorted_lhs = sorted(leafhash_info, key=lambda x: leafhash_info[x]["total_dur"], reverse=True)
-    for lh in sorted_lhs:
-        info = leafhash_info[lh]
-        real_cores = {c for c in leafhash_cores[lh] if "Fake" not in c}
-        if not real_cores:
-            continue
-
-        is_aic = any("AIC" in c for c in real_cores)
-        ct = "AIC" if is_aic else "AIV"
-        theoretical = aic_theoretical if is_aic else aiv_theoretical
-        if theoretical == 0:
-            continue
-        used = len(real_cores)
-        avg = info["total_dur"] / info["cnt"] if info["cnt"] > 0 else 0
-        usage_pct = used / theoretical * 100
-        is_full = used >= theoretical
-
-        cores_str = f"{used}/{theoretical} ({usage_pct:.0f}%)"
-        status = "FULL" if is_full else "NOT FULL"
-
-        if is_full:
+    not_full_items = []
+    for record in records:
+        cores_str = (
+            f"{record['used']}/{record['theoretical']} ({record['usage_pct']:.0f}%)"
+        )
+        status = "FULL" if record["is_full"] else "NOT FULL"
+        if record["is_full"]:
             suggestion = "can merge (L1Reuse/NBuffer)"
-            full_items.append(info["psgId"])
+            full_items.append(record["psgId"])
         else:
             suggestion = "FILL CORES FIRST (reduce TileShape)"
-            not_full_items.append((info["psgId"], ct, used, theoretical, info["total_dur"]))
+            not_full_items.append(
+                (
+                    record["psgId"],
+                    record["core_type"],
+                    record["used"],
+                    record["theoretical"],
+                    record["total_dur"],
+                )
+            )
 
         logging.info(
-            f'{info["psgId"]:>5} | {ct:>4} | {info["cnt"]:>5} | {cores_str:>22} | '
-            f'{avg:>8.1f} | {info["total_dur"]:>9.1f} | {status:>9} | {suggestion}')
+            f"{record['psgId']:>5} | {record['core_type']:>4} | "
+            f"{record['cnt']:>5} | {cores_str:>22} | "
+            f"{record['average']:>8.1f} | {record['total_dur']:>9.1f} | "
+            f"{status:>9} | {suggestion}"
+        )
+    return full_items, not_full_items
 
+
+def _log_summary(header, full_items, not_full_items):
     logging.info("")
     logging.info("=" * len(header))
     logging.info("Summary:")
     logging.info(f"  NOT FULL (fill cores first): {len(not_full_items)} leafHash(es)")
     for psg_id, ct, used, total, dur in not_full_items:
-        logging.info(f"    - psgId={psg_id} ({ct}): {used}/{total} cores, total={dur:.1f}us")
+        logging.info(
+            f"    - psgId={psg_id} ({ct}): {used}/{total} cores, total={dur:.1f}us"
+        )
     logging.info(f"  FULL (can merge): {len(full_items)} leafHash(es)")
     for psg_id in full_items:
         logging.info(f"    - psgId={psg_id}")
     logging.info("")
 
     if not_full_items:
-        logging.info("Next step: For NOT FULL leafHashes, use leafhash_to_code.py to map to frontend code,")
-        logging.info("           then adjust set_cube_tile_shapes() to increase task count.")
+        logging.info(
+            "Next step: For NOT FULL leafHashes, use leafhash_to_code.py to map to frontend code,"
+        )
+        logging.info(
+            "           then adjust set_cube_tile_shapes() to increase task count."
+        )
     else:
-        logging.info("Next step: All cores are FULL. Proceed to merge tuning (L1Reuse / CubeNBuffer / VecNBuffer).")
+        logging.info(
+            "Next step: All cores are FULL. Proceed to merge tuning (L1Reuse / CubeNBuffer / VecNBuffer)."
+        )
+
+
+def main():
+    args = _parse_args()
+    base_dir = args.output_dir.rstrip("/")
+    events = _load_events(base_dir)
+    tid_to_core, leafhash_cores, leafhash_info = parse_swimlane(events)
+    aic_theoretical, aiv_theoretical = _resolve_theoretical_cores(
+        tid_to_core, args.device_id
+    )
+    logging.info(f"Theoretical cores: AIC={aic_theoretical}, AIV={aiv_theoretical}")
+
+    records = _collect_usage_records(
+        leafhash_cores,
+        leafhash_info,
+        aic_theoretical,
+        aiv_theoretical,
+    )
+    header = _table_header()
+    full_items, not_full_items = _log_usage_table(records, header)
+    _log_summary(header, full_items, not_full_items)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except FileNotFoundError as exc:
+        logging.error("%s", exc)
+        raise SystemExit(1) from None

@@ -97,29 +97,33 @@ def _append_jsonl(path: str, record: dict[str, Any]) -> None:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def _emit_metric_event_buffered(ctx: CheckContext, finding: Finding,
-                                run_meta: _RunMeta, duration_ms: float) -> None:
+def _emit_metric_event_buffered(
+    ctx: CheckContext, finding: Finding, run_meta: _RunMeta, duration_ms: float
+) -> None:
     if finding.status == "SKIP" and not _LOG_SKIP:
         return
+    # Dedup fingerprint for log aggregation only, not a security control.
     message_hash = hashlib.sha1(
         finding.message.encode("utf-8"), usedforsecurity=False
     ).hexdigest()[:12]
-    _metrics_batch.append({
-        "ts": int(time.time()),
-        "invocation_id": run_meta.invocation_id,
-        "op_dir": ctx.op_dir,
-        "stage": ctx.stage,
-        "rule_id": finding.rule_id,
-        "severity": finding.severity,
-        "fix_effort": finding.fix_effort,
-        "status": finding.status,
-        "mode": run_meta.mode,
-        "strict": run_meta.strict,
-        "duration_ms": round(float(duration_ms), 3),
-        "file": finding.file,
-        "message_hash": message_hash,
-        "event_type": "rule_check",
-    })
+    _metrics_batch.append(
+        {
+            "ts": int(time.time()),
+            "invocation_id": run_meta.invocation_id,
+            "op_dir": ctx.op_dir,
+            "stage": ctx.stage,
+            "rule_id": finding.rule_id,
+            "severity": finding.severity,
+            "fix_effort": finding.fix_effort,
+            "status": finding.status,
+            "mode": run_meta.mode,
+            "strict": run_meta.strict,
+            "duration_ms": round(float(duration_ms), 3),
+            "file": finding.file,
+            "message_hash": message_hash,
+            "event_type": "rule_check",
+        }
+    )
 
 
 def _flush_metrics_batch() -> None:
@@ -189,8 +193,12 @@ def _summary_event(
     }
 
 
-def _emit_summary_event(ctx: CheckContext, findings: list[Finding],
-                        run_meta: _RunMeta, total_duration_ms: float) -> None:
+def _emit_summary_event(
+    ctx: CheckContext,
+    findings: list[Finding],
+    run_meta: _RunMeta,
+    total_duration_ms: float,
+) -> None:
     try:
         _append_jsonl(
             LOGS_EVENTS_FILE,
@@ -200,8 +208,9 @@ def _emit_summary_event(ctx: CheckContext, findings: list[Finding],
         pass
 
 
-def _emit_gate_event(ctx: CheckContext, blocked: bool, blocking_rules: list[str],
-                     invocation_id: str = "") -> None:
+def _emit_gate_event(
+    ctx: CheckContext, blocked: bool, blocking_rules: list[str], invocation_id: str = ""
+) -> None:
     try:
         event = {
             "ts": int(time.time()),

@@ -1,6 +1,6 @@
 # ST 测试覆盖率报告
 
-当前 ST 框架覆盖 **110 个 Skill + 18 个 Team**，共 **918 个评测用例**（仅统计已启用用例，截止 2026-09-21）。
+当前 ST 框架覆盖 **110 个 Skill + 18 个 Team**，共 **906 个评测用例**（仅统计已启用用例，截止 2026-10-20）。
 
 > **统计口径**：统计代码仓内所有符合结构要求的 Skill（`skill_dirs` 下含 `SKILL.md`）与 Team（`team_dirs` 下含 `AGENTS.md` + `.claude-plugin/plugin.json`），与是否携带 `evals/evals.json` 无关——无 evals 的实体用例数计 0。
 
@@ -21,7 +21,7 @@
 
 按域分组统计：
 
-### ops/（70 Skills，共 534 个用例）
+### ops/（70 Skills，共 522 个用例）
 
 | 名称 | 用例数 | 正向看护 | 负向看护 | 正确性看护 | 调用流程看护 | 资源消耗看护 |
 | --- | :--: | :--: | :--: | :--: | :--: | :--: |
@@ -63,13 +63,13 @@
 | pypto-api-explore | 7 |   |   | √ |   | √ |
 | pypto-docs-search | 8 |   |   | √ |   | √ |
 | pypto-general-debug | 8 |   |   | √ |   | √ |
-| pypto-golden-generate | 7 |   |   | √ |   | √ |
+| pypto-golden-generate | 6 |   |   | √ |   | √ |
 | pypto-intent-understand | 7 |   |   | √ |   | √ |
 | pypto-memory-template | 10 |   |   | √ |   | √ |
-| pypto-op-construct | 10 |   |   | √ |   | √ |
-| pypto-op-design | 10 | √ | √ | √ | √ | √ |
-| pypto-op-develop | 7 |   |   | √ |   | √ |
+| pypto-op-design | 10 | √ |   | √ |   | √ |
+| pypto-op-develop | 6 |   |   | √ |   | √ |
 | pypto-op-knowledge | 8 |   |   | √ |   | √ |
+| pypto-op-perf-panko-manual | 0 |   |   |   |   |   |
 | pypto-op-perf-tune | 7 |   |   | √ |   | √ |
 | pypto-op-plan | 8 |   |   | √ |   | √ |
 | pypto-op-review | 8 |   |   | √ |   | √ |

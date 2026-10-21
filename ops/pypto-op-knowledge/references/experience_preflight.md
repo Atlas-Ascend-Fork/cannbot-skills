@@ -2,8 +2,8 @@
 
 > **何时**：Stage 5 写 impl 之前（由 Coder 执行，不属 Stage 1-4）。
 > **做什么**：从经验库提取与该算子相关的已知陷阱，生成 checklist 写入 `MEMORY.md` → `## Experience Preflight`。
-> **谁消费**：Coder（只关注无自动兜底的规则）、自动扫描（机器解析 checklist 格式 + AST 扫描代码）。
-> **自动扫描独立运行**：检查 `[-]` 消除 + AST scan（impl 阶段，stage 5/6）。
+> **谁消费**：Coder（只关注无自动兜底的规则）、OL61 lint（机器解析格式 + AST 扫描代码）。
+> **OL61 独立运行**：检查 `[-]` 消除 + AST scan（impl 阶段，stage 5/6）。
 
 ---
 
@@ -11,7 +11,7 @@
 
 读取 [fixed_rules.md](fixed_rules.md) 中 F1-F8（跨算子高频反模式，≥2 个算子踩过坑）。
 
-这 8 条**无条件注入**每轮预检输出，全部标记 `[x]`。自动化标记：F1/F2/F4/F8 标记 `🤖`（AST 扫描），F6 标记 `🔧`（其他自动扫描），F3/F5/F7 无标记（Coder 人工检查）。
+这 8 条**无条件注入**每轮预检输出，全部标记 `[x]`。自动化标记：F1/F2/F4/F8 标记 `🤖`（OL61 AST），F6 标记 `🔧`（OL50 lint），F3/F5/F7 无标记（Coder 人工检查）。
 
 ---
 
@@ -42,20 +42,20 @@
 
 ### 3a. experience_classified（主规则集）
 
-**source**：`skills/pypto-op-knowledge/references/experience_classified/` 下 8 个 `.md` 文件。
+**source**：`experience_classified/` 下 8 个 `.md` 文件。
 
 **extract**：API 驱动——对操作集中每个 API 名搜索。命中即提取解决方案，转为禁止/必须项。
 
 **output**：
-- S0 项（有自动扫描兜底）：直接标记 `[x]` + `🤖`。
-- S0 项（无自动扫描兜底，且不在 F1-F8 中）：标记 `[-]` 待验证，上限 **3 条**。
+- S0 项（有 OL lint 兜底）：直接标记 `[x]` + `🤖`。
+- S0 项（无 OL lint 兜底，且不在 F1-F8 中）：标记 `[-]` 待验证，上限 **3 条**。
 - S1 项：上限 **5 条**，仅保留该算子特有的精度陷阱。
 
 ### 3b. API 文档 + DEBUG_GUIDEBOOK（补缺口，去重 3a）
 
 **source**：
 - 操作集中每个 API 对应 `https://raw.gitcode.com/cann/pypto/raw/master/docs/zh/api/operation/pypto-{name}.md`
-- `skills/pypto-general-debug/references/DEBUG_GUIDEBOOK.md` fingerprint 索引 → 命中的 leaf 文件
+- `../../pypto-general-debug/references/DEBUG_GUIDEBOOK.md` fingerprint 索引 → 命中的 leaf 文件
 
 | fingerprint | leaf 文件 |
 |-------------|----------|
@@ -70,7 +70,7 @@
 
 **extract**：API 文档仅提取参数硬约束；DEBUG_GUIDEBOOK 仅提取 `## Issue:` 标题 + 一句话方案。
 
-**output**：上限 **5 条**。API 文档仅保留有自动扫描兜底的 S0 项；DEBUG_GUIDEBOOK 允许无自动扫描兜底的 S0 项（标记 `[-]`）。
+**output**：上限 **5 条**。API 文档仅保留有 OL lint 兜底的 S0 项；DEBUG_GUIDEBOOK 允许无 OL lint 兜底的 S0 项（标记 `[-]`）。
 
 ### 3c. 测试仓库（补数值）
 
@@ -78,7 +78,7 @@
 
 **extract**：只提取 tile shapes 数字、atol/rtol 数值。
 
-**output**：写入 `### References` 区（非 checklist 条目，不参与 checklist 解析）。
+**output**：写入 `### References` 区（非 checklist 条目，OL61 不解析）。
 
 ---
 
@@ -88,9 +88,9 @@
 
 ### 约束
 
-- **总条数上限 20 条**（含 F1-F8）。超出时裁剪：S0（有自动扫描兜底）> S1 > S0（无自动扫描兜底）。
-- 每行必须是 `- [x]` / `- [-]` / `- [ ]` 开头（按正则 `^\s*-\s+\[([x\- ])\]` 解析）。
-- **禁止表格**（无法承载 `[-]` 的子注释，且无法被机器解析）。
+- **总条数上限 20 条**（含 F1-F8）。超出时裁剪：S0（有 OL lint 兜底）> S1 > S0（无 OL lint 兜底）。
+- 每行必须是 `- [x]` / `- [-]` / `- [ ]` 开头（OL61 正则 `^\s*-\s+\[([x\- ])\]` 解析）。
+- **禁止表格**（无法承载 `[-]` 的子注释，OL61 无法解析）。
 - `[-]` 条目下方必须紧跟 `> ⚠️ 待验证：{具体待确认项}`。
 - N/A 规则直接删除，不写 "N/A" 条目。
 
@@ -106,8 +106,8 @@
 
 | 标记 | 含义 | Coder 动作 |
 |------|------|-----------|
-| `🤖` | AST 自动扫描（F1/F2/F4/F8 + §3 中有 AST 兜底的条目） | 跳过，`submit_for_verify` 时自动拦截 |
-| `🔧` | 其他自动扫描（如 F6） | 跳过，门禁时自动拦截 |
+| `🤖` | OL61 AST 自动扫描（F1/F2/F4/F8 + §3 中有 AST 兜底的条目） | 跳过，OL61 在 `submit_for_verify` 时自动拦截 |
+| `🔧` | 其他 OL 规则自动扫描（如 F6 由 OL50 覆盖） | 跳过，对应 OL 规则在门禁时自动拦截 |
 | 无标记 | 无自动兜底 | Coder 必须人工检查 |
 
 ### `[-]` 消除时机
@@ -116,7 +116,7 @@ Stage 5 编码时，Coder 确定具体参数后：
 - 确认合规 → 改为 `- [x]`
 - 确认风险后接受 → 将 `> ⚠️ 待验证` 改为 `> ✅ 已知风险，接受`
 
-`submit_for_verify` 门禁会检查残留 `[-]` 项，有残留则不通过。
+OL61 在 `submit_for_verify` 门禁检查残留 `[-]` 项，有残留则 FAIL。
 
 ### 输出模板
 
@@ -149,7 +149,7 @@ atol/rtol: 1e-3 (from tests/st/test_{op}.py)
 
 1. **所有条目统一 `- [x]`/`[-]`/`[ ]` 格式**——F1-F8 也标 `[x]`，不存在"无条件输出但不标 checkbox"的例外。
 2. **按 API 分组排列**——同一 API 的规则紧邻，不按来源分区。
-3. **`🤖`/`🔧` 标记 = 自动扫描已覆盖**——Coder 跳过有标记的规则，只人工检查无标记的条目。
-4. **References 独立于 checklist**——tile shapes、atol/rtol 等参考值放 `### References` 子节，**不使用 `-` 前缀**（避免被 checklist 正则误匹配为条目）。
+3. **`🤖`/`🔧` 标记 = lint 自动覆盖**——Coder 跳过有标记的规则，只人工检查无标记的条目。
+4. **References 独立于 checklist**——tile shapes、atol/rtol 等参考值放 `### References` 子节，**不使用 `-` 前缀**（避免被 OL61 正则误匹配为 checklist 条目）。
 5. **无"行动区/规则区"分区**——`[-]` 本身就是"需要行动"，不需要额外分区。
 6. **每条一行规则描述 + 来源标注**——`(F1)` 或 `（来源：{文件}）`，便于溯源。
