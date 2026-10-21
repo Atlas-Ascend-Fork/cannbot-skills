@@ -1,6 +1,6 @@
 # Layout / structure requirements
 
-Every `custom/<operator_name>/` directory must satisfy the requirements below: MEMORY.md / `test_<op>.py` presence, staged `*_module*_impl.py` naming, no Python loops in kernel code, view-rank consistency, cube-tile validity, and use of the standard compare helper.
+Every `custom/<operator_name>/` directory must satisfy the requirements below: MEMORY.md / `test_<op>.py` presence, staged `*_module*_impl.py` naming, host wrappers must not drive kernels with Python `for ... in range(...)`, JIT-graph iteration may use only `pypto.loop`, `pypto.loop_unroll`, or `range(...)`, view-rank consistency, cube-tile validity, and use of the standard compare helper.
 
 ## When to re-check
 
