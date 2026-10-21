@@ -32,7 +32,7 @@
 - **API 预研子 Agent**（仅当 file_input 含 `op_kernel/` 路径）：Read+执行 `steps/common.api-prestudy.md`，传入 file_input（仅 Kernel 侧）+ 输出路径 `./operators/{operator_name}/api_prestudy.md`
 
 4. 等待已派发的子 Agent 全部返回（1-2 个），收集：代码概要→侧别+概要路径；API 预研→预研报告路径（若已派发）
-5. Read + 执行 `steps/common.plan-design.md`，派发子 Agent 产出检视计划（通用分组 + 专项清单 + 跳过清单 + 仅核对清单）。传入 file_input + 概要路径 + API 预研路径（若存在）+ scope_hint + 检视类型 `file` + 检视标识留空（文件检视无 PR 号）+ mode + guidance（mode/guidance 由 file-review 入口调 review_mode.py 判定，plan-design 按该 mode 的 guidance 编排）。**plan-design 负责调用 `{skill_base}/scripts/workflow.create_review_dir.py` 创建 yaml 输出目录**，返回值含 `yaml_dir` 路径
+5. Read + 执行 `steps/common.plan-design.md`，派发子 Agent 产出检视计划（通用分组 + 跳过清单 + 仅核对清单）。传入 file_input + 概要路径 + API 预研路径（若存在）+ scope_hint + 检视类型 `file` + 检视标识留空（文件检视无 PR 号）+ mode + guidance（mode/guidance 由 file-review 入口调 review_mode.py 判定，plan-design 按该 mode 的 guidance 编排）。**plan-design 负责调用 `{skill_base}/scripts/workflow.create_review_dir.py` 创建 yaml 输出目录**，返回值含 `yaml_dir` 路径
 6. 将任务0 标记为 done
 
 ### 阶段1：逐条检视

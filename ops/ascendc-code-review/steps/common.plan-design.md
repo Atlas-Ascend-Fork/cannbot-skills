@@ -53,7 +53,7 @@ Step 6 合并 + 容量。合并与打包的幅度以 mode 的 guidance 为准（
 
 Step 7 分组 + 波次。按上游传入的 mode 走对应 guidance 执行（mode/guidance 由 code-fetch/file-review 调 workflow.review_mode.py 判定,阈值见 `{skill_base}/scripts/workflow.review-thresholds.yaml`,plan-design 不自行判档）。guidance 若对合并/打包/筛查幅度另有约束（如 `oversized`），该约束回溯约束 Step 5 与 Step 6 的对应动作。
 红线（ascendc-red-line）与 topK（ascendc-topk）永远是最高优先级:优先级序中排在 1 之前,独立成组（不参与 Step 6.2 合并,见 6.2 禁止合并项）,必进第一波;模式分档与每波 ≤6 组限制不削弱其优先级——分波/挤波时若第一波已满,红线/topK 仍优先占位,其余条例让位后延。
-cpp-style 专项（所有模式追加）:22 条单独成 1 组,组名 style,标签 [全部],并入第一波,全文 Read {skill_base}/references/cpp-style.md,结果以 yaml category: style 字段输出,FAIL 计入报告问题数（severity 取条款声明）。
+cpp-style 专项（所有模式追加）:16 条单独成 1 组,组名 style,标签 [全部],并入第一波,全文 Read {skill_base}/references/cpp-style.md,结果以 yaml category: style 字段输出,FAIL 计入报告问题数（severity 取条款声明）。
 
 Step 8 输出检视计划。
 
@@ -70,7 +70,7 @@ yaml_dir: /tmp/{目录名}
 波次1:
   {组1（来源,标签）}: 条例ID {标题},...
      代码范围: {仅Kernel/仅Host/全部}
-  style（cpp-style,[全部]）: 全部 22 条 | 代码范围:全部 | 读取:全文 Read cpp-style.md | 标记:yaml category: style
+  style（cpp-style,[全部]）: 全部 16 条 | 代码范围:全部 | 读取:全文 Read cpp-style.md | 标记:yaml category: style
 
 波次2（如有）:
   ...

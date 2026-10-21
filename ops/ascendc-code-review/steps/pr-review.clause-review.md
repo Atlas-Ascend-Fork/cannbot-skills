@@ -25,7 +25,7 @@ workflow 按 plan-design 产出的检视计划，逐波派发子 Agent。每组�
 - 对每条分配的条例（含所属规则文件名），定位条款章节并只读该章节：起始行 = `grep -nE '^#+ .*{条例ID}([ :.]|$)' {规则文件}` 的首个命中行（各文件条款标题形如 `#### SEC-1.1 …`、`##### 规则 GEN-1.1 …`、`## KERNEL-1: …`、`### TOPK-3 …`）；结束行 = 从起始行向下第一个**井号数不多于起始标题井号数**的标题行的前一行（用 `grep -nE '^#{2,6} '` 逐行核对级别）。Read offset={起始} limit={结束-起始}。**只读该条例章节，禁止 Read 整个规则文档。**若条例包含专属检视方法，必须严格按该指引执行
 - 若检视条款来自 ascendc-kernel-rules / ascendc-sunset-api / simt-api-analysis / mc2-specific 且预研报告未覆盖，使用 `/ascendc-docs-search` 查阅对应 API 的最新官方文档
 - 先 Read diff 了解变更范围，再 Read 完整源码追溯变量来源
-- 严格按假设检验驱动流程执行（H0/H1、证据收集、自信值计算）。**例外**：若条例的专属检视方法已声明不走假设检验（如 cpp-style 的 22 条、ascendc-sunset-api 的 SUNSET-1/2），按专属方法执行，不收集证据分值；此类条款 FAIL/SUSPICIOUS 的 yaml 提交时使用对应 category（cpp-style → `category: style`，SUNSET-* → `category: sunset`），不带 evidence/confidence 字段（collector 已豁免校验）
+- 严格按假设检验驱动流程执行（H0/H1、证据收集、自信值计算）。**例外**：若条例的专属检视方法已声明不走假设检验（如 cpp-style 的 16 条、ascendc-sunset-api 的 SUNSET-1/2），按专属方法执行，不收集证据分值；此类条款 FAIL/SUSPICIOUS 的 yaml 提交时使用对应 category（cpp-style → `category: style`，SUNSET-* → `category: sunset`），不带 evidence/confidence 字段（collector 已豁免校验）
 - 所有条款检视完成后，**将每条结果按下方 yaml schema 通过 curl 提交到 collector 端点**。提交命令模板：
   ```
   curl -s -X POST "http://127.0.0.1:{collector_port}/submit?clause={条例ID}" --data-binary @- <<'YAML_EOF'

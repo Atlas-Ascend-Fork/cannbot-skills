@@ -17,6 +17,16 @@ permission:
 | 检查是否有、有没有问题、快速检视、有什么风险、帮我看看有没有*问题、是否存在.*问题 | workflows/quick-review.md |
 | 全量检视 PR、全面审核 PR、pr #、pull request、PR # | workflows/pr-review.md |
 
+## 工作流概览
+
+执行主体分工：主 Agent 负责编排（提取输入、派发子 Agent、传递上下文），取数/概要/逐条检视由子 Agent 执行（quick-review 除外，主 Agent 直接执行）。
+
+| 工作流 | 阶段链 |
+|--------|--------|
+| PR 检视 | 阶段0 从用户输入提取 PR 链接（解析 repo_url 与 pr_number，判断托管平台，仅支持 GitCode）→ **派发 code-fetch 子 Agent** 获取 diff 与完整源码（主 Agent 不直接执行脚本）→ 并行派发 code-summarize 代码概要（**产出侧别识别**：`op_kernel/`→Kernel，`op_host/`/`op_graph/`/`op_api/`→Host，输出 Kernel/Host/混合）+ api-prestudy（仅 diff 含 `op_kernel/`）→ plan-design **产出检视计划**（**通用分组** + **跳过清单**（不适配条例+跳过理由）+ **仅核对清单**（上游已防御、降级为仅核对防御证据的条例））→ 阶段1 分波派发通用检视子 agent 逐条检视 → 阶段2 行号校对 → 阶段3 撰写报告 → 阶段4 可选行内评论 |
+| 文件检视 | 代码概要 + API 预研 + plan-design 产出检视计划（通用分组 + 跳过清单 + 仅核对清单）→ 分波逐条检视 → 行号校对 → 撰写报告（无 code-fetch 阶段，直接检视本地代码） |
+| 快速检视 | 主 Agent 直接执行定向检查，无阶段、无子 Agent |
+
 ## 路径约定
 
 `{skill_base}` = 本 skill 的根目录绝对路径（即本 SKILL.md 所在目录）。workflows/ 与 steps/ 中所有 `{skill_base}/...` 引用均以此展开。

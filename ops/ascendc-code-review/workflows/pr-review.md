@@ -2,7 +2,7 @@
 ## 触发
 检视 PR、审核 PR、帮我检视这个 PR
 
-核心流程：提取 PR 链接并判断平台 → code-fetch 子 Agent 获取 diff 与完整源码 → 并行生成代码概要/API 预研（仅 Kernel）→ 生成检视计划（通用分组、跳过清单、仅核对清单）→ 分波逐条检视 → 行号校对 → 撰写报告 → 可选行内评论。
+核心流程：从用户输入提取 PR 链接（解析 repo_url 与 pr_number）并判断托管平台（仅支持 GitCode）→ 派发 code-fetch 子 Agent 获取 diff 与完整源码（脚本由子 Agent 执行，主 Agent 不直接执行）→ 并行派发代码概要/API 预研子 Agent（API 预研仅 Kernel 侧）→ 生成检视计划（通用分组、跳过清单、仅核对清单）→ 分波派发通用检视子 agent 逐条检视 → 行号校对 → 撰写报告 → 可选行内评论。
 
 ---
 
@@ -22,8 +22,8 @@
 ### 阶段0：获取 diff + 代码概要 + API 预研 + 检视计划设计
 
 1. 将任务0 标记为 in_progress
-2. 提取 PR 链接，判断托管平台
-3. Read + 执行 `steps/pr-review.code-fetch.md` 的派发指令，派发子 Agent 获取 diff 和完整源码
+2. 从用户输入中提取 PR 链接，解析出 repo_url 与 pr_number，判断托管平台（仅支持 GitCode，非 GitCode PR 终止）
+3. Read + 执行 `steps/pr-review.code-fetch.md` 的派发指令，派发 code-fetch 子 Agent 获取 diff 和完整源码（获取/克隆脚本由子 Agent 执行，主 Agent 不直接执行）
 4. 等待 code-fetch 子 Agent 返回（产出 diff_path + repo_path + mode + routing + guidance + 变更文件数 + 变更行数——后两者记录备用，供阶段3 报告头部元信息）
 5. **超大 PR 提示**（mode 由 code-fetch 调 review_mode.py 判定，阈值见 `{skill_base}/scripts/workflow.review-thresholds.yaml`）。`routing` 恒为 `pr-review`，本流程不再有分支切换：
    - `mode=oversized`（变更文件数与变更行数双高）→ **先向用户输出下方提示，再继续标准流程**（提示不阻断、不等待用户回复）
@@ -86,7 +86,7 @@
 
 | 差异点 | 说明 |
 |--------|------|
-| 阶段0 多一步 code-fetch | 先获取 diff + clone 源码，再并行派发 |
+| 阶段0 多一步 code-fetch | 先派发 code-fetch 子 Agent 获取 diff + clone 源码，再并行派发 |
 | 阶段1 传 diff + 完整源码 | 每组额外传入 diff 路径、完整源码路径、代码范围 |
 | 阶段2 走 pr-review.line-verify | 薄壳调 `{skill_base}/scripts/workflow.line_verify.py --diff`，带 diff 红线校验 |
 | 报告路径 | `./operators/pr-{pr_number}/` |

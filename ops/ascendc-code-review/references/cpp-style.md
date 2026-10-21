@@ -26,25 +26,21 @@
 | STYLE-1.5 | 宏、枚举值采用全大写下划线连接 | 命名 | 中 |
 | STYLE-1.6 | 命名含义明确，禁止模糊缩写，风格统一 | 命名 | 中 |
 | STYLE-1.7 | 算子 Kernel 符号遵循固定命名约定 | 命名 | 中 |
-| STYLE-2.1 | 行宽不超过 120 个字符 | 格式 | 低 |
-| STYLE-2.2 | 使用空格缩进，每次 4 个空格 | 格式 | 中 |
-| STYLE-2.3 | `&`、`*` 跟随变量名 | 格式 | 低 |
-| STYLE-2.4 | if 语句必须使用大括号 | 格式 | 中 |
-| STYLE-2.5 | for/while 循环必须使用大括号 | 格式 | 中 |
-| STYLE-2.6 | 表达式换行运算符放行末 | 格式 | 低 |
-| STYLE-2.7 | 使用 K&R 缩进风格 | 格式 | 中 |
-| STYLE-2.8 | 多个变量定义不允许写在一行 | 格式 | 低 |
-| STYLE-2.9 | 合理安排空行，保持代码紧凑 | 格式 | 低 |
-| STYLE-3.1 | 文件头注释包含版权声明 | 注释 | 中 |
-| STYLE-3.2 | 注释使用 `//`，与代码间有空格 | 注释 | 低 |
-| STYLE-3.3 | 禁止使用 TODO/TBD/FIXME 及开发阶段注释 | 注释 | 中 |
-| STYLE-3.4 | 不要写空有格式的函数头注释 | 注释 | 低 |
-| STYLE-3.5 | 不用的代码直接删除，不要注释掉 | 注释 | 低 |
-| STYLE-3.6 | 注释语言与风格统一 | 注释 | 中 |
+| STYLE-2.1 | if 语句必须使用大括号 | 格式 | 中 |
+| STYLE-2.2 | for/while 循环必须使用大括号 | 格式 | 中 |
+| STYLE-2.3 | 多个变量定义不允许写在一行 | 格式 | 低 |
+| STYLE-2.4 | 合理安排空行，保持代码紧凑 | 格式 | 低 |
+| STYLE-3.1 | 注释使用 `//`，与代码间有空格 | 注释 | 低 |
+| STYLE-3.2 | 禁止使用 TODO/TBD/FIXME 及开发阶段注释 | 注释 | 中 |
+| STYLE-3.3 | 不要写空有格式的函数头注释 | 注释 | 低 |
+| STYLE-3.4 | 不用的代码直接删除，不要注释掉 | 注释 | 低 |
+| STYLE-3.5 | 注释语言与风格统一 | 注释 | 中 |
 
 ## 说明
 
 本规范以[Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html)为基础，参考MindSpore社区、华为通用编码规范，并结合业界共识整理而成。参与CANN开源社区项目的开发者首先需要遵循本规范内容，其余遵循Google C++ Style Guide规范。
+
+行宽、缩进、指针/引用对齐、大括号摆放、表达式换行等纯格式规则，以及文件头版权声明，已由仓内 pre-commit 钩子（clang-format、OAT）在提交阶段自动拦截，本规范不再重复收录；本规范聚焦 formatter 无法判定或修复的命名、控制语句大括号使用、注释质量等检视项。
 
 如果对规则有异议，建议提交issue并说明理由，经CANN运营团队评审后可接纳并修改生效。
 
@@ -57,7 +53,7 @@ CANN 相关开源仓的代码风格检视。
 风格违反为确定性判定，**不走 core/methodology.md 的假设检验流程**（不建立 H0/H1、不收集证据分值、不计算自信值）。逐条例对照代码，违反即标记 FAIL，无违反即 PASS。
 
 - 严重级别由 yaml `severity` 字段承载（取快速索引中的 中/低），**不输出 confidence/evidence 字段**（collector 对 `category: style` 的 yaml 禁止这两个字段，携带会被 400 拒绝）
-- 条例标题为描述性文字（如「驼峰风格(CamelCase)」），无 ID 前缀，**禁止 Grep `^{条例ID}` 逐条定位**——直接 Read 本文件全文（22 条，608 行，全读可控）
+- 条例标题为描述性文字（如「驼峰风格(CamelCase)」），无 ID 前缀，**禁止 Grep `^{条例ID}` 逐条定位**——直接 Read 本文件全文（16 条，491 行，全读可控）
 - 每条结果以 yaml `category: style` 字段标记（**不加 `[STYLE]` 文本前缀**），供报告单独归入「代码风格」章节、不进 PASS/FAIL 统计
 
 ---
@@ -300,34 +296,7 @@ GlobalTensor<T> inputGMY;
 
 ### 2. 格式
 
-##### 建议 STYLE-2.1 行宽不超过 120 个字符
-
-建议每行字符数不要超过 120 个。如果超过120个字符，请选择合理的方式进行换行。
-
-例外:
-- 如果一行注释包含了超过120 个字符的命令或URL，则可以保持一行，以方便复制、粘贴和通过grep查找；
-- 包含长路径的 #include 语句可以超出120 个字符，但是也需要尽量避免；
-- 编译预处理中的error信息可以超出一行。
-预处理的 error 信息在一行便于阅读和理解，即使超过 120 个字符。
-```cpp
-#ifndef XXX_YYY_ZZZ
-#error Header aaaa/bbbb/cccc/abc.h must only be included after xxxx/yyyy/zzzz/xyz.h, because xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-#endif
-```
-
-##### 规则 STYLE-2.2 使用空格进行缩进，每次缩进4个空格
-
-只允许使用空格(space)进行缩进，每次缩进为 4 个空格。不允许使用Tab符进行缩进。
-当前几乎所有的集成开发环境（IDE）都支持配置将Tab符自动扩展为4空格输入；请配置你的IDE支持使用空格进行缩进。
-
-##### 规则 STYLE-2.3 在声明指针、引用变量或参数时, `&`、`*`跟随变量名，另外一边留空格
-
-```cpp
-char *c;
-const std::string &str;
-```
-
-##### 规则 STYLE-2.4 if语句必须要使用大括号
+##### 规则 STYLE-2.1 if语句必须要使用大括号
 
 我们要求if语句都需要使用大括号，即便只有一条语句。
 理由：
@@ -342,7 +311,7 @@ if (cond) {
 }
 ```
 
-##### 规则 STYLE-2.5 for/while等循环语句必须使用大括号
+##### 规则 STYLE-2.2 for/while等循环语句必须使用大括号
 
 和条件表达式类似，我们要求for/while循环语句必须加上大括号，即便循环体是空的，或循环语句只有一条。
 ```cpp
@@ -354,77 +323,11 @@ for (int i = 0; i < someRange; i++) {   // Good: 使用了大括号
 while (condition) { }   // Good：循环体是空，使用大括号
 ```
 
-##### 规则 STYLE-2.6 表达式换行要保持换行的一致性，运算符放行末
-
-较长的表达式，不满足行宽要求的时候，需要在适当的地方换行。一般在较低优先级运算符或连接符后面截断，运算符或连接符放在行末。
-运算符、连接符放在行末，表示"未结束，后续还有"。
-例：
-// 假设下面第一行已经不满足行宽要求
-```cpp
-if ((currentValue > threshold) &&  // Good：换行后，逻辑操作符放在行尾
-    someCondition) {
-    DoSomething();
-    ...
-}
-
-int result = reallyReallyLongVariableName1 +    // Good
-             reallyReallyLongVariableName2;
-```
-表达式换行后，注意保持合理对齐，或者4空格缩进。参考下面例子
-
-```cpp
-int sum = longVariableName1 + longVariableName2 + longVariableName3 +
-    longVariableName4 + longVariableName5 + longVariableName6;         // Good: 4空格缩进
-
-int sum = longVariableName1 + longVariableName2 + longVariableName3 +
-          longVariableName4 + longVariableName5 + longVariableName6;   // Good: 保持对齐
-```
-
-##### 规则 STYLE-2.7 使用 K&R 缩进风格
-
-**K&R风格**
-换行时，函数（不包括lambda表达式）左大括号另起一行放行首，并独占一行；其他左大括号跟随语句放行末。
-右大括号独占一行，除非后面跟着同一语句的剩余部分，如 do 语句中的 while，或者 if 语句的 else/else if，或者逗号、分号。
-
-如：
-```cpp
-struct MyType {     // 跟随语句放行末，前置1空格
-    ...
-};
-
-int Foo(int a)
-{                   // 函数左大括号独占一行，放行首
-    if (...) {
-        ...
-    } else {
-        ...
-    }
-}
-```
-推荐这种风格的理由：
-
-- 代码更紧凑；
-- 相比另起一行，放行末使代码阅读节奏感上更连续；
-- 符合后来语言的习惯，符合业界主流习惯；
-- 现代集成开发环境（IDE）都具有代码缩进对齐显示的辅助功能，大括号放在行尾并不会对缩进和范围产生理解上的影响。
-
-
-对于空函数体，可以将大括号放在同一行：
-```cpp
-class MyClass {
-public:
-    MyClass() : value_(0) {}
-   
-private:
-    int value_;
-};
-```
-
-##### 规则 STYLE-2.8 多个变量定义和赋值语句不允许写在一行
+##### 规则 STYLE-2.3 多个变量定义和赋值语句不允许写在一行
 
 每行只有一个变量初始化的语句，更容易阅读和理解。
 
-##### 规则 STYLE-2.9 合理安排空行，保持代码紧凑
+##### 规则 STYLE-2.4 合理安排空行，保持代码紧凑
 
 减少不必要的空行，可以显示更多的代码，方便代码阅读。下面有一些建议遵守的规则：
 - 根据上下内容的相关程度，合理安排空行；
@@ -472,27 +375,7 @@ int Foo(...)
 按注释的目的和位置，注释可分为不同的类型，如文件头注释、函数头注释、代码注释等等； 
 同一类型的注释应该保持统一的风格。
 
-##### 规则 STYLE-3.1 文件头注释包含版权声明
-
-如下例子：
-
-```cpp
-/**
- * This program is free software, you can redistribute it and/or modify.
- * Copyright (c) 2025 Huawei Technologies Co., Ltd.
- * This file is a part of the CANN Open Software.
- * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
- * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
- */
-
-```
-
-> 关于版权说明，应注意：
-> 2025年新建的文件，应该是 `Copyright (c) 2025 Huawei Technologies Co., Ltd.`
-
-##### 规则 STYLE-3.2 代码注释置于对应代码的上方或右边，注释符与注释内容之间要有1个空格，右置注释与前面代码至少1空格，使用 `//`，而不是 `/**/`
+##### 规则 STYLE-3.1 代码注释置于对应代码的上方或右边，注释符与注释内容之间要有1个空格，右置注释与前面代码至少1空格，使用 `//`，而不是 `/**/`
 
 ```cpp
 // this is multi-
@@ -500,7 +383,7 @@ int Foo(...)
 int foo; // this single-line comment
 ```
 
-##### 规则 STYLE-3.3 代码中禁止使用 TODO/TBD/FIXME 及开发阶段注释，建议提issue跟踪
+##### 规则 STYLE-3.2 代码中禁止使用 TODO/TBD/FIXME 及开发阶段注释，建议提issue跟踪
 
 交付代码中禁止残留开发过程的临时标记，包括：
 - **TODO/TBD/FIXME** 等未完成事项标记（应提 issue 跟踪，不在代码中留标记）
@@ -531,7 +414,7 @@ __aicore__ void Compute() {
 }
 ```
 
-##### 建议 STYLE-3.4 不要写空有格式的函数头注释
+##### 建议 STYLE-3.3 不要写空有格式的函数头注释
 
 并不是所有的函数都需要函数头注释，函数尽量通过函数名自注释，按需写函数头注释；函数原型无法表达的，却又希望读者知道的信息，才需要加函数头注释辅助说明。
 不要写无用、信息冗余的函数头，函数头注释内容可选，但不限于：功能说明、返回值，性能约束、用法、内存约定、算法实现、可重入的要求等。
@@ -561,19 +444,19 @@ int WriteString(const char *buf, int len);
 - 函数名信息冗余
 - 关键的 buf 由谁释放没有说清楚
 
-##### 建议 STYLE-3.5 不用的代码段直接删除，不要注释掉
+##### 建议 STYLE-3.4 不用的代码段直接删除，不要注释掉
 
 被注释掉的代码，无法被正常维护；当企图恢复使用这段代码时，极有可能引入易被忽略的缺陷。
 正确的做法是，不需要的代码直接删除掉。若再需要时，考虑移植或重写这段代码。
 
-##### 规则 STYLE-3.6 同一文件内注释语言与注释风格必须统一
+##### 规则 STYLE-3.5 同一文件内注释语言与注释风格必须统一
 
 同一文件中英文注释与中文注释混杂、句式风格不一致，会显著降低可读性。以下情形判 FAIL：
 
 - **语言不统一**：同一文件内英文注释与中文注释混杂。CANN 开源仓代码注释推荐使用英文（面向国际社区）；若沿用中文，须整个算子（kernel + host 侧文件）统一，禁止同文件或同 PR 内中英夹杂；
 - **句式不统一**：英文注释句首大小写混乱（如一处 `// get block idx`、另一处 `// Get block idx`）；英文注释应统一句首大写、完整句子以句号结尾，短语式注释可省略句号但同一文件内保持一致；
 - **标点不统一**：英文注释使用半角标点，中文注释使用全角标点，禁止混用（如 `// 获取block idx。` 中英文标点夹杂）；
-- **对齐方式不统一**：右置注释与代码间至少 1 空格（与 STYLE-3.2 一致），连续多行注释统一使用行注释 `//` 逐行开头，禁止一部分用 `//` 一部分用 `/* */` 表达同一说明块。
+- **对齐方式不统一**：右置注释与代码间至少 1 空格（与 STYLE-3.1 一致），连续多行注释统一使用行注释 `//` 逐行开头，禁止一部分用 `//` 一部分用 `/* */` 表达同一说明块。
 
 **【错误代码示例】**
 

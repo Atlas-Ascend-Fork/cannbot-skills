@@ -60,7 +60,7 @@ ascendc-code-review/
 **每个步骤独立文件，Agent逐文件Read，按文件名前缀隔离上下文。** 整个检视流程中，任何Agent在任何时刻只加载当前阶段需要的文件，不提前、不超载。
 
 ```
-入口: SKILL.md (34行)
+入口: SKILL.md (53行)
   → 匹配到 workflow 文件
   → Read workflow → 看到阶段蓝图，不展开步骤细节
   → 逐阶段 Read 对应 steps/ 文件
@@ -94,7 +94,7 @@ ascendc-code-review/
 
 | 层 | 文件 | 目标行数 | 读者 |
 |-----|------|---------|------|
-| 路由 | SKILL.md | ≤40 | 主Agent |
+| 路由 | SKILL.md | ≤60（含工作流概览表） | 主Agent |
 | 蓝图 | workflows/*.md | ≤100 | 主Agent |
 | 派发 | steps/{x}.code-summarize.md（派发部分） | ≤40 | 主Agent |
 | 模板 | steps/{x}.clause-review.md | ≤40 | 主Agent |
@@ -111,7 +111,7 @@ ascendc-code-review/
 核心信息：每个阶段谁读什么文件、读多少行、谁是读者——这是渐进式披露在单个工作流内的具体体现。
 
 ```
-SKILL.md (34行)
+SKILL.md (53行)
   │  匹配"检视 PR" → workflows/pr-review.md
   ▼
 pr-review.md (88行)          ← 主Agent只看到阶段蓝图，不接触步骤细节
@@ -153,7 +153,7 @@ pr-review.md (88行)          ← 主Agent只看到阶段蓝图，不接触步�
 
 | 读者 | 文件 | 行数 |
 |------|------|------|
-| 主Agent | SKILL.md → pr-review.md | 34 + 88 |
+| 主Agent | SKILL.md → pr-review.md | 53 + 102 |
 | 主Agent | code-fetch / 派发指令 / prompt模板 / line-verify / report-write | 20 + 30 + 37 + 22 + 65 |
 | 计划设计子Agent | common.plan-design.md | 200 |
 | 概要子Agent | 执行指南 | 230 |

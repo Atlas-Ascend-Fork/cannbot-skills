@@ -1,6 +1,6 @@
 # PR 代码获取
 
-派发为 `general` 子 Agent 执行。
+派发为 `general` 子 Agent 执行。本文件是**派发给子 Agent 的 prompt 模板**：其中的脚本调用（`get_gitcode_pr_diff.py`、`clone_pr_source.py`、`workflow.review_mode.py` 等）均由子 Agent 执行，主 Agent 不直接执行这些脚本，派发后仅等待子 Agent 返回结构化结果。
 
 ## 派发
 
