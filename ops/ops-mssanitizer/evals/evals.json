@@ -1,0 +1,71 @@
+{
+  "skill_name": "ops-mssanitizer",
+  "eval_mode": "text",
+  "evals": [
+    {
+      "id": 1,
+      "title": "Ascend C工程自动路由",
+      "config": {
+        "max_tokens": 60000,
+        "ascend_platforms": ["A2"],
+        "eval_mode": "text"
+      },
+      "prompt": "一个算子工程包含op_graph和examples/test_geir_demo.cpp，请说明如何使用ops-mssanitizer执行检测。只给方案，不实际运行。",
+      "expected_output": "回复应将其识别为Ascend C ops工程并选择C++/GE IR路径，优先复用现有测试；从用户参数或ASCEND_HOME_PATH确定CANN根目录，不写死版本路径；执行统一入口或run_mssanitizer_geir.sh，并记录每个工具的退出码、结构化错误条目数、日志路径和目标kernel命中证据。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 2,
+      "title": "空日志与非零退出码",
+      "config": {
+        "max_tokens": 60000,
+        "ascend_platforms": ["A2"],
+        "eval_mode": "text"
+      },
+      "prompt": "mssanitizer日志为空，但工具退出码是17。这个检测项是否通过，报告应该如何写？",
+      "expected_output": "回复应明确不能判定通过。非零退出码表示工具未正常完成，空日志可能由设备、CANN环境或工具自身失败造成；报告应标记未完成或失败、保留退出码17和阻塞证据，并在修复环境后用同一测试重新运行。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 3,
+      "title": "多行错误条目计数",
+      "config": {
+        "max_tokens": 60000,
+        "ascend_platforms": ["A2"],
+        "eval_mode": "text"
+      },
+      "prompt": "一条mssanitizer错误跨5行，其中3行含ERROR字符串。汇总报告应如何统计？",
+      "expected_output": "回复应按结构化错误起始标记统计为1个错误条目，而不是用grep -c ERROR统计为3行；同时保留完整多行上下文用于地址、block、serialNo和访问大小分析。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 4,
+      "title": "目标算子命中与禁止fallback",
+      "config": {
+        "max_tokens": 60000,
+        "ascend_platforms": ["A2"],
+        "eval_mode": "text"
+      },
+      "prompt": "自定义算子没有注册成功，生成的测试脚本是否可以fallback到torch.nn.functional后继续做内存检测？",
+      "expected_output": "回复应拒绝fallback，因为检测到的是其他实现，会伪造目标算子通过。应让测试立即失败并报告目标算子未注册；只有证明测试实际调用目标算子或kernel后，检测结果才有效。复杂签名应扩展现有UT/ST而不是套用基础生成器。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 5,
+      "title": "Triton分支按需加载",
+      "config": {
+        "max_tokens": 60000,
+        "ascend_platforms": ["A2"],
+        "eval_mode": "text"
+      },
+      "prompt": "我要对一个带@triton.jit的pytest用例做内存检测，如何控制上下文和检测范围？",
+      "expected_output": "回复应只读取Triton参考资料，优先复用并精确选择已有pytest用例，设置Triton检测所需环境变量并尽量指定kernel-name，避免框架kernel干扰；不得同时加载无关的Ascend C完整流程。结果必须结合退出码、结构化错误条目和kernel命中证据判定。",
+      "expectations": [],
+      "files": []
+    }
+  ]
+}
