@@ -188,6 +188,57 @@ def test_intake_classified_bsag_request_routes_independent_of_name(
     assert "intake classified" in result["reason"]
 
 
+def test_intake_classified_fag_request_routes_independent_of_name(
+    tmp_path: Path,
+) -> None:
+    result = selector.select(tmp_path, "catlass_custom_fag", "flash_attention_grad")
+    assert result["route"] == "flash_attention_grad"
+    assert "intake classified" in result["reason"]
+
+
+def test_existing_valid_fag_marker_restores_new_workflow(tmp_path: Path) -> None:
+    marker = tmp_path / "operators/catlass_fag/docs/workflow.json"
+    marker.parent.mkdir(parents=True)
+    marker.write_text(
+        json.dumps(
+            {
+                "workflow_id": "catlass-flash-attention-grad-v1",
+                "algorithm_family": "flash_attention_grad",
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        selector.select(tmp_path, "catlass_fag", None)["route"]
+        == "flash_attention_grad"
+    )
+
+
+def test_bsag_and_fag_marker_mismatch_is_blocked(tmp_path: Path) -> None:
+    marker = tmp_path / "operators/catlass_grad/docs/workflow.json"
+    marker.parent.mkdir(parents=True)
+    marker.write_text(
+        json.dumps(
+            {
+                "workflow_id": "catlass-block-sparse-attention-grad-v1",
+                "algorithm_family": "flash_attention_grad",
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert selector.select(tmp_path, "catlass_grad", None)["route"] == "blocked"
+    marker.write_text(
+        json.dumps(
+            {
+                "workflow_id": "catlass-flash-attention-grad-v1",
+                "algorithm_family": "block_sparse_attention_grad",
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert selector.select(tmp_path, "catlass_grad", None)["route"] == "blocked"
+
+
 def test_existing_valid_bsag_marker_restores_new_workflow(tmp_path: Path) -> None:
     marker = tmp_path / "operators/catlass_bsag/docs/workflow.json"
     marker.parent.mkdir(parents=True)

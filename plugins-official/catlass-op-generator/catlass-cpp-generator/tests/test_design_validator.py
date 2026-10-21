@@ -290,6 +290,55 @@ class DesignValidatorTests(unittest.TestCase):
             )
         )
 
+    def ascend950_design(self, workflow_id: str) -> str:
+        return (
+            valid_design()
+            .replace("`target_architecture`: `atlas_a2_a3`", "`target_architecture`: `ascend950`")
+            .replace(
+                "target_architecture=atlas_a2_a3，CATLASS_ARCH=2201，ArchTag=Arch::AtlasA2",
+                "target_architecture=ascend950，CATLASS_ARCH=3510，ArchTag=Arch::Ascend950",
+            )
+            .replace(
+                "Vector 执行模型：MemBase，使用 TPipe/TQue/TBuf 分段流水",
+                "Vector 执行模型：RegBase/VF，完整公式使用一次 VF",
+            )
+            .replace("L0C -> Fixpipe -> GM -> UB", "L0C -> Fixpipe -> AIV UB")
+            .replace("UB -> MTE3 -> GM workspace -> MTE2 -> L1", "AIV UB -> AIC L1")
+            .replace("catlass-linear-attention-v1", workflow_id)
+        )
+
+    def test_gradient_family_design_identity_and_architecture_match_marker(self) -> None:
+        for family, workflow_id in (
+            ("block_sparse_attention_grad", "catlass-block-sparse-attention-grad-v1"),
+            ("flash_attention_grad", "catlass-flash-attention-grad-v1"),
+        ):
+            with self.subTest(family=family):
+                marker = {
+                    "algorithm_family": family,
+                    "workflow_id": workflow_id,
+                    "target_architecture": "ascend950",
+                }
+                design = self.ascend950_design(workflow_id)
+                self.assertEqual([], validate(design))
+                self.assertEqual([], workflow_alignment_errors(design, marker))
+                self.assertTrue(
+                    any(
+                        "workflow_id does not match" in error
+                        for error in workflow_alignment_errors(
+                            design,
+                            {**marker, "workflow_id": "catlass-sparse-flash-mla-v1"},
+                        )
+                    )
+                )
+                self.assertTrue(
+                    any(
+                        "ascend950 only" in error
+                        for error in workflow_alignment_errors(
+                            design, {**marker, "target_architecture": "atlas_a2_a3"}
+                        )
+                    )
+                )
+
     def test_model_case_and_tiling_require_quantified_evidence(self) -> None:
         row = "| case0 | 8 | 1 | 8 | 8 | 1 | 每核1个work | 无尾work，head完整 |"
         self.assert_fails_with(

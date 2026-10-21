@@ -21,7 +21,7 @@
         "eval_mode": "text"
       },
       "prompt": "一个本地 finalize 代码参考按 head 分配 AIV 任务。当前算子独立 head 较少，部分 shape 的完整 head 工作集超出单个 AIV 的 UB，应如何选择分工并完成 Stage 和同步实现？",
-      "expected_output": "回复应按 R01 和 R20 联合评估 CG 与逐 head、同 head 分片两种分工，依据实际容量、数据依赖、负载和同步开销选择；静态分析排除不可行方案，性能优劣以同条件实测确认。实现读取knowledge/workflow/kernel-stage-sync-patterns.md 中对应分工的地址、搬运和同步伪代码，再对应目标平台 API。同 head 分片写明连续不重叠的有效区、对齐和尾部、共享输入及跨片归约代价；两片实际写回完成后 AIC 才消费，空片按选定协议参与通知，消费者完成后返回 free。逐 head 分配由 owner 计算，聚合模式下其他参与核仍按协议发送或等待通知。workspace/UB/L1 的读写、复用及双缓冲轮换写入 docs/design.md，并覆盖所选分工的边界用例。",
+      "expected_output": "回复应按 R01 的容量和依赖判据，在逐 head 分配与同 head 分片（SYNC_HEAD_SPLIT）之间给出选择：先计算单个 AIV 的 head 工作集并与可用 UB 上限比较，独立 head 不足以覆盖 AIV 或完整 head 工作集超限时切换为同 head 分片；分片后仍超限时按 R08/R14/R19 的次序先减小单次驻留工作集、再走 GM 中转，最后才考虑增加 Stage。同 head 分片要写明连续不重叠的有效区划分（split/begin/end/validCount）、对齐和尾块（tail）处理、共享输入的重复读取代价、跨片归约的 partial 与合并时机，以及 validCount 为 0 的空片跳过计算和 DMA 但仍参与通知。同步实现需给出目标平台 API：AIC 与两个 AIV 之间的 ready/free 用 CrossCoreSetFlag/WaitFlag，按产生数据的 pipe（如 PIPE_MTE3）发布，核内用成对 HardEvent；两片写回完成后 AIC 才消费完整输入，消费者结束最后一次读取后发布对应 free。参数化说明 CG、Nbase、Nwork 与 AIV 分工的联动即可，不要求枚举全部 CG 候选，也不要求给出同条件性能实测结论；地址、容量与同步约定说明其应写回 docs/design.md 的位置即可，不要求在本轮对话中实际创建该文件。",
       "files": [],
       "expectations": []
     },

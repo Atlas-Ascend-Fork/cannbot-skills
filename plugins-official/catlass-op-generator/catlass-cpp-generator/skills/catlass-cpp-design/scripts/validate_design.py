@@ -349,6 +349,8 @@ def workflow_alignment_errors(text: str, workflow: dict[str, object]) -> list[st
         "linear_attention": "catlass-linear-attention-v1",
         "block_sparse_attention": "catlass-block-sparse-attention-arch22-v1",
         "sparse_flash_mla": "catlass-sparse-flash-mla-v1",
+        "block_sparse_attention_grad": "catlass-block-sparse-attention-grad-v1",
+        "flash_attention_grad": "catlass-flash-attention-grad-v1",
     }
     family = workflow.get("algorithm_family")
     if (
@@ -370,6 +372,11 @@ def workflow_alignment_errors(text: str, workflow: dict[str, object]) -> list[st
         and workflow_architecture != "atlas_a2_a3"
     ):
         errors.append(f"{family} design currently supports atlas_a2_a3 only")
+    elif (
+        family in {"block_sparse_attention_grad", "flash_attention_grad"}
+        and workflow_architecture != "ascend950"
+    ):
+        errors.append(f"{family} design currently supports ascend950 only")
     elif (
         design_architecture in TARGET_ARCHITECTURES
         and workflow_architecture != design_architecture
@@ -487,7 +494,8 @@ def validate(text: str) -> list[str]:
     text = markdown_parts(text)[4]
     if not re.search(
         r"`workflow_id`\s*:\s*`catlass-"
-        r"(?:linear-attention|block-sparse-attention-arch22|sparse-flash-mla)-v1`",
+        r"(?:linear-attention|block-sparse-attention-arch22|sparse-flash-mla|"
+        r"block-sparse-attention-grad|flash-attention-grad)-v1`",
         text,
     ):
         errors.append("workflow_id must identify a registered CATLASS C++ workflow")

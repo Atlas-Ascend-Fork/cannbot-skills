@@ -1,5 +1,5 @@
 ---
-description: CATLASS C++ 领域算子五阶段开发工作流（Linear Attention / BSA Arch22 / SparseFlashMLA / BSAG Ascend 950）。仅处理已确认属于 linear_attention、block_sparse_attention、sparse_flash_mla 或 block_sparse_attention_grad 的 CATLASS C++ 新工程或带专用 workflow marker 的既有工程。
+description: CATLASS C++ 领域算子五阶段开发工作流（Linear Attention / BSA Arch22 / SparseFlashMLA / BSAG Ascend 950 / FAG Ascend 950）。仅处理已确认属于 linear_attention、block_sparse_attention、sparse_flash_mla、block_sparse_attention_grad 或 flash_attention_grad 的 CATLASS C++ 新工程或带专用 workflow marker 的既有工程。
 mode: primary
 skills:
   - catlass-cpp-interface
@@ -11,15 +11,15 @@ skills:
 # generated-by-cannbot-catlass-cpp-generator-init
 ---
 
-# CANNBot CATLASS C++ 领域算子（Linear Attention / BSA Arch22 / SparseFlashMLA / BSAG Ascend 950）
+# CANNBot CATLASS C++ 领域算子（Linear Attention / BSA Arch22 / SparseFlashMLA / BSAG Ascend 950 / FAG Ascend 950）
 
 本插件独立执行五阶段流程。它不接管普通 CATLASS 算子。直接入口收到经数学分类确认的
-非本插件支持 family（非 linear_attention / block_sparse_attention / sparse_flash_mla / block_sparse_attention_grad）请求时，提示改用 `catlass-op-generator`。
+非本插件支持 family（非 linear_attention / block_sparse_attention / sparse_flash_mla / block_sparse_attention_grad / flash_attention_grad）请求时，提示改用 `catlass-op-generator`。
 
 ## 数学分类
 
 新工程由需求接收阶段根据需求中的数学信息确认 `algorithm_family`。数学信息充分时，Agent 直接
-分类为 `linear_attention`、`block_sparse_attention`、`sparse_flash_mla`、`block_sparse_attention_grad` 或 `legacy`，不要求用户显式说出 Linear
+分类为 `linear_attention`、`block_sparse_attention`、`sparse_flash_mla`、`block_sparse_attention_grad`、`flash_attention_grad` 或 `legacy`，不要求用户显式说出 Linear
 Attention、GDN、KDA、BSA 等专用名词。数学上以 Q 块 × KV 块粒度的 0/1 block mask 表达稀疏的
 注意力前向分类为 `block_sparse_attention`；同一块稀疏注意力的梯度计算（输入含 dO/O/LSE，
 输出 dQ/dK/dV 等梯度）分类为 `block_sparse_attention_grad`。符合共享 KV、窗口/压缩/索引注意力和配套
@@ -27,13 +27,19 @@ metadata 契约的 MLA 计算分类为 `sparse_flash_mla`，从对应家族索�
 仅按算子名称或自由文本关键词猜测；信息不足时保持 `pending`，补充数学需求后重新分类。selector 只
 消费分类结果和已有工程 marker，不负责解析名称或请求文本。
 
+FAG 与 BSAG 的区分：同一族反向接口在**无 block mask / 无反向 metadata 输入**、KV 块全选
+（dense flash attention backward，`torch_npu.npu_fusion_attention_grad` 语义）时分类为
+`flash_attention_grad`；带 `B, Nq, QBlocks, KVBlocks` 二值块 mask 或反向分核 metadata 的块稀疏
+反向才分类为 `block_sparse_attention_grad`。两者的反向公式与五次 MMAD 数据链同构，但调度、
+ABI 与知识条目独立，不得互推结论。
+
 ## 启动与恢复
 
 1. 执行 `scripts/select_operator_workflow.py`，只使用需求接收阶段确认的 `algorithm_family` 和已有工程 marker。
 2. 返回已注册算法族后，读取当前阶段 Skill 的完整 `SKILL.md` 和对应家族 [知识索引](knowledge/operator/index.md)。
 3. 新工程由 `skills/catlass-cpp-interface/scripts/init_operator_project.sh <name> --algorithm-family <family>` 初始化。
 4. 每次继续前校验 `operators/<name>/docs/workflow.json`；状态文件是跨会话唯一机器权威。
-5. interface 阶段把 `target_architecture` 从 `pending` 冻结为目标家族支持的架构（SparseFlashMLA 和 BSA Arch22 仅 `atlas_a2_a3`，BSAG 仅 `ascend950`，Linear Attention 可选 `atlas_a2_a3` 或 `ascend950`）；后续设计、
+5. interface 阶段把 `target_architecture` 从 `pending` 冻结为目标家族支持的架构（SparseFlashMLA 和 BSA Arch22 仅 `atlas_a2_a3`，BSAG 与 FAG 仅 `ascend950`，Linear Attention 可选 `atlas_a2_a3` 或 `ascend950`）；后续设计、
    开发和测试必须与该字段一致，不能混用 `2201/Arch::AtlasA2` 与 `3510/Arch::Ascend950` 路径。
 6. 严格按 interface -> reference -> design -> implementation -> validation 推进，只有 full 验收可进入 complete。
 
@@ -75,6 +81,16 @@ metadata 契约的 MLA 计算分类为 `sparse_flash_mla`，从对应家族索�
 `knowledge/operator/block-sparse-attention-grad/` 下的领域知识。该知识包含反向公式、稀疏任务切分、
 五次 MMAD 数据链、FP32 workspace 与同步边界；不得写入或反向修改公共 workflow concept。
 
+## FAG Ascend 950 知识入口与条款
+
+`flash_attention_grad` 工程使用 `catlass-cpp-knowledge` 以 family `flash-attention-grad`、arch
+`ascend950` 查询，只读取 `knowledge/operator/flash-attention-grad/` 下的领域知识。该知识是 dense
+（KV 块全选、无 mask、无反向 metadata）反向模式：调用 ABI、反向公式、五次 MMAD 数据链、
+GQA/MQA 的 FP32 归约、workspace/同步边界与失败表现；C++ 侧的
+ArchTag/DispatchPolicy/TileShape、L1/L0/UB 预算、workspace 布局与同步结论已由工程 Stage 04/05
+的实测证据固化，条目为 `stable`；不得直接引用 BSAG 或 DSL 侧结论。不得写入或反向修改公共
+workflow concept。
+
 ## 固定边界
 
 - `reference/reference.py` 是唯一可编辑标杆源码。
@@ -82,7 +98,8 @@ metadata 契约的 MLA 计算分类为 `sparse_flash_mla`，从对应家族索�
   `block_sparse_attention` → `catlass-block-sparse-attention-arch22-v1`；
   `sparse_flash_mla` → `catlass-sparse-flash-mla-v1`。
   `sparse_flash_mla` → `catlass-sparse-flash-mla-v1`；
-  `block_sparse_attention_grad` → `catlass-block-sparse-attention-grad-v1`。
+  `block_sparse_attention_grad` → `catlass-block-sparse-attention-grad-v1`；
+  `flash_attention_grad` → `catlass-flash-attention-grad-v1`。
 - `target_architecture` 是架构分支的机器权威；A2/A3 使用 `atlas_a2_a3`，A5 使用 `ascend950`。
 - 技术知识只位于 `knowledge/catlass/`、`knowledge/workflow/` 与 `knowledge/operator/<family>/`。
 - 性能不达标仍属于 validation，不能创建 optimize 阶段。

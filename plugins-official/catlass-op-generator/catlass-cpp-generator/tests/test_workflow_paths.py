@@ -85,6 +85,8 @@ def test_python_tools_work_from_unrelated_directory(tmp_path: Path) -> None:
         ("linear_attention", "catlass-linear-attention-v1"),
         ("block_sparse_attention", "catlass-block-sparse-attention-arch22-v1"),
         ("sparse_flash_mla", "catlass-sparse-flash-mla-v1"),
+        ("block_sparse_attention_grad", "catlass-block-sparse-attention-grad-v1"),
+        ("flash_attention_grad", "catlass-flash-attention-grad-v1"),
     ],
 )
 def test_project_initializer_uses_dedicated_workflow(

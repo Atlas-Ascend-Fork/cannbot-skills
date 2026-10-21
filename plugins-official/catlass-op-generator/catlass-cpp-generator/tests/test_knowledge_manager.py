@@ -270,6 +270,36 @@ def test_bsag_aliases_resolve_only_to_ascend950_operator_knowledge(
     )
 
 
+@pytest.mark.parametrize(
+    "family",
+    [
+        "flash-attention-grad",
+        "flash_attention_grad",
+        "FlashAttentionGrad",
+        "flash_attn_grad",
+        "fag",
+    ],
+)
+def test_fag_aliases_resolve_only_to_ascend950_operator_knowledge(
+    tmp_path: Path, family: str
+) -> None:
+    target = tmp_path / ".catlass-cpp/knowledge"
+    knowledge.initialize(BUNDLE, target)
+    knowledge.reindex(target)
+    result = knowledge.query_bundle(
+        target, "operator", [], family, "ascend950", None, True
+    )
+    assert [item["path"] for item in result["results"]] == [
+        "operator/flash-attention-grad/flash-attention-grad-patterns.md"
+    ]
+    assert (
+        knowledge.query_bundle(
+            target, "operator", [], family, "DAV_2201", None, True
+        )["count"]
+        == 0
+    )
+
+
 def test_get_rejects_escape_and_indexes(tmp_path: Path) -> None:
     target = tmp_path / ".catlass-cpp/knowledge"
     knowledge.initialize(BUNDLE, target)

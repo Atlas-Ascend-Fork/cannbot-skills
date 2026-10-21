@@ -21,7 +21,7 @@
         "eval_mode": "text"
       },
       "prompt": "Linear Attention CATLASS 专用工作流的五个阶段分别做什么？",
-      "expected_output": "回复应明确列出五个阶段：01 接口确认、02 标杆生成、03 方案设计、04 算子开发、05 算子测试。interface 阶段必须把 target_architecture 从 pending 冻结为 atlas_a2_a3 或 ascend950，后续阶段保持架构、CATLASS 编译标识和数据路径一致。开发规则来自专用 Skill 及 knowledge/workflow 通用知识：reference.py 是唯一标杆源码，方案设计必须按 solution-design-reference.md 完整内容和 R01-R21 完成推演，可保存 docs/design.full.md 中间产物，最终交付的 docs/design.md 仅保留两章结构；编码参考 knowledge/workflow 中的 Stage 与同步写法，编译、精度定位和性能采集按 development-and-validation.md 直接执行工具。",
+      "expected_output": "回复应明确列出五个阶段：01 接口确认、02 标杆生成、03 方案设计、04 算子开发、05 算子测试，并说明只有通过 full 全量验收才能进入 complete。interface 阶段必须把 target_architecture 从 pending 冻结为 atlas_a2_a3 或 ascend950，设备代际未确认不得进入 reference；后续设计、开发和测试保持架构、CATLASS 编译标识和数据路径一致。reference 阶段说明 reference.py 是唯一可编辑标杆源码，用纯 PyTorch 在 CPU 上按固定版本、种子和计算顺序执行。design 阶段要求完整读取 solution-design-reference.md 等 workflow 知识，按该参考完成 Stage 划分和详细设计（可保存 docs/design.full.md 中间产物），再投影为仅含两章的 docs/design.md 并运行 validate_design.py 校验。implementation 阶段按 Stage 依次完成实现、编译、设计一致性检查和精度比较。validation 阶段执行全量精度、功能和性能验收，性能按工程统一口径采集（如 msprof op_summary 的 Task Duration），不达标仍保留在 validation。另需说明 catlass-cpp-knowledge 是横向能力而非第六阶段。",
       "files": [],
       "expectations": []
     }

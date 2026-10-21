@@ -22,6 +22,14 @@ WORKFLOWS = {
     "linear_attention": "catlass-linear-attention-v1",
     "block_sparse_attention": "catlass-block-sparse-attention-arch22-v1",
     "sparse_flash_mla": "catlass-sparse-flash-mla-v1",
+    "block_sparse_attention_grad": "catlass-block-sparse-attention-grad-v1",
+    "flash_attention_grad": "catlass-flash-attention-grad-v1",
+}
+TARGET_ARCHITECTURE_BY_FAMILY = {
+    "sparse_flash_mla": ("atlas_a2_a3",),
+    "block_sparse_attention": ("atlas_a2_a3",),
+    "block_sparse_attention_grad": ("ascend950",),
+    "flash_attention_grad": ("ascend950",),
 }
 TARGET_ARCHITECTURES = ("pending", "atlas_a2_a3", "ascend950")
 STAGES = (
@@ -61,11 +69,15 @@ def validate_workflow(data: dict[str, Any]) -> list[str]:
         )
     elif stage in STAGES[1:] and target_architecture == "pending":
         errors.append(f"{stage} requires a frozen target_architecture")
+    allowed_architectures = TARGET_ARCHITECTURE_BY_FAMILY.get(family)
     if (
-        family in {"sparse_flash_mla", "block_sparse_attention"}
-        and target_architecture == "ascend950"
+        allowed_architectures
+        and target_architecture not in ("pending", *allowed_architectures)
     ):
-        errors.append(f"{family} knowledge currently covers atlas_a2_a3 only")
+        errors.append(
+            f"{family} knowledge currently covers "
+            f"{' and '.join(allowed_architectures)} only"
+        )
 
     for field in ("operator_contract", "golden_contract"):
         if data.get(field) not in CONTRACT_STATES:

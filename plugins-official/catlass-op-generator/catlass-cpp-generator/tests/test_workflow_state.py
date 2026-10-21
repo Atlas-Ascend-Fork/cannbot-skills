@@ -54,6 +54,38 @@ def test_sparse_initial_state_and_architecture_gate() -> None:
     )
 
 
+def test_grad_families_identity_and_architecture_gate() -> None:
+    for family, workflow_id in (
+        ("block_sparse_attention_grad", "catlass-block-sparse-attention-grad-v1"),
+        ("flash_attention_grad", "catlass-flash-attention-grad-v1"),
+    ):
+        state = {
+            **initial(),
+            "algorithm_family": family,
+            "workflow_id": workflow_id,
+            "target_architecture": "ascend950",
+        }
+        assert workflow.validate_workflow(state) == []
+        assert workflow.validate_workflow(
+            {**state, "target_architecture": "ascend950", "stage": "reference"}
+        ) == []
+        assert any(
+            "requires a frozen target_architecture" in error
+            for error in workflow.validate_workflow(
+                {**state, "stage": "reference", "target_architecture": "pending"}
+            )
+        )
+        assert any(
+            error.startswith(f"{family} knowledge currently covers")
+            for error in workflow.validate_workflow(
+                {**state, "target_architecture": "atlas_a2_a3"}
+            )
+        )
+        assert workflow.validate_workflow(
+            {**state, "workflow_id": "catlass-linear-attention-v1"}
+        )
+
+
 def test_bsa_identity_architecture_and_recovery() -> None:
     state = {
         **initial(),

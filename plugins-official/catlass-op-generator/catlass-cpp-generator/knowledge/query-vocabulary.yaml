@@ -36,6 +36,15 @@
         "block-sparse-attention-grad",
         "bsag"
       ]
+    },
+    "flash-attention-grad": {
+      "aliases": [
+        "flash_attention_grad",
+        "FlashAttentionGrad",
+        "flash-attention-grad",
+        "flash_attn_grad",
+        "fag"
+      ]
     }
   },
   "catlass_apis": {
