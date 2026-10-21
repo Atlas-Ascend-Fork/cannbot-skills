@@ -126,6 +126,7 @@ python3 scripts/generate_spec.py \
 - `extreme_inputs` — 校核 / 补全 NaN / Inf / 全零三类
 - `math_semantics.format_variants` — 若算子支持多种数据排布（NCHW/NHWC/NCDHW 等）且计算因格式而异，校核每种格式的 reduction_axes 和 oracle_kwargs
 - `layout_contract` — 若存在逻辑布局变体，校核 selector、参与 Tensor 和每个 variant 的逻辑轴顺序；未确认的布局事实不得猜测生成
+- `op.load_balancing` — 存在负载均衡设计或已确认要求时必须以 YAML 多行文本填写，注明来源；内容包括实际涉及的任务划分、负载估算、核数来源与分配策略，以及尾任务或拆分合并处理。没有相关设计或要求时省略，不在规格生成阶段推测设计结论；详细推导由方案设计文档承载。
 
 ## 4. 校验 spec.yaml
 

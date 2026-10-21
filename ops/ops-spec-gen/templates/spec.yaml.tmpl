@@ -100,3 +100,8 @@ determinism:
   required: true
   accumulation_order: {{accumulation_order}}
   bitwise_reproducible: true
+
+# 负载均衡：存在负载均衡设计或已确认要求时必须填写；没有时省略。
+# 将以下字段追加到上方已有的 op 映射中，不新增顶层字段：
+#   load_balancing: |
+#     记录相关要求或已确认方案及其来源，按需说明任务划分、负载估算、核数来源与分配策略。
