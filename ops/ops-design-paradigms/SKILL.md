@@ -16,7 +16,7 @@ description: 当需要设计或修订 Broadcast、Reduction、Contraction 等算
 ## 范式与语言选择
 
 1. 先读取 [知识索引](references/index.md)，按当前问题选择入口。
-2. 当 `op.paradigms` 包含 `Contraction`、并且包含`Reduction`、`Broadcast` 其中一个时，先核对实际公式。公式包含注意力分数计算与加权值聚合时，读取 [FA 组合范式](references/paradigms/FA/patterns.md)；其余组合按范式索引逐项读取。标签匹配按集合包含关系判断，顺序及额外标签不影响匹配。
+2. 当 `op.paradigms` 包含 `Contraction`、并且包含`Reduction`、`Broadcast` 其中一个时，先核对实际公式。公式包含注意力分数计算与加权值聚合时，读取 [FA 组合范式](references/paradigms/fused_composite/fa/patterns.md)；其余组合按范式索引逐项读取。标签匹配按集合包含关系判断，顺序及额外标签不影响匹配。
 3. 其余情况统一按 [范式索引表](references/paradigms/routes.yaml) 逐项查找。多个范式覆盖不同设计维度，分别按需读取；未注册范式使用已有的对应语言通用方法，缺少对应方法时报告资料缺项。
 4. 每个范式的 `patterns.md` 根据调用方提供的语言选择适配层。只读取通用层和对应语言的适配层；其明确引用的配套运行时或同步章节按需读取。缺少适配层时保留通用算法，语言 API 与设备能力依据调用方提供的资料确认，不回退到其他语言的实现。
 
