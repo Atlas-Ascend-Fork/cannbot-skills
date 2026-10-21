@@ -275,6 +275,8 @@ _BATCH_ISSUES=0
 _BATCH_COUNT=0
 
 _run_oat_batch() {
+    _BATCH_REPORT="$OAT_REPORT_DIR/PlainReport_${REPO_NAME}.txt"
+    rm -f "$_BATCH_REPORT"
     echo "[OAT] Running compliance scan..."
     set +e
     "$_PYTHON" -m oat "${_OAT_ARGS[@]}" -f "$1" >/dev/null 2>&1
@@ -286,12 +288,14 @@ _run_oat_batch() {
         return
     fi
     if [ "$_OAT_RC" -eq 1 ]; then
-        _BATCH_REPORT="$OAT_REPORT_DIR/PlainReport_${REPO_NAME}.txt"
         if [ -f "$_BATCH_REPORT" ]; then
             _BT=$(grep "^Invalid File Type Total Count:" "$_BATCH_REPORT" | grep -oE '[0-9]+' | head -1 || true)
             _BL=$(grep "^License Header Invalid Total Count:" "$_BATCH_REPORT" | grep -oE '[0-9]+' | head -1 || true)
             _BATCH_ISSUES=$((_BATCH_ISSUES + ${_BT:-0} + ${_BL:-0}))
             grep "^Name:" "$_BATCH_REPORT" >> "$OAT_RESULT_DIR/batch_details.txt" 2>/dev/null || true
+        else
+            echo "[OAT] [ERROR] oat exited with code 1 but no report was generated."
+            _SCAN_FAILED=1
         fi
     fi
 }
