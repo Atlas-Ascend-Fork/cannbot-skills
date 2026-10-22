@@ -138,7 +138,8 @@ echo ""
 
 # ---------- 5. 并发进程 ----------
 printf "${CYAN}[5] 并发检查${NC}\n"
-RUNNING=$(ps -elf 2>/dev/null | grep -c "[m]snpureport" || true)
+# 排除本自检脚本自身及携带其命令行的调用进程，避免空环境误报并发告警
+RUNNING=$(ps -elf 2>/dev/null | grep "[m]snpureport" | grep -cv "preflight.sh" || true)
 if [ "${RUNNING:-0}" -gt 0 ]; then
     warn "检测到 ${RUNNING} 个 msnpureport 相关进程正在运行"
     info "同路径并发会造成时间戳目录名冲突；单 Device 不支持并发连续导出"
