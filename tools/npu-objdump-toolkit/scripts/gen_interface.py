@@ -14,6 +14,10 @@
 提取内容全部是 skill 依赖的接口面（参数、字段映射、跟踪文案），不做整文件哈希，
 因此无关重构不会误报。curated 部分（选项分类、跟踪文案清单）在本文件维护：
 新增 add_argument 选项或缺分类时生成失败，强制评审者补齐——这是刻意的守护点。
+
+用法（与 references/update-policy.md 快照更新流程一致）：
+    python3 scripts/gen_interface.py --source-root <asc-tools 根目录>           # 重新生成
+    python3 scripts/gen_interface.py --source-root <asc-tools 根目录> --check   # 只比对不写入
 """
 
 from __future__ import annotations

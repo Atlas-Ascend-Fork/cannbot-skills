@@ -17,6 +17,10 @@ skill 文档与安装的双向漂移都能发现：
 - missing-options  安装比 skill 记载的必备面更旧/不兼容
 - newer-install    安装出现了 skill 未记载的选项（skill 文档落后）
 - ok               记载的必备面齐备；可选能力缺失只提示不算故障
+
+用法（与 SKILL.md 自检入口一致）：
+    python3 scripts/check_interface.py --tool "$OBJDUMP_CMD"
+`--tool` 省略时自动发现 PATH 中的 npu-objdump/msobjdump。
 """
 
 from __future__ import annotations
