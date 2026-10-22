@@ -19,7 +19,7 @@ description: msaicerr 工具使用技能。用于：(1) 分析 AI Core Error 问
 
 部分算子的 AI Core Error 问题暂不支持分析（MatmulAllReduce 类、AllGatherMatmul、MemSet 等），完整清单与约束见 [functions-and-restrictions.md](references/functions-and-restrictions.md)；环境准备步骤见 [environment-preparation.md](references/environment-preparation.md)。
 
-环境自检：`bash scripts/preflight.sh`
+环境自检：`bash scripts/preflight.sh`；传入故障信息目录（`bash scripts/preflight.sh <故障信息目录>`）可追加检查收集完整性与路径关系（[4/5][5/5] 项）。
 
 ## 场景路由
 
