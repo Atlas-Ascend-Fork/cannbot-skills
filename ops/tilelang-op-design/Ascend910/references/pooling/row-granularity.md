@@ -19,9 +19,10 @@ For each (n, od, oh):                          # 一个 block
         For each kh (valid):
             DataCopy: X[n,id,ih,:,:] → UB      # W*C 连续元素，一次搬运
             For each ow (0..OW):
-                iw = ow*SW - PW + kw
-                if iw in bounds:
-                    Add(acc[ow*C:], in[iw*C:])  # C 宽度向量化
+                For each kw (0..KW-1):
+                    iw = ow*SW - PW + kw
+                    if iw in bounds:
+                        Add(acc[ow*C:], in[iw*C:])  # C 宽度向量化
     acc /= divisor
     DataCopy: acc → Y[n,od,oh,:,:]              # OW*C 连续元素
 ```
