@@ -73,7 +73,7 @@
         "eval_mode": "file_based"
       },
       "prompt": "我需要为 Add 算子编写 aclnnAPI 接口文档，请帮我生成。算子规格如下：\n\n算子名称：Add\n数学公式：out = self + alpha \\* other\n输入：self（aclTensor*）, other（aclTensor*）, alpha（aclScalar*）\n输出：out（aclTensor*）\n支持数据类型：FLOAT, FLOAT16, INT32, INT64, BFLOAT16 等\n支持产品：Ascend 950PR/950DT, Atlas A2, Atlas A3, Atlas 训练系列\n约束：self 和 other 需满足 broadcast 关系，数据类型需满足互推导关系\n\n请生成 aclnnAdd.md 文件。",
-      "expected_output": "生成的 aclnnAdd.md 应严格遵循 aclnnAPI 文档模板结构，包含以下关键章节：\n\n- 产品支持情况表：按固定产品顺序列出（Ascend 950PR/950DT、Atlas A3、Atlas A2、Atlas 200I/500 A2、Atlas 推理系列、Atlas 训练系列），用 √/× 标注支持情况\n- 功能说明：接口功能描述、计算公式（out = self + alpha * other）\n- 函数原型：两段式接口（aclnnAddGetWorkspaceSize 和 aclnnAdd），每行一个参数，参数对齐\n- aclnnAddGetWorkspaceSize 参数说明：8 字段参数表（参数名/输入输出/描述/使用说明/数据类型/数据格式/维度shape/非连续Tensor），使用说明中包含空 Tensor 支持度和数据类型推导规则引用\n- 返回值表：包含错误码（如 ACLNN_ERR_PARAM_NULLPTR 161001、ACLNN_ERR_PARAM_INVALID 161002）\n- aclnnAdd 第二段接口参数说明：workspace/workspaceSize/executor/stream\n- 约束说明：确定性说明（三选一格式）\n- 调用示例：标注编译运行参考路径",
+      "expected_output": "生成的 aclnnAdd.md 应严格遵循 aclnnAPI 文档模板结构，包含以下关键章节：\n\n- 产品支持情况：按 Wiki 固定顺序以无序列表列出 Ascend 950PR&950DT系列产品、Atlas A3系列产品、Atlas A2系列产品、Atlas 200I/500 A2推理产品、Atlas推理系列产品、Atlas训练系列产品；用“支持/不支持”说明，产品名带 term 标记且配对 npu 注释标签，不能使用支持表\n- 功能说明：接口功能描述、计算公式（out = self + alpha * other）\n- 函数原型：两段式接口（aclnnAddGetWorkspaceSize 和 aclnnAdd），每行一个参数，参数对齐\n- aclnnAddGetWorkspaceSize 参数说明：8 字段参数表（参数名/输入输出/描述/使用说明/数据类型/数据格式/维度shape/非连续Tensor），使用说明中包含空 Tensor 支持度和数据类型推导规则引用\n- 返回值表：包含错误码（如 ACLNN_ERR_PARAM_NULLPTR 161001、ACLNN_ERR_PARAM_INVALID 161002）\n- aclnnAdd 第二段接口参数说明：workspace/workspaceSize/executor/stream\n- 约束说明：确定性行为应按产品平台分别描述；没有源码证据的字段标注待确认\n- 调用示例：标注编译运行参考路径",
       "files": [],
       "expectations": []
     },
@@ -92,7 +92,7 @@
         "eval_mode": "file_based"
       },
       "prompt": "我需要为 Add 算子编写开源仓的 README 文档，请帮我生成。算子规格如下：\n\n算子名称：Add\n数学公式：y = x1 + alpha * x2\n输入：x1, x2（支持 FLOAT, FLOAT16, INT32, BFLOAT16 等）\n输出：y\n可选属性：alpha（默认值 1.0）\n支持产品：Ascend 950PR/950DT, Atlas A2, Atlas A3, Atlas 训练系列\n调用方式：aclnn 调用 + 图模式调用\n约束：无特殊约束\n\n请生成 README.md 文件。",
-      "expected_output": "生成的 README.md 应严格遵循算子 README 模板结构，包含以下关键章节：\n\n- 产品支持情况表：按固定产品顺序列出（含麒麟芯片行），用 √/× 标注\n- 功能说明：算子功能一句话描述、计算公式（y = x1 + alpha * x2）\n- 参数说明表：5 列表格（参数名/输入输出属性/描述/数据类型/数据格式），包含 x1、x2、alpha（可选属性）、y 四个参数，芯片差异说明（如 Atlas 训练系列不支持 BFLOAT16）\n- 约束说明：无特殊约束时写\"无\"\n- 调用说明：表格形式列出 aclnn 调用和图模式调用，链接到 examples 目录的样例代码\n- 参考资源（可选）：链接到算子设计文档",
+      "expected_output": "生成的 README.md 应严格遵循算子 README 模板结构，包含以下关键章节：\n\n- 产品支持情况表：按 ops-transformer Wiki 的六类产品及固定顺序列出，用 √/× 标注；仅在实际源码和发布证据支持时扩展其他产品行\n- 功能说明：算子功能一句话描述、计算公式（y = x1 + alpha * x2）\n- 参数说明表：5 列表格（参数名/输入输出属性/描述/数据类型/数据格式），包含 x1、x2、alpha（可选属性）、y 四个参数，芯片差异说明（如 Atlas 训练系列不支持 BFLOAT16）\n- 约束说明：无特殊约束时写\"无\"\n- 调用说明：表格形式列出 aclnn 调用和图模式调用，链接到 examples 目录的样例代码\n- 参考资源（可选）：链接到算子设计文档",
       "files": [],
       "expectations": []
     },
@@ -167,7 +167,7 @@
         "eval_mode": "text"
       },
       "prompt": "我要为 LayerNorm 算子编写 aclnnAPI 接口文档（aclnnLayerNorm.md），但接口定义、参数约束这些内容我不确定该从哪里获取。帮我梳理一下写这份文档需要哪些输入资料，以及文档本身要包含哪些关键内容。",
-      "expected_output": "回复应覆盖 aclnnAPI 接口文档的写作要点：文档数据来源是需求分析文档的算子规格、API 定义和约束部分；文档输出位置为 operators/layernorm/docs/aclnnLayerNorm.md；接口采用两段式声明（先调用 aclnnLayerNormGetWorkspaceSize 获取 workspace 大小与执行器，再调用 aclnnLayerNorm 执行计算）；文档应包含产品支持情况表（按固定产品顺序用 √/× 标注）、函数原型、参数说明表（8 字段：参数名/输入输出/描述/使用说明/数据类型/数据格式/维度shape/非连续Tensor）、约束说明（含确定性说明三选一）、调用示例。",
+      "expected_output": "这是写作咨询，只需解释资料、预期输出路径和章节，不要求实际生成 aclnnLayerNorm.md 文件或文档正文，不得以未生成成品判失败。回复应优先询问 LayerNorm 算子源码目录，并说明接口定义、参数类型与顺序来自 op_host/op_api/aclnn_*.h/cpp，ParamType、dtype、format、平台支持来自 *_def.cpp 和 config，shape 来自 *_infershape.cpp，约束、错误码和确定性行为来自 tiling、CheckParam 与 kernel 实现；缺少源码时只能依据已确认规格草拟并标注待确认。文档输出位置遵循<实际算子目录>/docs/aclnnLayerNorm.md，例如 operators/layernorm/docs/aclnnLayerNorm.md，实际目录名须确认，不要求仓库必须使用示例目录名；接口采用两段式声明；应说明文档包含产品支持情况、功能说明、函数原型、8 字段参数表、返回值、按平台描述的约束与确定性行为、调用示例。仍须检查上述全部事实来源、缺源码兜底、输出路径和章节要点，不因咨询模式省略这些要求。",
       "expectations": [],
       "files": []
     },
@@ -182,7 +182,81 @@
         "eval_mode": "text"
       },
       "prompt": "我负责的 Exp 算子已经完成开发并合入开源仓，现在要为它编写算子 README 文档。请问写 README 需要参考哪些已有资料，README 里要包含哪些核心章节？",
-      "expected_output": "回复应覆盖算子 README 的写作要点：README 的数据来源是需求分析文档、详细设计文档和代码；输出位置为 operators/exp/README.md（算子根目录）；应包含产品支持情况表（按固定产品顺序用 √/× 标注）、功能说明（含计算公式）、参数说明表（5 列：参数名/输入输出属性/描述/数据类型/数据格式）、约束说明（无特殊约束时写\"无\"）、调用说明（表格列出 aclnn 调用和图模式调用，链接到 examples 目录样例代码），可包含参考资源链接到算子设计文档。",
+      "expected_output": "回复应覆盖算子 README 的写作要点：最终文档优先以算子源码为事实来源，并结合需求分析和详细设计；输出位置为 operators/exp/README.md（算子根目录）；应包含产品支持情况表、功能说明（含计算公式）、参数说明表（5 列：参数名/输入输出属性/描述/数据类型/数据格式）、可选的约束说明、调用说明及可选的参考资源。参数分类应以 *_def.cpp 的 Input/Output/Attr 为准，调用说明应列全源码中发现的 aclnn 接口；缺少源码时未核验字段须标注待确认。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 12,
+      "title": "从算子源码生成最终文档",
+      "config": {
+        "max_tokens": 200000,
+        "ascend_platforms": [
+          "A2",
+          "A3"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "算子源码在 /workspace/operators/foo，请直接生成 aclnn 接口文档和 README。开始写之前你会检查哪些文件，如何保证参数、平台和约束没有编造？",
+      "expected_output": "回复应说明先完整读取 source-extraction-guide、模板和示例；扫描 op_host/op_api 下所有 aclnn_*.h 中的 ACLNN_API 声明，并读取对应 cpp、*_def.cpp、*_base.h、*_infershape.cpp、*_tiling.h/cpp、可用的 *_tiling_arch35.cpp、kernel、config 和 examples。应为每个接口建立事实表和独立文档，按证据优先级处理冲突，对缺失信息标注待确认，并在交付前逐项核对接口数量、签名参数、dtype/format/ParamType、平台分支、约束与链接。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 13,
+      "title": "多 aclnn 接口与平台差异",
+      "config": {
+        "max_tokens": 160000,
+        "ascend_platforms": [
+          "A5"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "一个算子目录只有两个 aclnn_*.h 文件，但其中一个头文件声明了两个 ACLNN_API；三个接口在 950 上的支持情况还不同。文档生成时怎么处理？这是假设场景，未提供源码目录，本次只解释处理规则与预期交付，不生成文档或README。",
+      "expected_output": "这是未提供源码的流程咨询，评估解释的规则和预期交付，不要求实际生成文件、真实接口签名或平台核验结果；未产出文档不作为失败理由，也不得虚报已经核验。回复应明确按 ACLNN_API 声明而不是按文件数识别接口，实际生成时应共生成三份独立 aclnn 文档；说明须分别核验每个接口的函数签名、参数、示例、平台检查和废弃信息。在产品支持无序列表和约束说明中按接口记录 950 支持差异，废弃接口注明替代接口，但不得将单一接口的不支持错误扩大为整个算子不支持。说明 README 调用说明须列出全部三个入口及相应文档/样例链接。上述内容均必需；给出完整规则和预期交付方案即可，不要求实际源码取证或交付文档成品。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 14,
+      "title": "结合开发者资料与源码生成文档",
+      "config": {
+        "max_tokens": 180000,
+        "ascend_platforms": [
+          "A2",
+          "A5"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "我提供了 Foo 算子的规格说明、REQUIREMENTS.md、DESIGN.md 和源码目录。需求文档写支持 FP32，但当前 def.cpp 只注册了 FP16。你生成 aclnn 文档和 README 时会怎么处理？",
+      "expected_output": "回复应说明先完整读取规格、需求和设计文档，提取设计意图，再完整扫描源码核验实际实现；不得只选其中一类输入。应建立资料—源码对照表，记录资料结论、源码结论、证据位置、一致性和待确认项。由于当前 def.cpp 只有 FP16，最终文档应将 FP16描述为当前实现，不能把 FP32写成已经支持；同时在冲突清单中记录需求预期支持 FP32，提示开发者确认是源码未实现还是需求文档未同步。若没有提供任何规格/需求/设计文档，则直接根据源码生成。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 15,
+      "title": "缺少源码时的 README 写作咨询",
+      "config": {"max_tokens": 160000, "ascend_platforms": ["A2"], "eval_mode": "text"},
+      "prompt": "Exp 算子已开发完成，但我现在只有需求和设计文档，没有源码目录。请说明 README 放在哪里、需要哪些章节，以及未核验的参数和平台信息如何处理。",
+      "expected_output": "应说明 README 位于算子根目录，例如 operators/exp/README.md，已有分类目录时使用实际分类路径；参考需求和设计提取意图，但缺少源码时只能草拟，所有未经源码核验的参数、dtype、平台和约束字段均标注“待确认”，不能只标注资料冲突。核心章节包括产品支持情况表、功能说明和公式、5 列参数说明表、可选约束说明、调用说明、可选参考资源。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 16,
+      "title": "Wiki 产品格式与确定性配置接口",
+      "config": {"max_tokens": 160000, "ascend_platforms": ["A2", "A5"], "eval_mode": "text"},
+      "prompt": "准备更新 aclnn 文档和算子 README：aclnn 产品支持情况还用表格吗？Ascend 950 和 Atlas A2/A3 的正式产品名怎么写？已确认支持手动开启确定性的接口应写哪个配置 API？",
+      "expected_output": "应依据 ops-transformer Wiki 说明：aclnn 产品支持情况用无序列表和“支持/不支持”，产品名用 term 标记且配对 npu 注释标签；README 产品支持情况仍用表格和 √/×。现行名称为 Ascend 950PR&950DT系列产品、Atlas A3系列产品、Atlas A2系列产品。确定性配置接口使用 aclrtSetSysParamOpt；默认行为与支持度逐平台核验，不把示例当成其他算子的事实。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 17,
+      "title": "源码不可访问时仍区分写作规范与事实证据",
+      "config": {"max_tokens": 160000, "ascend_platforms": ["A2"], "eval_mode": "text"},
+      "prompt": "我准备同时生成 Foo 的 aclnn 文档和 README，但提供的算子源码目录目前不可访问。请只说明开始写之前要读取哪些 Skill 参考文件、之后要核验哪些源码，以及现在能交付什么，不要生成文档。",
+      "expected_output": "应区分写作规范和算子事实：先完整读取 Skill 内的 references/source-extraction-guide.md、references/aclnn-api-doc-template.md、references/operator-readme-template.md、references/example-aclnn-md.md、references/example-readme.md；grep 章节标题不能代替完整读取，源码缺失不影响读取这些参考。随后说明待获取源码后的接口声明、对应实现、def、infershape、tiling、kernel、config 和样例核验计划，示例不能作为 Foo 的参数或平台事实。当前只能交付流程、读取状态和缺失证据清单，请求正确源码目录，不能声称已核验或生成最终文档，也不能拿其他算子源码替代；后续经要求草拟时，未经核验字段标注待确认。",
       "expectations": [],
       "files": []
     }

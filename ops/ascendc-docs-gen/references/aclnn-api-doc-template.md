@@ -2,6 +2,7 @@
 
 > 本模板用于编写开源aclnn API接口文档（gitcode仓），以aclnnAdd为示例。
 > 文档存放路径：`operators/{operator_name}/docs/aclnn{OperatorName}.md`
+> 格式依据：[ops-transformer Wiki](https://gitcode.com/cann/ops-transformer/wiki) 的 aclnn API 文档模板。下列支持度和参数仅为格式示例，须按目标接口源码核验。
 
 ## 产品支持情况
 
@@ -148,7 +149,7 @@ aclnnStatus aclnn{Op}(
   </thead>
   <tbody>
     <tr>
-      <td>self（aclTensor*）</td>
+      <td>self（const aclTensor*）</td>
       <td>输入</td>
       <td>表示xxx含义，对应公式中self。</td>
       <td>
@@ -164,7 +165,7 @@ aclnnStatus aclnn{Op}(
       <td>√</td>
     </tr>
     <tr>
-      <td>other（aclTensor*）</td>
+      <td>other（const aclTensor*）</td>
       <td>输入</td>
       <td>表示xxx含义，对应公式中other。</td>
       <td><ul>
@@ -177,7 +178,7 @@ aclnnStatus aclnn{Op}(
       <td>√</td>
     </tr>
     <tr>
-      <td>alpha（aclScalar*）</td>
+      <td>alpha（const aclScalar*）</td>
       <td>输入</td>
       <td>表示xxx含义，对应公式中alpha。</td>
       <td>预留参数，当前暂不支持，传入空指针即可。</td>
@@ -223,7 +224,7 @@ aclnnStatus aclnn{Op}(
   </tbody></table>
 
   <!-- npu="910" id7 -->
-  - <term>Atlas 训练系列产品</term>：不支持BFLOAT16。
+  - <term>Atlas训练系列产品</term>：不支持BFLOAT16。
   <!-- end id7 -->
 
 - **返回值**
@@ -282,7 +283,7 @@ aclnnStatus aclnn{Op}(
 
 - **参数说明**
 
-  > **写作规范**（第一段接口参数说明表）：
+  > **写作规范**（第二段接口参数说明表）：
   >
   > - 字段固定：参数名、输入/输出、描述
   > - 表格中无内容用 `-` 填充，"参数名"列内容不可换行显示
@@ -342,10 +343,11 @@ aclnnStatus aclnn{Op}(
 >
 > **必选项**：
 >
-> - 确定性说明（三选一）：
->   - aclnnXxx默认确定性实现。
->   - aclnnXxx默认非确定性实现，支持通过aclrtSetSysParamOpt开启确定性。
->   - aclnnXxx默认非确定性实现，不支持通过aclrtSetSysParamOpt开启确定性。
+> - 确定性计算必须按产品平台分述，不得使用没有平台边界的全局结论：
+>   - `<term>平台A</term>、<term>平台B</term>：aclnnXxx默认确定性实现。`
+>   - `<term>平台C</term>：aclnnXxx默认非确定性实现，支持通过aclrtSetSysParamOpt开启确定性。`
+>   - `<term>平台D</term>：aclnnXxx默认非确定性实现，不支持通过aclrtSetSysParamOpt开启确定性。`
+> - 确定性结论必须从对应平台的 Tiling/Kernel 实现分支取证；无法确认时标记“待确认”。
 >
 > **可选项**：
 >
@@ -360,7 +362,14 @@ aclnnStatus aclnn{Op}(
 > - 按产品区分描述，格式：`<term>产品1</term>、<term>产品2</term>：xxx`
 > - 约束较多时可使用 `<details><summary>` 折叠展示
 
-- 确定性说明：aclnnXxx默认确定性实现。
+- 确定性计算：
+
+  <!-- npu="A3,910b" id8 -->
+  - <term>Atlas A3系列产品</term>、<term>Atlas A2系列产品</term>：aclnnXxx默认确定性实现。
+  <!-- end id8 -->
+  <!-- npu="950" id9 -->
+  - <term>Ascend 950PR&950DT系列产品</term>：aclnnXxx默认非确定性实现，支持通过aclrtSetSysParamOpt开启确定性。
+  <!-- end id9 -->
 
 ## 调用示例
 
@@ -375,9 +384,41 @@ aclnnStatus aclnn{Op}(
 
 示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-math/blob/master/docs/zh/context/compile_and_run_sample.md)。
 
-```Cpp
+```cpp
 // 示例代码占位，根据实际算子填写
 ```
+
+## 源码生成与关键格式规范（仅供写作，不输出）
+
+### 资料与源码核验
+
+- 开发者提供规格、需求或设计文档时，先提取设计意图，再用源码逐项核验；不得只读取其中一类输入。
+- 没有开发者资料时，直接从源码提取。
+- 接口声明和参数顺序以 `op_host/op_api/aclnn_*.h/.cpp` 为准；ParamType、dtype、format 和平台注册以 `*_def.cpp`、config 为准；shape 以 `*_infershape.cpp` 为准；约束、错误码和确定性行为以 CheckParam、Tiling 和 Kernel 实现为准。
+- 资料与源码冲突时，当前实现按源码描述，同时记录资料结论、源码结论、证据位置和待确认事项；不得把尚未实现的设计目标写成已经支持。
+
+### 多接口与废弃接口
+
+- 扫描全部 `aclnn_*.h` 中的所有 `ACLNN_API` 声明，不得按文件数量推断接口数量。
+- 每个 aclnn 接口独立生成文档，并分别核验签名、参数、平台支持、约束、示例和废弃状态。
+- 单个接口在某平台废弃或不支持时，只更新该接口的产品支持情况，并注明替代接口；不得扩大为整个算子不支持。
+- Inplace 接口继续使用本模板的“Inplace 接口”章节，并核验输入/输出复用与 shape 约束。
+
+### 参数表格式
+
+- 参数名必须包含与函数原型一致的类型，例如 `query（const aclTensor*）`，保留声明中的 `const`。
+- 输入/输出列只允许：输入、输出、输入/输出、输入|输出、可选输出、可选输入、输入和输出。
+- Tensor 参数的使用说明使用 `<ul><li>` 包裹；非 Tensor 参数用纯文本描述；不涉及填写“-”，不得留空。
+- 数据类型不带 `DT_` 前缀，多种类型使用中文顿号分隔；非 Tensor 参数按模板规则填写或使用“-”。
+- 非连续 Tensor：支持标“√”，不支持标“×”，不涉及标“-”。
+- 产品差异化描述放在参数表下方，产品名使用 `<term>` 标签。
+
+### 调用示例格式
+
+- 优先从对应 `examples/test_aclnn_*.cpp` 提取，确保接口名和参数顺序与源码一致。
+- 示例包含 CHECK_RET/LOG_PRINT、初始化、Tensor 构造、两段式调用、同步取结果和资源释放的完整流程。
+- 根据算子格式选择 ND 或 NCHW Tensor 构造；包含 `aclIntArray` 参数时必须展示 `aclCreateIntArray`。
+- 多接口算子为每个接口提供对应示例或明确的示例链接。
 
 ---
 
@@ -454,10 +495,9 @@ aclnnStatus aclnn{Op}(
 - [ ] 检查产品名称是否符合规范，要求空格、大小写完全一样，不允许出现其他不在以下范围的产品名。正确的产品名范围如下：
   - Ascend 950PR&950DT系列产品
   - Atlas A3系列产品
-  - Atlas A3系列产品
+  - Atlas A2系列产品
   - Atlas 200I/500 A2推理产品
   - Atlas推理系列产品
-  - Atlas训练系列产品
   - Atlas训练系列产品
 - [ ] 检查产品标签是否符合规范：
   - 位置规范：①不支持表格描述里打产品标签，无论是md原生语法表格还是html语法表格。②不支持有序列表（1. xx  2. xx）打产品标签
@@ -478,7 +518,7 @@ aclnnStatus aclnn{Op}(
 - [ ] 功能说明：是否缺少功能说明、使用场景、计算公式、V版本差异、产品差异等描述
 - [ ] 参数说明：
   - [ ] 参数是否齐全，要求与`op_host/{op}_def.cpp`定义的参数对应
-  - [ ] 参数表5个字段是否齐全
+  - [ ] 一阶段参数表8个字段、二阶段参数表3个字段是否齐全
   - [ ] 是否缺少aclnn返回码跳转
   - [ ] 一阶段接口是否缺少参数异常拦截表
 - [ ] 约束说明：
