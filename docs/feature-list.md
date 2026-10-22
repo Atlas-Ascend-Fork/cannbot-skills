@@ -299,3 +299,15 @@
 | Plugin | 功能 | 使用样例 |
 |--------|------|---------|
 | **science-model-npu-migration** | 框架级代码 NPU 迁移全流程：环境门禁、脚本适配、精度/性能对比与 mig_docs 交付归档；覆盖 torch_npu / MindSpore Ascend | — |
+
+## 领域目录入口（自 README 索引表移入）
+
+> 目录级入口，非官方插件；官方插件索引保留在 [README](../README.md)。
+
+| 领域 | 说明 | 入口 |
+|------|------|------|
+| **GE** | 图模式相关问题定位 | [graph/](../graph/) |
+| **Runtime** | Runtime LLT 开发与接口迁移 | [runtime/](../runtime/) |
+| **CANN 工具链** | 故障信息收集、Device 日志导出、AI Core Error 分析、npu-compute 性能采集与报告分析 | [tools/](../tools/) |
+| **科学计算模型迁移** | 框架级代码 NPU 迁移（环境门禁/脚本适配/精度性能对比） | plugins-community/science-model-npu-migration |
+| **治理与协作** | Skill 审查、GitCode PR/Issue 自动化 | infra/ |
