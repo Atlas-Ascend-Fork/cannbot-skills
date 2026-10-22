@@ -54,7 +54,7 @@ test -d "${HCOMM_DOCS}/api_ref/comm_opdev"
 
 ```bash
 test -d "${CANN_HOME}"
-test -r "${CANN_HOME}/set_env.sh"
+test -f "${CANN_HOME}/set_env.sh" && test -r "${CANN_HOME}/set_env.sh"
 test -d "${ASCEND_HOME_PATH}"
 ```
 
