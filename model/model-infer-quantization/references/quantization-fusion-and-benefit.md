@@ -126,7 +126,7 @@ T_decode ≈ T_attn + T_FFN_GEMM + T_dispatch + T_overhead
 
 **强诊断信号**：同一 commit / 同卡 / 同 prompt 下 W8A8 vs BF16 在不同 exec_mode 测出不同方向的 Δ_decode，说明 host launch overhead 是主因，量化的纯计算收益约等于 ge_graph 测得的那个数。eager 数据不进收益结论，仅用于功能验证。
 
-### B.1.2 显存收益分账（量化只动权重，不动激活和中间 buffer）
+### B.1.2 显存收益分账（权重量化不缩小常驻激活；量化临时占用需单独核算）
 
 显存收益要拆成五栏，每栏量化作用不同：
 
@@ -134,7 +134,7 @@ T_decode ≈ T_attn + T_FFN_GEMM + T_dispatch + T_overhead
 | --- | --- | --- |
 | 模型权重 | **覆盖 `targets` 内的层** -> bit_ratio 减少；scale 元数据增加 | BF16 19.74 / W8A8 14.34 GiB（**-27%**） |
 | KV cache | 不量化时为 0；C8 KV 时减半 | b=8 4K/1K 约 10 GiB（W8A8 deploy 不动） |
-| Activation / Hidden states | **完全不变**（GEMM 输入仍 BF16，只在量化点临时转 int8） | 约 5 GiB |
+| Activation / Hidden states | 常驻 hidden states 仍为 BF16；量化点临时转 int8 是否形成独立分配及其峰值，需按具体实现实测 | 约 5 GiB；临时峰值以实测为准 |
 | MoE / GMM 中间 buffer | int8 GEMM 输出 int32 -> dequant 后 BF16；**尺寸由 token 数决定，量化不影响** | b=8 4K/1K 单次约 9 GiB（GMM workspace） |
 | 通信预分配 | 不变 | HCCL 约 3-5 GiB |
 
@@ -153,7 +153,7 @@ LongCat-Flash-Lite W8A8 deploy 实测对账：
 - 量化后体积 `W_quant ≈ 19.74 × (0.8 × 0.5 + 0.2 × 1.0) + 0.8 = 12.6 GiB`，对应节省 `Δ_weight ≈ 12.6 - 19.74 = -7.1 GiB`
 - 实测 14.34 GiB 比理论 `W_quant` 多 1.7 GiB（MLA prolog 的 NZ 权重副本 + allocator 对齐）；实测净省约 -5.4 GiB（19.74 -> 14.34，即 -27%），与理论方向一致、量级略小
 
-**关键分账规则**：写显存收益时强制说“权重 -X GiB / 卡，但 b=N seq=M 配置仍可能 OOM 在 [激活 / GMM 中间 buffer / KV cache]”，不要简单写“显存 -27%”就结束。
+**关键分账规则**：写显存收益时强制说“权重 -X GiB / 卡，但 b=N seq=M 配置仍可能 OOM 在 [常驻激活 / 动态量化临时占用 / GMM 中间 buffer / KV cache]”，不要简单写“显存 -27%”就结束。
 
 **OOM 不一定是量化能力问题**：当瓶颈在 KV cache、MoE alltoall buffer、GMM 中间 tensor、通信预分配时，量化无法绕过，需要的是正交手段（MoE prefill chunk、paged attention、batch 调整、KV cache 量化等）。**评估时遇到 OOM 必须先分账，再判断是不是量化路径问题**。
 
