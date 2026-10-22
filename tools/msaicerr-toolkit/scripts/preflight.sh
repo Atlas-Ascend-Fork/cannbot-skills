@@ -118,14 +118,18 @@ if [ -z "$REPORT_PATH" ] || [ ! -d "$REPORT_PATH" ]; then
     echo "         无故障信息目录，跳过"
 else
     report_abs=$(cd "$REPORT_PATH" 2>/dev/null && pwd -P)
-    cwd_abs=$(pwd -P)
-    case "$cwd_abs/" in
-        "$report_abs"/*)
-            fail_ "当前目录位于 -p 指定目录内（${cwd_abs}），会导致解析卡住或失败；请切换到 \${install_path}/tools/msaicerr 执行" ;;
-        *)
-            pass "当前目录不在 -p 指定目录内" ;;
-    esac
-    echo "         提醒：-out 指定目录同样不能是 -p 目录或其子目录"
+    if [ -z "$report_abs" ]; then
+        fail_ "无法进入 -p 指定目录（${REPORT_PATH}），路径关系检查跳过；请检查目录权限"
+    else
+        cwd_abs=$(pwd -P)
+        case "$cwd_abs/" in
+            "$report_abs"/*)
+                fail_ "当前目录位于 -p 指定目录内（${cwd_abs}），会导致解析卡住或失败；请切换到 \${install_path}/tools/msaicerr 执行" ;;
+            *)
+                pass "当前目录不在 -p 指定目录内" ;;
+        esac
+        echo "         提醒：-out 指定目录同样不能是 -p 目录或其子目录"
+    fi
 fi
 
 echo ""
