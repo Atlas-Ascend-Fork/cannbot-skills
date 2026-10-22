@@ -123,6 +123,10 @@ install-helper uninstall ops-direct-invoke                 # 卸载
 - 需要 Node.js 运行环境
 - 离线/调试：`CANNBOT_INSTALLER_PATH` 指定安装器包路径，`CANNBOT_INSTALLER_CHANNEL` 覆盖通道
 
+超出上述委托矩阵（qoder / cursor / copilot / codearts 工具或 global 级别）时，未显式指定 `--source cannbot` 的安装会自动回退到本仓冻结副本并提示原因；显式指定 `--source cannbot` 仍按报错处理，仅存于 cannbot 仓、无本地副本可回退的插件（如 triton-op-generator）则给出结构化错误。
+
+已迁移且本仓删除的插件（如 `triton-op-generator`）经内置迁移清单自动路由到 cannbot 仓安装：按 id / 历史别名（如 `triton`）/ 前缀均可解析，旧版安装记录也能被 `update` 继续管理，无需等待安装器 npm 发版收录。
+
 ### 更新
 
 ```bash

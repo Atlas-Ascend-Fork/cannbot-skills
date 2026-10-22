@@ -23,10 +23,15 @@ describe("registry", () => {
       return;
     }
     const { getAllPlugins, findPlugin, getPluginById } = await import("../src/core/registry.js");
+    const { MIGRATED_PLUGINS } = await import("../src/core/migrated-plugins.js");
     const plugins = getAllPlugins();
     expect(plugins.length).toBeGreaterThan(0);
 
+    // Structural invariants describe plugins.d entries. Migrated tombstones
+    // have no local tree left in this repo and legitimately carry dir: "".
+    const migratedIds = new Set(MIGRATED_PLUGINS.map((p) => p.id));
     for (const p of plugins) {
+      if (migratedIds.has(p.id)) continue;
       expect(p.id).toBeTruthy();
       expect(p.dir).toBeTruthy();
       expect(p.displayName).toBeTruthy();

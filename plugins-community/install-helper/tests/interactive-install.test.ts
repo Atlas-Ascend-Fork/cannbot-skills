@@ -392,4 +392,31 @@ describe.skipIf(!isLinux || !scriptAvailable)("interactive install (real PTY)", 
       rmSync(sandbox, { recursive: true, force: true });
     }
   }, 420_000);
+
+  it("D: qoder install prompts and lands in the qodercn layout", async () => {
+    const { sandbox, project, env } = makeProject("d");
+    env.CANNBOT_QODER_LAYOUT = "cli"; // deterministic even without qodercn on PATH
+    const session = new PtySession(process.execPath, [
+      CLI_PATH, "install", "ops-direct-invoke-flash", "--tool", "qoder", "--level", "project",
+    ], { cwd: project, env });
+    try {
+      await session.expect("检测到非 CANNBot 安装的配置文件", 180_000);
+      await session.expect("navigate", 60_000);
+      session.send("\r"); // default = keep my file
+      await session.expect("已保留现有文件", 60_000);
+      expect(await session.waitForExit()).toBe(0);
+
+      // qodercn layout: skills in .qoder/skills, agents as copies in .qoder/agents
+      expect(existsSync(join(project, ".qoder", "skills", "ops-direct-invoke-flash"))).toBe(true);
+      const agentPath = join(project, ".qoder", "agents", "ops-direct-invoke-flash-reviewer.md");
+      expect(existsSync(agentPath)).toBe(true);
+      expect(lstatSync(agentPath).isSymbolicLink()).toBe(false);
+      // project-root AGENTS.md (qodercn memory) preserved as the user's file
+      expect(readFileSync(join(project, "AGENTS.md"), "utf-8")).toBe("# User config\nKeep me safe.\n");
+      expect(lstatSync(join(project, "AGENTS.md")).isSymbolicLink()).toBe(false);
+    } finally {
+      session.close();
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  }, 420_000);
 });

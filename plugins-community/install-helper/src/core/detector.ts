@@ -126,6 +126,24 @@ async function detectCodeArts(): Promise<DetectedTool | undefined> {
   return undefined;
 }
 
+async function detectQoder(): Promise<DetectedTool | undefined> {
+  // Prefer the qodercn CLI: its layout (.qoder / .qoder-cn) drives installs.
+  const cmdPath = await getCommandPath("qodercn");
+  if (cmdPath) {
+    const version = await getCommandVersion("qodercn");
+    return { name: "qoder", version, path: cmdPath };
+  }
+
+  const home = homedir();
+  for (const dir of [".lingma", ".qoder-cn"]) {
+    const configDir = join(home, dir);
+    if (existsSync(configDir)) {
+      return { name: "qoder", path: configDir };
+    }
+  }
+  return undefined;
+}
+
 export async function detectTools(): Promise<DetectedTool[]> {
   const detectors = [
     detectOpenCode,
@@ -135,6 +153,7 @@ export async function detectTools(): Promise<DetectedTool[]> {
     detectCodex,
     detectCopilot,
     detectCodeArts,
+    detectQoder,
   ];
 
   const results = await Promise.allSettled(detectors.map((d) => d()));
@@ -158,6 +177,7 @@ export function getToolDisplayName(tool: AITool): string {
     codex: "Codex",
     copilot: "GitHub Copilot",
     codearts: "CodeArts",
+    qoder: "Qoder",
   };
   return names[tool];
 }

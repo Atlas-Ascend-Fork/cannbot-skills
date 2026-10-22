@@ -216,6 +216,26 @@ function installConfigFile(
   }
 }
 
+// Git transport-layer slow-speed guard (runtime-independent safety net):
+// aborts a transfer once it stays below 1KB/s for 90 consecutive seconds.
+// execa inherits the environment when no env is passed, so the guard is
+// merged explicitly with process.env to stay additive.
+const GIT_SLOW_GUARD = {
+  GIT_HTTP_LOW_SPEED_LIMIT: "1024", // 低于 1KB/s
+  GIT_HTTP_LOW_SPEED_TIME: "90", // 持续 90s 即中止
+};
+
+/**
+ * Installs a plugin's external repositories (clone on first install, pull on
+ * update) and links them into the config root / project. Large recursive
+ * clones legitimately take minutes (e.g. the 438MB tilelang-ascend checkout
+ * of tilelang-op-orchestrator), so the clone ceiling is 600s and the pull
+ * ceiling 300s — the previous 120s ceiling silently dropped the plugin's
+ * core dependencies on timeout. The GIT_SLOW_GUARD env is the second line
+ * of defense at the git transport layer and deliberately bounds clones
+ * regardless of runtime: under the native bun binary, execa's own timeout
+ * does not take effect, leaving clones otherwise unbounded.
+ */
 async function installExternalRepos(
   repos: PluginManifestExternalRepo[] | undefined,
   repoPath: string,
@@ -231,7 +251,7 @@ async function installExternalRepos(
 
     if (existsSync(gitDir)) {
       try {
-        await execa("git", ["pull", "--quiet"], { cwd: targetDir, timeout: 120000 });
+        await execa("git", ["pull", "--quiet"], { cwd: targetDir, timeout: 300000, env: { ...process.env, ...GIT_SLOW_GUARD } });
       } catch {
         logger.warn(t("external_repo_update_failed").replace("{dir}", repo.dir));
         // 不 continue — 目录已存在且可用，继续创建 symlink（与 init.sh 行为一致）
@@ -247,7 +267,7 @@ async function installExternalRepos(
       args.push(repo.url, targetDir);
 
       try {
-        await execa("git", args, { timeout: 120000 });
+        await execa("git", args, { timeout: 600000, env: { ...process.env, ...GIT_SLOW_GUARD } });
       } catch {
         logger.warn(t("install_clone_failed").replace("{url}", repo.url).replace("{dir}", repo.dir));
         try { rmSync(targetDir, { recursive: true, force: true }); } catch {}
@@ -432,6 +452,23 @@ export async function installViaManifest(
       }
 
       const targetPath = join(agentsDir, agentFile);
+
+      if (tool === "qoder") {
+        // qodercn's agent loader does not follow symlinks (verified against
+        // 1.1.66: regular files and copies are discovered, symlinks are
+        // not), so agents are installed as real copies for qoder.
+        try {
+          if (existsSync(targetPath) || isSymlink(targetPath)) {
+            removePath(targetPath);
+          }
+          copyFileSync(agentPath, targetPath);
+          installedAgents.push(agentFile);
+        } catch {
+          logger.warn(t("install_agent_failed").replace("{name}", agentFile));
+        }
+        continue;
+      }
+
       const result = installLink(agentPath, targetPath);
       if (result !== "failed") {
         installedAgents.push(agentFile);

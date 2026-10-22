@@ -11,11 +11,50 @@
 import { homedir } from "os";
 import { join } from "path";
 import { existsSync } from "fs";
+import { spawnSync } from "child_process";
 import type { AITool, InstallLevel, TraeVariant } from "../types/index.js";
 import { t } from "./i18n.js";
 
-export const VALID_TOOLS: AITool[] = ["opencode", "claude", "trae", "cursor", "codex", "copilot", "codearts"];
+export const VALID_TOOLS: AITool[] = ["opencode", "claude", "trae", "cursor", "codex", "copilot", "codearts", "qoder"];
 const VALID_LEVELS: InstallLevel[] = ["project", "global"];
+
+// Qoder has two client layouts with separate directories (verified against
+// qodercn 1.1.66):
+//   - Qoder CLI (qodercn): project `.qoder/` (skills + agents), user
+//     `~/.qoder-cn/` (agents + settings + AGENTS.md memory), user skills at
+//     `~/.agents/skills/` (shared agents-skills convention, like codex).
+//     The CLI also scans project `.agents/skills/`.
+//   - Qoder IDE (Lingma): `.lingma/` (skills + agents), user `~/.lingma/`.
+// When the qodercn CLI is on PATH or `~/.qoder-cn` is present the CLI
+// layout wins; otherwise fall back to the IDE layout.
+// CANNBOT_QODER_LAYOUT=cli|ide forces a layout (tests and environments
+// without the CLI on PATH).
+let qoderCliLayoutCache: boolean | undefined;
+
+export function isQoderCliLayout(): boolean {
+  if (process.env.CANNBOT_QODER_LAYOUT === "cli") return true;
+  if (process.env.CANNBOT_QODER_LAYOUT === "ide") return false;
+  if (qoderCliLayoutCache === undefined) {
+    let cli = false;
+    try {
+      const whichCmd = process.platform === "win32" ? "where" : "which";
+      const result = spawnSync(whichCmd, ["qodercn"], { timeout: 5000 });
+      cli = result.status === 0;
+    } catch {
+      cli = false;
+    }
+    if (!cli) {
+      // ~/.qoder-cn is created by the qodercn CLI (the IDE uses ~/.lingma).
+      // GUI / non-login shells often lack the CLI on PATH, so its config dir
+      // is the remaining CLI evidence — detectQoder() accepts the same
+      // signal. Without this, detection hits Qoder while installs silently
+      // land in the IDE layout (.lingma) the CLI never reads.
+      cli = existsSync(join(homedir(), ".qoder-cn"));
+    }
+    qoderCliLayoutCache = cli;
+  }
+  return qoderCliLayoutCache;
+}
 
 export function validateTool(tool: string): AITool {
   if (!VALID_TOOLS.includes(tool as AITool)) {
@@ -79,6 +118,10 @@ export function getConfigRoot(
         return join(home, ".copilot");
       case "codearts":
         return join(home, ".codeartsdoer");
+      case "qoder":
+        return isQoderCliLayout()
+          ? (process.env.QODERCN_CONFIG_DIR || join(home, ".qoder-cn"))
+          : join(home, ".lingma");
       default:
         throw new Error(
           t("error_invalid_tool")
@@ -113,6 +156,8 @@ export function getConfigRoot(
       return join(baseDir, ".github");
     case "codearts":
       return join(baseDir, ".codeartsdoer");
+    case "qoder":
+      return isQoderCliLayout() ? join(baseDir, ".qoder") : join(baseDir, ".lingma");
     default:
       throw new Error(
         t("error_invalid_tool")
@@ -132,6 +177,11 @@ export function getSkillsRoot(tool: AITool, level: InstallLevel, base?: string):
       return join(homedir(), ".agents", "skills");
     }
     return join(base || process.cwd(), ".agents", "skills");
+  }
+  if (tool === "qoder" && isQoderCliLayout() && level === "global") {
+    // qodercn discovers user-level skills in ~/.agents/skills (same shared
+    // convention as codex), not under ~/.qoder-cn.
+    return join(homedir(), ".agents", "skills");
   }
   return join(getConfigRoot(tool, level, base), "skills");
 }

@@ -22,6 +22,8 @@ import type { AITool, InstallLevel, InstallOptions, InstallResult, PluginEntry, 
 import { discoverCannbotPlugins, ensureCannbotInstaller, getCannbotBinPath, hasNodeRuntime } from "./cannbot-installer.js";
 import { findCannbotRegistryPath, readCannbotRegistry } from "./cannbot-registry.js";
 import { writeRecord } from "./record.js";
+import { findPlugin } from "./registry.js";
+import { isMigratedPlugin } from "./migrated-plugins.js";
 import { installPlugin } from "./installer.js";
 import { addInstalledPlugin } from "../utils/config.js";
 import { getConfigFileName, getSkillsRoot } from "../utils/paths.js";
@@ -39,7 +41,7 @@ export interface DelegateInstallOptions {
   yes?: boolean;
 }
 
-function boundaryErrors(tool: AITool, level: InstallLevel): string[] {
+export function boundaryErrors(tool: AITool, level: InstallLevel): string[] {
   const errors: string[] = [];
   if (!DELEGATE_TOOLS.includes(tool)) {
     errors.push(
@@ -209,8 +211,11 @@ export async function delegateInstall(options: DelegateInstallOptions): Promise<
 
   // 4. the plugin must exist in the bundled release; if it is missing from a
   //    cached installer, force one refresh before giving up (handles newly
-  //    published cannbot plugins)
-  if (!discoverCannbotPlugins().some((p) => p.id === pluginId)) {
+  //    published cannbot plugins). Migrated tombstone plugins are exempt:
+  //    the installer follows the cannbot git mainline at install time and
+  //    can install plugins its own discovery snapshot does not list yet
+  //    (the snapshot only refreshes on npm releases).
+  if (!isMigratedPlugin(pluginId) && !discoverCannbotPlugins().some((p) => p.id === pluginId)) {
     try {
       await ensureCannbotInstaller({ force: true });
     } catch {
@@ -320,6 +325,9 @@ export async function delegateInstall(options: DelegateInstallOptions): Promise<
  * Unified routing helper: cannbot-style plugins go through delegation,
  * everything else through the legacy installer. Used by install/update and
  * the interactive wizard so no call site needs to branch on its own.
+ * A cannbot-resolved plugin that hits the delegation boundary (tool/level
+ * outside the upstream matrix) falls back to the local skills-repo copy
+ * unless the caller explicitly requested --source cannbot.
  */
 export async function installPluginRouted(
   options: InstallOptions & { plugin?: PluginEntry; source?: PluginSource }
@@ -332,14 +340,49 @@ export async function installPluginRouted(
     (options.source !== "skills" && options.plugin?.source === "cannbot");
 
   if (isCannbot) {
-    return delegateInstall({
+    const boundary = boundaryErrors(options.tool, options.level);
+    if (boundary.length === 0) {
+      return delegateInstall({
+        pluginId: options.pluginId,
+        displayName: options.plugin?.displayName,
+        tool: options.tool,
+        level: options.level,
+        target: options.installPath || process.cwd(),
+        yes: options.yes,
+      });
+    }
+    // Explicit --source cannbot: respect the request, keep the hard error.
+    if (options.source === "cannbot") {
+      return {
+        success: false,
+        pluginId: options.pluginId,
+        skillsCount: 0,
+        agentsCount: 0,
+        errors: boundary,
+        warnings: [],
+      };
+    }
+    // Implicit cannbot-first resolution hit the delegation boundary:
+    // fall back to the local skills-repo copy when one exists (frozen
+    // pre-migration snapshot), otherwise surface a structured error.
+    const local = findPlugin(options.pluginId, { source: "skills" });
+    if (local) {
+      const result = await installPlugin({ ...options, plugin: local });
+      if (result.success) {
+        result.warnings.unshift(
+          t("cannbot_delegate_fallback_local").replace("{reason}", boundary.join("；"))
+        );
+      }
+      return result;
+    }
+    return {
+      success: false,
       pluginId: options.pluginId,
-      displayName: options.plugin?.displayName,
-      tool: options.tool,
-      level: options.level,
-      target: options.installPath || process.cwd(),
-      yes: options.yes,
-    });
+      skillsCount: 0,
+      agentsCount: 0,
+      errors: [...boundary, t("cannbot_plugin_no_local_copy").replace("{plugin}", options.pluginId)],
+      warnings: [],
+    };
   }
 
   return installPlugin(options);

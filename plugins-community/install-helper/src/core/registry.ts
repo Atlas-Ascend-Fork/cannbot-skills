@@ -13,6 +13,7 @@ import { join } from "path";
 import type { PluginEntry, PluginSource } from "../types/index.js";
 import { isDirectory } from "../utils/fs-helpers.js";
 import { getPluginDirs } from "./scanner.js";
+import { MIGRATED_PLUGINS } from "./migrated-plugins.js";
 import embeddedPlugins from "../embedded-plugins.json" with { type: "json" };
 
 function loadPlugins(): PluginEntry[] {
@@ -90,6 +91,17 @@ export function mergeDynamicPlugins(repoPath: string): void {
   }
 }
 
+/**
+ * Resolves a plugin by id, alias or unique prefix. Resolution is cannbot-first
+ * (the cannbot repo is authoritative for migrated plugins); migrated
+ * tombstones (MIGRATED_PLUGINS) participate only in the cannbot scope, so
+ * `--source skills` never resolves them — they have no legacy tree left in
+ * this repository. Snapshot entries (CANNBOT_PLUGINS) win over tombstones
+ * for the same id once the installer npm release catches up with the
+ * migration. Tombstone exact/alias matching runs before any prefix matching
+ * so a historical alias (e.g. "triton") is not captured by a prefix match on
+ * a different cannbot plugin (e.g. triton-auto-evolve).
+ */
 export function findPlugin(
   query: string,
   options?: { source?: PluginSource }
@@ -110,6 +122,14 @@ export function findPlugin(
       p.aliases.some((a) => a === normalized)
     );
     if (cannbotAlias) return cannbotAlias;
+
+    // Migrated tombstones: exact/alias resolve before any prefix matching so
+    // the historical alias (e.g. "triton") is not captured by a prefix match
+    // on a different cannbot plugin (e.g. triton-auto-evolve).
+    const tombstone = MIGRATED_PLUGINS.find(
+      (p) => p.id === normalized || p.id === query.trim() || p.aliases.some((a) => a === normalized)
+    );
+    if (tombstone) return tombstone;
   }
 
   const exactMatch = PLUGIN_REGISTRY.find(
@@ -130,17 +150,36 @@ export function findPlugin(
   const prefixMatches = PLUGIN_REGISTRY.filter((p) => p.id.startsWith(normalized));
   if (prefixMatches.length === 1) return prefixMatches[0];
 
+  if (wantCannbot) {
+    const tombstonePrefixes = MIGRATED_PLUGINS.filter((p) => p.id.startsWith(normalized));
+    if (tombstonePrefixes.length === 1) return tombstonePrefixes[0];
+  }
+
   return undefined;
 }
 
+/**
+ * All resolvable plugins across sources: cannbot snapshot entries, the
+ * embedded legacy registry, and migrated tombstones. A tombstone whose id
+ * the installer snapshot already lists is deduplicated (the snapshot entry
+ * is authoritative once the npm release catches up with the migration).
+ */
 export function getAllPlugins(): PluginEntry[] {
-  return [...CANNBOT_PLUGINS, ...PLUGIN_REGISTRY].sort((a, b) =>
+  const tombstones = MIGRATED_PLUGINS.filter((t) => !CANNBOT_PLUGINS.some((c) => c.id === t.id));
+  return [...CANNBOT_PLUGINS, ...PLUGIN_REGISTRY, ...tombstones].sort((a, b) =>
     a.displayName < b.displayName ? -1 : a.displayName > b.displayName ? 1 : 0
   );
 }
 
+/**
+ * Exact-id lookup across sources: cannbot snapshot first, then the embedded
+ * legacy registry, then migrated tombstones (so legacy install records of
+ * migrated plugins keep resolving against the tombstone entry).
+ */
 export function getPluginById(id: string): PluginEntry | undefined {
   const cannbot = CANNBOT_PLUGINS.find((p) => p.id === id);
   if (cannbot) return cannbot;
-  return PLUGIN_REGISTRY.find((p) => p.id === id);
+  const legacy = PLUGIN_REGISTRY.find((p) => p.id === id);
+  if (legacy) return legacy;
+  return MIGRATED_PLUGINS.find((p) => p.id === id);
 }

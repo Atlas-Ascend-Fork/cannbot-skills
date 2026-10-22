@@ -32,6 +32,11 @@
 ### 【2026-10-09】
 #### 新特性 New Features
 - 【算子】新增 `samples` Skill：在 cann-samples 官方样例仓检索。
+- 【安装部署】install-helper `v1.2.4` 新增 Qoder 编程工具支持：qodercn CLI 布局（`.qoder/skills+agents`、`~/.agents/skills`、`~/.qoder-cn/AGENTS.md`）与 IDE 兜底（`.lingma`）按 `qodercn` 在 PATH 或 `~/.qoder-cn` 存在自动切换；`ops-direct-invoke` init.sh 同步支持。
+
+#### 缺陷修复 Bug Fixes
+- 【安装部署】install-helper `v1.2.4` 修复 cannbot 仓迁移插件的路由问题：委托矩阵外工具（qoder/cursor 等）或 global 级别安装自动回退本仓副本；本仓已删除的迁移插件（`triton-op-generator`、`ops-registry-invoke`、`collaborative-agent-kernel-evolution`）经迁移清单路由为 cannbot 委托安装，旧安装记录恢复 update 管理。
+- 【安装部署】install-helper `v1.2.4` 修复外部依赖仓库克隆超时静默丢弃与原生二进制无上限等待：克隆上限提至 600s、更新提至 300s，并注入 git 低速保护（<1KB/s 持续 90s 中止）。
 
 ### 【2026-10-08】
 #### 缺陷修复 Bug Fixes

@@ -113,13 +113,6 @@ describe("plugins consistency — single source of truth", () => {
     expect(agents).toContain("ascendc-ops-test-design-reviewer");
   });
 
-  it("triton-op-generator has empty agents (single-agent design)", () => {
-    const pluginDir = join(REPO_ROOT, "plugins-official", "triton-op-generator");
-    const agents = pluginJsonAgents(pluginDir);
-    expect(agents).toEqual([]);
-    expect(existsSync(join(pluginDir, "agents"))).toBe(false);
-  });
-
   it("every plugin.json agent .md exists on disk", () => {
     const pluginsDir = join(INSTALL_HELPER_ROOT, "plugins.d");
     const { parse } = require("yaml");

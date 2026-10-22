@@ -13,6 +13,7 @@ import { installPluginRouted } from "../core/cannbot-delegate.js";
 import { ensureCannbotDiscovery, ensureCannbotInstaller } from "../core/cannbot-installer.js";
 import { scanCannbotInstalled } from "../core/cannbot-registry.js";
 import { findPlugin } from "../core/registry.js";
+import { isMigratedPlugin } from "../core/migrated-plugins.js";
 import { scanInstalled } from "../core/manifest.js";
 import { printInstallSummary } from "../ui/display.js";
 import { logger, createSpinner } from "../utils/logger.js";
@@ -64,7 +65,15 @@ export async function updateCommand(
       return;
     }
     targets = [
-      ...installed.map((p) => ({ pluginId: p.id, tool: p.tool, level: p.level, source: "skills" as const })),
+      ...installed.map((p) => ({
+        pluginId: p.id,
+        tool: p.tool,
+        level: p.level,
+        // Migrated plugins have no legacy tree left in this repo — route their
+        // legacy records to the cannbot source so update re-installs from the
+        // cannbot repo.
+        source: (isMigratedPlugin(p.id) ? "cannbot" : "skills") as "cannbot" | "skills",
+      })),
       ...cannbotInstalled.map((e) => ({ pluginId: e.id, tool: e.tool as AITool, level: "project" as InstallLevel, source: "cannbot" as const })),
     ];
   } else {
@@ -95,9 +104,18 @@ export async function updateCommand(
         ? installed.filter((p) => p.id === legacyPlugin.id)
         : [];
 
+      // Migrated plugins have no legacy tree left in this repo — without this
+      // rerouting their legacy install records would fall through to the
+      // "not installed" branch (legacyPlugin is undefined for tombstones).
+      // Route them to the cannbot source so update re-installs from cannbot.
+      const migratedLegacy = cannbotMatches.length === 0 && !legacyPlugin && isMigratedPlugin(name)
+        ? installed.filter((p) => p.id === name)
+        : [];
+
       const matches = [
         ...cannbotMatches.map((e) => ({ pluginId: e.id, tool: e.tool as AITool, level: "project" as InstallLevel, source: "cannbot" as const })),
         ...legacyMatches.map((p) => ({ pluginId: p.id, tool: p.tool, level: p.level, source: "skills" as const })),
+        ...migratedLegacy.map((p) => ({ pluginId: p.id, tool: p.tool, level: p.level, source: "cannbot" as const })),
       ];
 
       if (matches.length > 0) {

@@ -126,7 +126,7 @@ BRAND="cannbot"
 VERSION="1.0.0"
 # Supported target tools — single source of truth (modify-init.md 红线 1).
 # Subclass init.sh queries this via `--list-tools` instead of hardcoding.
-SUPPORTED_TOOLS=("opencode" "claude" "codex" "dsh" "trae" "codearts")
+SUPPORTED_TOOLS=("opencode" "claude" "codex" "dsh" "trae" "codearts" "qoder")
 
 # ============================================================
 # Third-party repository registry
@@ -428,6 +428,7 @@ while [ $# -gt 0 ]; do
         dsh)           TOOL="$arg"; shift; continue ;;
         trae)          TOOL="$arg"; shift; continue ;;
         codearts)      TOOL="$arg"; shift; continue ;;
+        qoder)         TOOL="$arg"; shift; continue ;;
         *)
             # 兜底：动态校验 SUPPORTED_TOOLS，支持未来新增工具
             if is_supported_tool "$1"; then
@@ -489,6 +490,14 @@ if [ "${LEVEL}" = "global" ]; then
     elif [ "${TOOL}" = "codearts" ]; then
         # CodeArts（华为云码道）全局用户根：~/.codeartsdoer
         CONFIG_ROOT="${HOME}/.codeartsdoer"
+    elif [ "${TOOL}" = "qoder" ]; then
+        # Qoder 双布局：CLI（qodercn）用户根 ~/.qoder-cn（agents/AGENTS.md 记忆）；
+        # IDE（原灵码）用户根 ~/.lingma。CLI 优先（与 install-helper paths.ts 一致）。
+        if command -v qodercn >/dev/null 2>&1; then
+            CONFIG_ROOT="${QODERCN_CONFIG_DIR:-${HOME}/.qoder-cn}"
+        else
+            CONFIG_ROOT="${HOME}/.lingma"
+        fi
     fi
     INSTALL_BASE="${HOME}"
 else
@@ -518,6 +527,14 @@ else
         # CodeArts 项目级配置根：<install>/.codeartsdoer。
         # 其下的 skills/、agents/ 由 CodeArts CLI / IDE 自动发现，无需额外配置。
         CONFIG_ROOT="${INSTALL_BASE}/.codeartsdoer"
+    elif [ "${TOOL}" = "qoder" ]; then
+        # Qoder 双布局：qodercn CLI 扫描 <project>/.qoder/skills 与 .qoder/agents；
+        # IDE（原灵码）扫描 .lingma/skills 与 .lingma/agents。CLI 优先。
+        if command -v qodercn >/dev/null 2>&1; then
+            CONFIG_ROOT="${INSTALL_BASE}/.qoder"
+        else
+            CONFIG_ROOT="${INSTALL_BASE}/.lingma"
+        fi
     fi
 fi
 
@@ -541,6 +558,11 @@ if [ "${TOOL}" = "codex" ]; then
         SKILL_DISCOVERY_ROOT="${INSTALL_BASE}/.agents/skills"
     fi
     AGENT_DISCOVERY_ROOT="${CANNBOT_DIR}/agents"
+fi
+if [ "${TOOL}" = "qoder" ] && command -v qodercn >/dev/null 2>&1 && [ "${LEVEL}" = "global" ]; then
+    # qodercn 用户级 skills 发现在 ~/.agents/skills（与 codex 共享约定），
+    # 不在 ~/.qoder-cn 下；项目级默认 .qoder/skills 即 CLI 扫描根。
+    SKILL_DISCOVERY_ROOT="${HOME}/.agents/skills"
 fi
 
 # ============================================================
@@ -810,6 +832,18 @@ print(count)
 TRAE_AGENT_PY
     )
     ok "Agents: ${agent_count} trae Subagent files generated"
+elif [ "${TOOL}" = "qoder" ]; then
+    # qodercn 的 agent 加载器不跟随符号链接（1.1.66 实测：普通文件/拷贝可发现，
+    # symlink 不可），qoder 的 agents 以真实拷贝安装；skills 无此限制仍为链接。
+    for f in "${AGENT_FILES[@]}"; do
+        link_name="$(basename "${f}")"
+        if [ -e "${AGENTS_LINK_DIR}/${link_name}" ] || [ -L "${AGENTS_LINK_DIR}/${link_name}" ]; then
+            warn "agent name conflict, overwriting: ${link_name}"
+        fi
+        cp -f "${f}" "${AGENTS_LINK_DIR}/${link_name}"
+        agent_count=$((agent_count + 1))
+    done
+    ok "Agents: ${agent_count} copied (qoder: agent loader ignores symlinks)"
 else
     for f in "${AGENT_FILES[@]}"; do
         link_name="$(basename "${f}")"
