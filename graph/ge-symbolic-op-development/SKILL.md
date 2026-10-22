@@ -23,7 +23,7 @@ description: >-
 
 先阅读目标算子 IR/host infer 和最接近的已有实现。算子输入、输出、可选性、属性和 dtype/format 以 ops 仓中的 `REG_OP`/`OpDef` 注册定义为准；GE 测试桩、历史生成代码或本地旧定义与其冲突时，应按 ops 定义同步修正。
 
-使用者可直接提供目标算子的普通 `InferShape` 代码片段，或用文字描述其核心 Shape 推导逻辑（如“输出 Shape = 输入 Shape，最后一维替换为 fft_length/2 + 1”）；这些片段或描述与 ops 仓 `REG_OP`/`InferShape` 等价，可直接作为需求分析和实现前证据门的输入，不必每次都重新定位 ops 源码。但仍应据此补全输入输出数量、属性 index、data dependency 与边界条件。明确：
+使用者可直接提供目标算子的普通 `InferShape` 代码片段，或用文字描述其核心 Shape 推导逻辑（如“输出 Shape = 输入 Shape，最后一维替换为 fft_length/2 + 1”），作为需求分析中理解普通 Shape 语义的辅助输入。用户提供的片段或描述不能替代 `references/symbolic-shape-inference.md` 中的实现前证据门禁；仍须定位并核实目标算子的实际定义、注册、实现及测试证据，任一必填项缺失时停止编码并继续查找。明确：
 
 - 输入输出数量、动态输入、optional 输入和实际 index
 - Shape、axis、perm、shape 参数等输入是否为 data dependency

@@ -26,7 +26,7 @@
 
   旧式风格的数据依赖用 `op_desc->SetOpInferDepends({field_name})` 声明（`field_name` 为输入名字符串，而非输入 index），常量读取用 `op.GetInputConstData(field_name, tensor)`。排查“算子是否有 Shape 推导实现”时，必须同时检索 ops-math/ops-nn（gert 风格）与 canndev/ops/built-in（旧式 AICPU 风格），不能只搜 `*infershape*` 文件名或 `IMPL_OP_INFERSHAPE` 就下“无实现”的结论。
 - 普通 `InferShape` 是符号推导的重要语义参考，用于确认输入输出关系、属性读取顺序、可选输入、动态输入、格式和边界条件。
-- 使用者可直接提供目标算子的普通 `InferShape` 代码片段，或用文字描述其核心推导逻辑；其作用等价于定位到的 ops 仓 `InferShape`，可作为语义基线和证据门禁的输入。但同样需要据此补全输入输出 index、属性 index、data dependency 与边界条件，不能只凭片段/描述跳过校验。
+- 使用者可直接提供目标算子的普通 `InferShape` 代码片段，或用文字描述其核心推导逻辑，作为理解普通 Shape 语义的辅助输入；但这些内容不等同于可核验的 ops 仓源码证据，不能替代下文证据表要求的目标算子契约、普通 Shape 推导注册及实现等来源。任一必填来源缺失时，应继续查找并停止编码。
 - 参考普通 `InferShape` 的算子语义和校验逻辑，但不能直接复制其 `GeShape`/`InferShapeContext` 实现；符号推导必须使用 `InferSymbolShapeContext`、`SymbolShape` 和 `Expression`，并保留可推导的符号维度。
 - 若普通 `InferShape` 与其他源码、算子 IR 或测试存在差异，先记录差异并以当前版本实际注册和测试行为为准。
 

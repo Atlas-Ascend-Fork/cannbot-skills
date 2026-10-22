@@ -115,7 +115,7 @@
         "eval_mode": "text"
       },
       "prompt": "我没有在 ops 仓里找到算子的普通 InferShape 源码，但我可以直接给你一段 InferShape 的代码片段，或者用文字描述它的核心 Shape 推导逻辑。你可以据此实现符号推导吗？",
-      "expected_output": "应说明可以直接使用使用者提供的普通 InferShape 代码片段或文字描述核心逻辑，其作用等价于定位到的 ops 仓 InferShape，可作为语义基线和证据门禁的输入；但仍需据此补全输入输出 index、属性 index、data dependency 和边界条件，不能只凭片段或描述跳过校验。",
+      "expected_output": "应说明使用者提供的普通 InferShape 代码片段或文字描述可以辅助理解 Shape 推导语义，但不能替代 references/symbolic-shape-inference.md 实现前证据门禁要求的目标算子契约、普通 Shape 推导注册/实现及测试等可核验来源。应继续查找并补齐必填证据；任一必填项缺失时明确停止编码，不得声称门禁已完成或直接开始实现。证据齐备后仍需补全输入输出 index、属性 index、data dependency 和边界条件。",
       "files": [],
       "expectations": []
     },
