@@ -346,7 +346,7 @@ bash init.sh --help
 
 ### Q: 如何增减检视条例？
 
-全局安装和项目安装均采用软链接方式，检视条例定义在 CANNBot 仓库的 `cannbot-skills/skills/ascendc-code-review/references/` 目录下。
+全局安装和项目安装均采用软链接方式，检视条例定义在 CANNBot 仓库的 `cannbot-skills/ops/ascendc-code-review/references/` 目录下。
 
 修改步骤：
 1. 直接编辑 CANNBot 仓库中的规范文档（如 `cpp-secure.md`、`ascendc-api.md`）
