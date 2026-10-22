@@ -16,7 +16,7 @@
 填充指引（使用前删除本段）：
 - source 只读；全部节点属性打包为 JSON 串存于 "attribute" 键；
 - type 码：1=float 2=int 3=string 4=tensor 5=子图 6=float列表 7=int列表 8=string列表；
-- 标量字段（f/i/s）的值是字符串形式，取用时转数值。
+- 标量字段仅 f 为字符串形式（%g 格式化，取用时转 float）；i/s 为原生数字/字符串。
 """
 
 import json

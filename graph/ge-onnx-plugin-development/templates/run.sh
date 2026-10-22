@@ -15,7 +15,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 OUTPUT_DIR="${SCRIPT_DIR}/output"
-SOC_VERSION="${SOC_VERSION:-Ascend910B1}"   # TODO(填充): 完整芯片名（npu-smi info 查询）
+SOC_VERSION="${SOC_VERSION:-Ascend910_9362}"  # TODO(填充): 完整芯片名（npu-smi info 查询）；换芯片前确认 target 算子在该 SoC 可用（references/plugin.md §2.1）
 
 if [[ -z "${ASCEND_HOME_PATH:-}" ]]; then
     echo "ERROR: please source CANN set_env.sh first" >&2
@@ -29,9 +29,13 @@ fi
 mkdir -p "${OUTPUT_DIR}"
 python3 "${SCRIPT_DIR}/export_onnx.py" --output "${OUTPUT_DIR}/my_model.onnx"
 
-# 插件目录单独存放：GE 扫描 ASCEND_CUSTOM_OPP_PATH 下的一层 Python 文件，
-# 导出器/执行器（依赖 torch/numpy/acl）不应作为插件被加载。
-export ASCEND_CUSTOM_OPP_PATH="${SCRIPT_DIR}/plugin:${ASCEND_CUSTOM_OPP_PATH:-}"
+# 插件目录单独存放：ASCEND_CUSTOM_OPP_PATH 指向目录内的 .py 会被当作插件加载，
+# 导出器/执行器（依赖 torch/numpy/acl）不应混入插件目录。
+if [[ -n "${ASCEND_CUSTOM_OPP_PATH:-}" ]]; then
+    export ASCEND_CUSTOM_OPP_PATH="${SCRIPT_DIR}/plugin:${ASCEND_CUSTOM_OPP_PATH}"
+else
+    export ASCEND_CUSTOM_OPP_PATH="${SCRIPT_DIR}/plugin"
+fi
 atc \
     --model="${OUTPUT_DIR}/my_model.onnx" \
     --framework=5 \

@@ -97,7 +97,7 @@
         "eval_mode": "text"
       },
       "prompt": "atc 编译含自定义算子的 ONNX 模型时报 E13010 算子未注册，插件文件确认放在 ASCEND_CUSTOM_OPP_PATH 指向的目录里了。怎么排查？",
-      "expected_output": "回复应按 origin type 三段拆解定位差异（example.domain::1::MyOp = domain（symbolic 写的域）::opset（custom_opsets 登记的版本）::source（算子名）），对照插件注册的 domain/opsets 与导出侧是否完全一致；说明 ai.onnx 允许使用但不要在 custom_opsets 里给 ai.onnx 登记版本（会与 opset_version 互相覆盖，连累全模型官方算子）；自定义域版本惯例恒为 1。不得声称 custom_opsets 可给 ai.onnx 登记版本。",
+      "expected_output": "回复应按 origin type 三段拆解定位差异（example.domain::1::MyOp = domain（symbolic 写的域）::opset（custom_opsets 登记的版本）::source（算子名）），对照插件注册的 domain/opsets 与导出侧是否完全一致；说明 ai.onnx 允许使用（可作为插件 domain，此时 opsets 覆盖模型的 opset_version）但不要在 custom_opsets 里给 ai.onnx 登记版本（会与 opset_version 互相覆盖，连累全模型官方算子）；说明自定义域版本惯例登记 1（登记 1、声明 (1,) 即可）。不得声称 custom_opsets 可给 ai.onnx 登记版本。",
       "files": [],
       "expectations": [
         {
@@ -127,6 +127,30 @@
         {
           "type": "contains",
           "pattern": "bridge"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "同一 source 注册多个插件的规则",
+      "config": {
+        "max_tokens": 120000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "我给同一个自定义算子 MyOp 写了两个插件，都是 source='MyOp'、domain='example.domain'，一个 opsets=(1,)，另一个 opsets=(2, 15)。这样注册会冲突吗？",
+      "expected_output": "回复应说明插件唯一性以 origin type（domain::opset::source）为准：两个插件的 opsets 区间不重叠（1 与 2~15），origin type 不同，允许注册，各自命中对应 opset 版本的模型；只有当不同插件的 opsets 重叠（同一 origin type 被注册两次）时，才会在编译开始时报插件冲突退出。",
+      "files": [],
+      "expectations": [
+        {
+          "type": "contains",
+          "pattern": "opsets"
+        },
+        {
+          "type": "contains",
+          "pattern": "origin type"
         }
       ]
     }

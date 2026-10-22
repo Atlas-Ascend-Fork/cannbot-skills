@@ -32,9 +32,9 @@ description: 使用 ge.onnx_plugin 编写 ONNX Python 插件、把自定义算�
 | 1 | **两侧一致**：symbolic 的域 + custom_opsets 的版本 ↔ 插件的 domain + opsets，取值必须完全一致。`ai.onnx` 允许使用；但不要在 custom_opsets 里给 `ai.onnx` 登记版本（会与 opset_version 互相覆盖，连累全模型官方算子） | E13010/E16002 算子未注册 |
 | 2 | **回调选型**：parse_node 优先；节点带 tensor/子图属性或需整体搬运用 parse_operator；GE 无现成算子时加 decompose | 属性读不到或功能缺失 |
 | 3 | **端口注册**：动态 IO target（如 PartitionedCall）必须注册端口；静态 IR target（如 Elu）不用。注册顺序 = ONNX 算子输入顺序，位置要占满（可选位置用 register_optional_input） | E19999 Resolve operator IO name failed |
-| 4 | **目录隔离**：插件目录只放插件 .py 文件；依赖 torch/numpy/acl 的导出/执行脚本分开放。插件目录内任一 Python 文件语法错误会中断整个编译 | 编译失败且难定位 |
+| 4 | **目录隔离**：插件放 `./plugin/`（只放插件 .py），导出/执行脚本放项目根目录，产物落 `./output/`（与 `templates/run.sh` 布局一致）。插件目录内任一 Python 文件语法错误会中断整个编译 | 编译失败且难定位 |
 | 5 | **生命周期**：Operator 只在 callback 内有效（返回后失效，不可存全局）；parse_operator/decompose 的 source 只读 | RuntimeError |
-| 6 | **opsets 不重叠**：同一 source 只能注册一个插件，不同插件 opsets 不能重叠 | 编译开始即报错退出 |
+| 6 | **origin type 唯一**：同一 origin type（`domain::opset::source`）只能注册一个插件；同一 source 下 opsets 区间不重叠的多个插件允许 | 编译开始即报错退出 |
 
 ## 文档地图
 

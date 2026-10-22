@@ -10,6 +10,10 @@
 #### 变更 Changes
 - 【插件清理】删除 `plugins-community/ascendc-port-orchestrator` 插件及专属市场注册，移除 ST 测试白名单与覆盖率条目，保留公共 Skills。
 
+### 【2026-10-15】
+#### 缺陷修复 Bug Fixes
+- 【GE 图编译】同步 `ge-onnx-plugin-development` 与 GE 仓 develop 口径：插件唯一性以 origin type 为准（同 source 下 opsets 不重叠多插件允许）；parse_operator 标量仅 `f` 为字符串；补桥接按入口触发与诊断增强说明；新增 evals 用例 6。
+
 ### 【2026-10-13】
 #### 新特性 New Features
 - 【算子】新增 `ops-theoretical-performance-estimation`：从计算流估算 Ascend950 RegBase 纯 Vector 算子的理论时延、瓶颈与性能目标，提供通用引擎、10 个算子样例、微基准标定数据及离线回归测试。

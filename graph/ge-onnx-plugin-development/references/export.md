@@ -56,7 +56,8 @@ torch.onnx.export(
 规则：
 
 - **两侧一致是硬要求**：插件 `domain` 必须与 symbolic 的域取值完全相同；插件 `opsets` 必须
-  包含 custom_opsets 登记的版本。自定义域版本惯例恒为 `1`（登记 1、声明 `(1,)` 即可）。
+  包含 custom_opsets 登记的版本。自定义域版本惯例登记 1（登记 1、声明 `(1,)` 即可）；
+  需要按版本区分插件时（同一 source 多插件、opsets 区间不重叠），两侧对齐同一版本号即可。
 - `ai.onnx` 允许使用（标准算子重申映射、自定义算子注册均合法）。用 `ai.onnx` 注册自定义算子时：
   插件 `domain="ai.onnx"`、`opsets` 覆盖模型的 `opset_version` 值。
 - **不要在 custom_opsets 里给 `ai.onnx` 登记版本**：空 domain 与 `ai.onnx` 归一化到同一版本表键，
@@ -64,6 +65,9 @@ torch.onnx.export(
   （Relu/Conv 等）的 origin type 版本段一起改坏，报 E13010/E16002 连坐。
 - 报错中的 origin type 三段拆解可快速定位差异：`example.domain::1::MyOp` =
   domain（symbolic 写的域）:: opset（custom_opsets 登记的版本）:: source（算子名）。
+- 较新 GE 版本自带诊断：解析开始时对域版本冲突打 WARNING（指明冲突版本与生效版本）；
+  origin 未命中时 E13010/E16002 后附诊断信息（版本冲突会指明被覆盖的算子，无冲突给
+  对齐提示）。诊断说明报错现象，三段拆解定位两侧写法差异，两者配合使用。
 
 ## 4. 导出后自检
 

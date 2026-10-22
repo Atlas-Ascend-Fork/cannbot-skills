@@ -16,10 +16,12 @@ my_op = onnx_plugin(
 )
 ```
 
-- `source`/`domain` 不允许包含 `:`（origin type 分隔符）；`opsets` 元素为正整数；
-- 同一 source 只能注册一个插件，不同插件 opsets 不能重叠（冲突在编译开始时报错退出）；
+- `source`/`domain` 不允许包含 `:`（origin type 分隔符）；`opsets` 支持 `list`/`tuple`/`set`/`range`，元素为正整数（`(1, 15)` 是版本 1 和 15，`range(1, 15)` 是 1~14，前闭后开）；
+- 唯一性以 origin type（`domain::opset::source`）为准：同一 origin type 只能注册一个插件；同一 source 下 opsets 区间不重叠的多个插件允许（如一个覆盖版本 1、另一个覆盖 2~15）；不同插件 opsets 重叠在编译开始时报错退出；
 - 同一 descriptor 可绑定多个回调（如 parse_node + decompose 接力）；
-- FrameworkType/ImplyType 由框架内部固定，不对外暴露。
+- FrameworkType/ImplyType 由框架内部固定，不对外暴露；
+- `ge.onnx_plugin` 的桥接库由含 atc 的 CANN 环境（run 包）提供：仅装 toolkit 的环境
+  `import ge.onnx_plugin` 可能失败，属正常——插件 .py 由 atc 编译时加载执行，无需本地单测导入。
 
 ## 2. 回调选型
 
@@ -57,6 +59,8 @@ def parse_my_op(node: OnnxNode, target: Operator) -> None:
   （如 ONNX `LeakyRelu` 的 `alpha` 对应 GE `LeakyRelu` 的 `negative_slope`）。动手前先查证目标
   算子原型的属性名，方法：`python3 -c "import ge.es.nn as n; print(n.LeakyRelu.__doc__)"`
   （es.math 同理），或查 CANN 算子文档。属性名写错可能不报编译错，到执行阶段数值不对才暴露；
+- target 原型还须在目标 SoC 上有实现：跨 SoC 可用性查 CANN 算子文档支持清单，
+  或用 atc 试编译验证（本地 ops-info json 不含基础算子集，不能据此判定）；
 - 回调抛异常时当前节点解析失败（不影响其他节点报错），bridge 会把 Python 异常
   转换为 parser failure。
 
@@ -95,7 +99,7 @@ source 是框架把 ONNX 节点先行物化成的算子（**只读**），全部
 ```
 
 - `type` 是 ONNX 属性类型编号：1=float 2=int 3=string 4=tensor 5=子图 6=float列表 7=int列表 8=string列表；
-- 标量（`f`/`i`/`s`）的值是字符串形式，取用时转数值；列表（`floats`/`ints`/`strings`）直接是数组；
+- 标量仅 `f` 为 `%g` 格式化字符串（取用时转 float），`i`/`s` 为原生数字/字符串；零值标量（0/0.0/""）在旧 run 包会丢失，遇到属性值缺失先升级 CANN 包；列表（`floats`/`ints`/`strings`）直接是数组；
   tensor（`t`）与子图（`g`）是完整结构体字典，一般不需要逐字段解析；
 - 完整字段说明见 GE 仓文档 `https://gitcode.com/cann/ge/blob/master/docs/zh/api/graph_engine_api/python/ge/onnx_plugin/OnnxPlugin/parse_operator.md`。
 
@@ -154,9 +158,10 @@ def decompose_my_op(source):
   `RuntimeError`；不能保存到全局复用，不能 copy/deepcopy/pickle；
 - `parse_operator`/`decompose` 的 source 只读：`get_attr`/`name`/`type` 可用，
   `set_attr` 与端口注册抛 `RuntimeError`；
-- 插件目录只放插件 .py 文件：GE 扫描 `ASCEND_CUSTOM_OPP_PATH` 指向目录下的一层
-  Python 文件，导出器/执行器（依赖 torch/numpy/acl）会被误当插件加载；目录内任一
-  文件加载失败（如语法错误）会中断整个编译（fail-fast）；
+- 推荐目录布局：`./plugin/` 只放插件 .py，项目根目录放导出/执行脚本，`./output/` 放 ONNX/OM 产物（与 `templates/run.sh` 一致）；
+- `ASCEND_CUSTOM_OPP_PATH` 指向目录内存在 .py 时才加载 Python 插件：导出器/执行器（依赖
+  torch/numpy/acl）混入会被误当插件加载；目录内任一文件加载失败（如语法错误）会中断整个
+  编译（fail-fast；加载触发与失败详情见 verify.md §2）；
 - `ge.graph.Operator`（parser callback 期）与 `ge.graph.Node`（节点已入图后）是不同对象，
   不共享 handle。
 
@@ -169,4 +174,4 @@ def decompose_my_op(source):
 | node.attrs 取属性报错 | 属性是 tensor/子图类型，改用 parse_operator |
 | Source Operator is read-only | 在 parse_operator/decompose 的 source 上调 set_attr 或端口注册 |
 | Operator is only valid inside parse_node | callback 外保存并使用 Operator |
-| 编译开始即报插件冲突退出 | 同 source 多插件或不同插件 opsets 重叠 |
+| 编译开始即报插件冲突退出 | 不同插件 opsets 重叠（同一 origin type 被注册两次） |
