@@ -154,7 +154,7 @@ FA 算子需要每个 batch 的实际 KV/Q 长度，构造方式取决于 `input
 
 ### 2.5 kv_len 生命周期
 
-`kv_len` 是驱动 `slot_mapping` / `actual_seq_lengths_kv` / `position_ids` 的核心变量。Prefill 阶段从 `attention_mask` 计算（`kv_len = max(cumsum(mask)) + 1`），每次 Decode 后递增 1。
+`kv_len` 是驱动 `slot_mapping` / `actual_seq_lengths_kv` / `position_ids` 的核心变量。Prefill 阶段从 `attention_mask` 计算（`kv_len = max(cumsum(mask))`），每次 Decode 后递增 1。
 
 > **kv_len 是 Runner 层变量，各层只读不写**：作为参数传入所有 Transformer 层，用同一个值驱动每层各自的 cache 写入位置。不要在 attention/cache 内部递增 `kv_len`——否则 Prefill 阶段各层写入位置逐层偏移，精度损坏。完整代码见 `references/standalone_kv_reference.md` §4。
 

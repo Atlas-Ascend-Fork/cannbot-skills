@@ -245,7 +245,7 @@ def _build_forward_metadata(self, kv_len, is_prefill, max_seq_len):
         attention_mask = self.share_mask_tril
     else:
         slot_mapping = self._build_slot_mapping_decode(kv_len)
-        actual_seq_lengths_kv = kv_len.to(torch.int32)
+        actual_seq_lengths_kv = (kv_len + 1).to(torch.int32)
         actual_seq_lengths_q = torch.arange(1, kv_len.shape[0] + 1).to(torch.int32)
         attention_mask = None    # full-attention Decode 不需要 mask
 
