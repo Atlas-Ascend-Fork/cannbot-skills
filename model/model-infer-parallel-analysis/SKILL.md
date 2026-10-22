@@ -525,7 +525,7 @@ candidate_b:
 | 跳过分析直接用默认全 TP | 未评估通信开销 | 必须完成通信量估算再定配置 |
 | 直接套参考模型整套配置 | 模型名相似但模块结构或实现不同 | 参考配置只作为候选种子，最终按模块拆解组合 |
 | 忽略非标准大参数模块 | 额外 embedding / 子表、多模态编码器等可能有独立并行收益 | 单独分析显存、热路径和通信边界 |
-| 显存估算漏掉 KV Cache | Decode 长序列时 KV Cache 是显存大头 | 必须单独计算 KV Cache，MLA 用 kv_lora_rank 估算 |
+| 显存估算漏掉 KV Cache | Decode 长序列时 KV Cache 是显存大头 | 必须单独计算 KV Cache，MLA absorb 按 `kv_lora_rank + qk_rope_head_dim` 估算 |
 | TP 通信跨节点 | 跨节点 RDMA 带宽远低于节点内 HCCS | tp_size ≤ 单节点卡数 |
 | 改了 parallel_config 但没重新转换权重 | offline split 的权重和配置绑定 | 推荐 enable_online_split_weight，或改配置后重跑 weight_convert |
 
