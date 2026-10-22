@@ -24,6 +24,19 @@
 
 入口名只是发现线索。最终分类必须读取调用语句、函数上下文、宏定义、include链、失败返回和下层调用链，不能根据名字直接批量替换。
 
+### 混合大小写直接入口的审计证据
+
+`ReportErrMessage`、`ReportInterErrMessage`、`ReportErrorMessage`不是仅供测试覆盖的名字。每个调用都须进入报告的“调用与返回明细”，保留实际大小写和入口类型：
+
+| 入口 | 必须核对的事实 |
+|---|---|
+| `ReportErrMessage` | 正式注册上报入口的实际实现、传入码及目标版本注册/Arglist，不因名字含Report就归为内部码 |
+| `ReportInterErrMessage` | 内部上报实现及传入码，动态码必须保留待解析说明 |
+| `ReportErrorMessage` | 完整errno实参、实际映射实现及最终码；静态映射不能代替目标实现 |
+
+三类入口均记录`path/line`、`entry`、`final_code/code_status`、`report_status`、
+`return_expr/return_marker`、`definition_path/definition_line`和`include_chain`；经宏包装时还记录`macro_leaf`。没有宏叶子的函数调用如实说明，不编造宏定义。返回未观察到或include未解析时保留相应状态，不因候选对账为零而省略证据。
+
 ## 3. errno映射核对
 
 对nnopbase实现，审计器按已知符号和十进制errno首位给出静态候选映射：
@@ -36,6 +49,8 @@
 
 静态映射只用于发现和审计，不授权机械改码。宏实现与上述规则不一致时，以目标版本实际`ReportErrorMessage`实现为准，并在报告中记录差异。
 
+审计器的`final_code`是静态解析结果，字段名不代表运行时已经验证。回答入口覆盖或对账问题时，应在列出errno映射的同时说明上述限定，而不是仅在末尾泛称“仍需验证include”。核对实际include链、`ReportErrorMessage`函数体和生效编译分支后，才能将候选映射作为目标实现结论；源码不可得时明确“静态候选、目标实现待核验”。合成回归验证的是工具既有映射规则，不是所有CANN版本的运行时行为。
+
 ## 4. 候选—审计对账
 
 运行`audit_operator_error_codes.py`时，脚本会在相同根目录、后缀和排除规则下再次执行候选扫描，并按`path + line`与审计明细对账。
@@ -46,7 +61,7 @@
 
 ## 5. 回归验证
 
-修改入口注册表、扫描器或审计器后执行：
+修改入口识别（共享入口注册表、候选扫描器或审计器任一项）后，必须实际执行以下回归，并在最终报告记录命令、退出码和结果；仅描述“测试覆盖这些入口”不等于执行通过。回答入口覆盖的流程咨询时，也要说明这一触发条件和命令：
 
 ```bash
 python scripts/test_error_code_trigger_coverage.py

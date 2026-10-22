@@ -117,8 +117,8 @@
         ],
         "eval_mode": "text"
       },
-      "prompt": "正在开发一个新的CANN算子，请为op_host、op_api和op_kernel的失败路径设计合理合法的错误码提示，并说明如何验证。",
-      "expected_output": "回复应先读取cann-error-code-standard，再遍历新增算子的参数校验、InferShape、Tiling、workspace或内存、执行器创建、Kernel选择及Runtime等下层API失败出口，区分根因层首报和包装层透传。选码前核对基准清单、目标版本注册表、Arglist、实际log.h来源和opbase已有语义宏；优先复用已注册正式码，不得编造编号或用泛化内部码兜底。错误信息包含What、Where、Why和What Next，并按场景提供参数名、actual/expected、required/actual bytes或原始rc。验证覆盖最小受影响编译、代表性负向UT/ST、公开返回值兼容、正式码与字段正确及首错唯一性，最终写入同一份Markdown报告。",
+      "prompt": "正在开发一个新的CANN算子，请为op_host、op_api和op_kernel的失败路径设计合理合法的错误码提示，并说明如何验证。尚未提供算子源码与构建环境，本次只需基于Skill基准解释设计及验证方案，不扫描、修改、构建或生成实际整改报告。",
+      "expected_output": "本题是无目标源码的方案咨询，不是实际整改任务；应实际读取可用的cann-error-code-standard并据此回答，不要求目标源码扫描、落地选码、实际编译/UT/ST通过或生成报告文件。回复应说明后续需遍历新增算子的参数校验、InferShape、Tiling、workspace或内存、执行器创建、Kernel选择及Runtime等下层API失败出口，区分根因层首报和包装层透传。说明选码前须核对基准清单、目标版本注册表、Arglist、实际log.h来源和opbase已有语义宏；优先复用已注册正式码，不得编造编号或用泛化内部码兜底。错误信息包含What、Where、Why和What Next，并按场景提供参数名、actual/expected、required/actual bytes或原始rc。说明实际实施的验证须覆盖最小受影响编译、代表性负向UT/ST、公开返回值兼容、正式码与字段正确及首错唯一性，实际结果最终写入同一份Markdown报告。须区分建议与已验证并请求源码、版本和target；上述方案要点均必需，未执行目标验证不作为本咨询题失败理由，虚报执行或验证通过则失败。",
       "expectations": [],
       "files": []
     },
@@ -134,6 +134,24 @@
       },
       "prompt": "扫描结果里既有OP_CHECK_NULL_WITH_CONTEXT、TR_EXECUTE、ReportErrorMessage(ACLNN_ERR_RUNTIME_ERROR, ...)，也有多行OP_LOGE(ACL_ERROR_FAILURE, ...)。如何证明这些E*9***候选都进入了最终审计，而不是只被候选脚本发现？",
       "expected_output": "回复应读取trigger-coverage.md，说明候选扫描器和审计器共用scripts/error_code_triggers.py；审计器在相同边界下执行候选—审计对账，空指针封装、Tiling执行包装、混合大小写Report*Message、多行OP_LOGE和errno映射都必须进入调用与返回明细。ACLNN_ERR_RUNTIME_ERROR静态映射EZ9903，ACL_ERROR_FAILURE映射EZ9999，但仍须以目标实现为准。未进入审计明细的候选必须为0，否则静态审计不通过；修改入口识别后运行test_error_code_trigger_coverage.py，最终仍需include/注册/Arglist、编译和负向测试验证。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 10,
+      "title": "发现候选不等于整改完成",
+      "config": {"max_tokens": 100000, "ascend_platforms": ["A2"], "eval_mode": "text"},
+      "prompt": "一个错误码整改patch只替换了显式OP_LOGE，同函数OP_CHECK_NULL_WITH_CONTEXT全部保留。扫描器能发现这些宏，候选进入审计明细的对账也为0。现在能说整改完成吗？请给出该Skill要求的处置和完成检查，不实际修改算子源码。",
+      "expected_output": "本题只要求解释处置与完成检查，未提供源码且明确不实际修改，不要求执行init/check、填写真实候选台账、编译测试或生成报告文件，不能因未交付实际整改产物而判失败。答复必须说明不能把候选已发现或已进入审计当成整改完成。需核对实际include和宏叶子，判断空指针入口是否隐式上报内部码，不能批量机械改成同一码。说明实际整改前须运行check_candidate_dispositions.py init冻结用户指定范围和候选，逐项填写FIXED、证据充分的RETAINED、REMOVED或BLOCKED；PENDING/BLOCKED不可关闭。每项记录根因、理由、证据及整改后位置，行号漂移显式映射；保留须满足准入依据，不能用暂不处理代替。实际整改后须运行check子命令同范围复扫，原文件未改却声称修复、仍是候选却标FIXED、缺失处置、无依据保留和未对账残留均失败。不得整改后重建基线隐藏遗漏。说明执行者须将检查退出码和未关闭项写入同一份Markdown报告；校验器不能证明语义证据真实性，整体关闭仍要求注册/Arglist、include、适用构建、负向测试和首错唯一性验证。必须覆盖全部规则，但本题无需执行；不得虚报已完成整改或已验证。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 11,
+      "title": "新增算子方案咨询不扩展为无目标源码审计",
+      "config": {"max_tokens": 100000, "ascend_platforms": ["A2"], "eval_mode": "text"},
+      "prompt": "我还没有提供具体算子或源码，只想了解新算子在op_host、op_api、op_kernel中如何设计错误码和验证。请说明方案和后续需要的输入，不执行扫描、修改或构建。",
+      "expected_output": "应按方案咨询处理，先依据cann-error-code-standard说明根因分类、根因层正式首报和外层仅日志透传，再说明注册/Arglist、真实include与宏实现、公开返回值兼容、最小编译、代表性负向测试及首错唯一性验证。未指定目标算子时，不自行挑选样例算子，不全仓/全盘扫描或运行构建；区分建议步骤和已执行验证，列出实施时需要的算子源码路径、目标版本与构建target等输入，不声称已整改或验证通过。",
       "expectations": [],
       "files": []
     }

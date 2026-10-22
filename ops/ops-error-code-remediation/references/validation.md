@@ -5,12 +5,14 @@
 1. 在相同扫描范围、相同排除规则下重跑`scan_error_code_candidates.py`。
 2. 在相同`--root/--cmake-root/--cann-root/--include-dir`参数下重跑`audit_operator_error_codes.py`，比较整改前后返回标记。
 3. 报告中“未进入审计明细的候选”必须为0；非零时先修复入口清单、动态码解析或include链。
+   这只证明入口发现完整，不证明整改完成。按[逐候选处置闭环](candidate-dispositions.md)运行处置校验；每个整改前候选须有唯一决策，PENDING/BLOCKED、无证据保留、假修复及未对账的复扫残留均不得关闭。
 4. `EZ0001/EZ0002/EZ0003/EZ0005/EZ0006/EZ0007`直接字符串和旧宏调用均应清零，获批保留项除外。
 5. 对E*9***比较整改前后：新增数必须为0；减少数必须等于已完成替换数；保留项必须有根因和证据。
 6. `DEPRECATED_CODE_*`、`INTERNAL_E9_*`、`UNDOCUMENTED_CODE_*`和`UNRESOLVED_*`不得无解释残留；`RETURN_WITHOUT_REPORT`必须明确首报责任。
 7. 使用`rg`复核多行调用、宏定义、别名和条件编译分支。
 8. 检查是否误改`EZ0004`；它不在本次废弃范围。
-9. 修改Skill扫描/审计代码时，运行`python scripts/test_error_code_trigger_coverage.py`，确保入口族、混合大小写调用、多行调用和errno映射回归通过。
+9. 修改共享入口注册表、候选扫描器或审计器的入口识别时，必须运行`python scripts/test_error_code_trigger_coverage.py`，记录命令和退出码，确保入口族、混合大小写调用、多行调用、errno映射与候选—审计对账回归通过。流程咨询也应说明该条件与命令，不能只介绍测试用途。
+10. 逐项核对混合大小写`ReportErrMessage`、`ReportInterErrMessage`、`ReportErrorMessage`进入“调用与返回明细”，并包含实际入口、最终码及状态、定义来源、include链和返回标记；不把正式上报误判为内部上报。
 
 ## 路由与注册验证
 
@@ -24,6 +26,7 @@
 - 同一失败路径只有一个ErrorManager首错。
 - `cann-error-code-standard/references/documented-error-codes.json`命中只代表资料收录；仍要检查目标版本注册表和安装包，不能把“文档存在”当成“当前版本可调用”。
 - 报告中的`definition_path/include_chain`必须对应实际构建target。存在未展开CMake变量、生成头或条件编译分支时，用编译命令和预处理输出复核。
+- 候选include目录须先展开`CMAKE_CURRENT_SOURCE_DIR`、`ASCEND_CANN_PACKAGE_PATH`等CMake变量并保持目标搜索顺序，再递归解析include。变量来源不明或无法展开时标记未解析，补充实际构建配置/`--include-dir`及编译器`-E/-H`证据，不把字面变量路径当成已验证路径。
 
 ## 编译验证
 
@@ -56,6 +59,9 @@
 | 验证 | 静态扫描、构建、UT/ST、负向日志结果 |
 | 最终返回状态 | 各返回标记数量、是否可关闭、Markdown报告路径 |
 | 入口对账 | 候选总数、审计明细数、未对账候选数 |
+| 处置对账 | 基线摘要、台账路径、FIXED/RETAINED/REMOVED/BLOCKED/PENDING 数量、复扫残留及校验退出码 |
 | 风险 | 未解析include链、未覆盖构建分支、无法复现项 |
 
 只有“代码已修改、静态扫描一致、适用构建/测试通过、首错语义可操作”同时满足，才标记整改完成。
+
+整改模式还要求逐候选处置校验通过。未处理项即使不在 patch 修改行内，也不能从用户指定的扫描范围中静默删除。修改闭环校验器后运行 `python scripts/test_candidate_dispositions.py`。

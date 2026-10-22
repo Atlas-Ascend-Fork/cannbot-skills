@@ -39,6 +39,7 @@
 - 任一治理候选未进入审计明细、任一调用未达到`FORMAL_REPORTED_RETURN`，或存在未解析CMake/include链时，静态审计不通过。
 - `LOWER_LAYER_RETURN`经负向日志证明下层已产生正式首错后，可由评审者改判为已完成路径。
 - 最终Markdown由执行者补充“是否可关闭：是/否”。只有静态审计、目标版本注册/Arglist、最小受影响构建、适用负向UT/ST和“一次故障只产生一个ErrorManager首错”全部通过，才可填写“是”。
+- 整改模式同时要求[逐候选处置闭环](candidate-dispositions.md)校验通过。每条整改前候选记录处置、根因、证据和整改后位置；PENDING/BLOCKED 或未经证据确认的保留项使最终结论为“否”。不能把“未进入审计明细为0”改写成“未整改为0”。
 
 ## 5. 报告字段
 
@@ -46,6 +47,7 @@
 |---|---|
 | `path/line/function/stage` | 调用点及op_api、op_host、op_kernel或shared阶段 |
 | 候选—审计对账 | 候选总数、未进入审计明细数量及未对账列表 |
+| 候选—处置对账 | 台账路径、基线摘要、各处置状态数、未关闭列表、复扫残留和检查退出码 |
 | `entry` | 源码入口宏或直接`return` |
 | `final_code/code_status` | 宏展开后的错误码及资料/治理状态 |
 | `report_status` | `FORMAL_REPORTED`、`INTERNAL_REPORTED`、`LOG_ONLY`、`RETURN_ONLY`或`UNRESOLVED` |
@@ -57,6 +59,8 @@
 | 编译验证 | target、构建命令、环境、通过/失败/未验证及首个有效错误 |
 | 测试用例 | 修改文件、场景、预期码与字段、执行命令、结果及未覆盖项 |
 | 最终结论 | 是否可关闭及全部未关闭原因 |
+
+errno映射所得的`final_code/code_status/report_status`仍是静态工具结论，不因字段名含“final”而视为已核验的运行时事实。执行者须在报告中区分“静态候选”与“目标实现已确认”，给出实际`ReportErrorMessage`定义和生效构建分支证据；冲突时记录差异并以目标版本实际实现为准。静态映射只用于发现和审计，不授权机械改码；缺少实现证据时保留待核验状态，不宣称该码必然发生。
 
 ## 6. 使用限制
 
