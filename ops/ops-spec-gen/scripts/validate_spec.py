@@ -521,8 +521,6 @@ def _validate_semantic_guard(guard: str, attr_names: set[str], input_names: set[
                                ast.And, ast.Or, ast.Not, ast.Eq, ast.NotEq, ast.In, ast.NotIn,
                                ast.Constant, ast.List, ast.Tuple)):
             continue
-        elif isinstance(node, ast.Attribute):
-            continue
         else:
             errors.append(f"guard 不允许语法节点 {type(node).__name__}。")
     return list(dict.fromkeys(errors))
