@@ -77,7 +77,9 @@ else
     pass "目录存在：$REPORT_PATH"
 
     # dump 文件
-    if find "$REPORT_PATH" -type d -name data-dump 2>/dev/null | grep -q .; then
+    # -print -quit：命中即停，避免 pipefail 下 grep -q 提前退出使 find 收到 SIGPIPE
+    # 返回非零，在大目录上把存在的 data-dump 误判为不存在
+    if find "$REPORT_PATH" -type d -name data-dump -print -quit 2>/dev/null | grep -q .; then
         dump_cnt=$(find "$REPORT_PATH" -path '*data-dump*' -type f 2>/dev/null | wc -l | tr -d ' ')
         if [ "$dump_cnt" -gt 0 ]; then
             pass "data-dump 下存在 $dump_cnt 个文件"
