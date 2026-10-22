@@ -24,12 +24,14 @@ WORKFLOWS = {
     "sparse_flash_mla": "catlass-sparse-flash-mla-v1",
     "block_sparse_attention_grad": "catlass-block-sparse-attention-grad-v1",
     "flash_attention_grad": "catlass-flash-attention-grad-v1",
+    "flash_attention": "catlass-flash-attention-v1",
 }
 TARGET_ARCHITECTURE_BY_FAMILY = {
     "sparse_flash_mla": ("atlas_a2_a3",),
     "block_sparse_attention": ("atlas_a2_a3",),
     "block_sparse_attention_grad": ("ascend950",),
     "flash_attention_grad": ("ascend950",),
+    "flash_attention": ("atlas_a2_a3",),
 }
 TARGET_ARCHITECTURES = ("pending", "atlas_a2_a3", "ascend950")
 STAGES = (

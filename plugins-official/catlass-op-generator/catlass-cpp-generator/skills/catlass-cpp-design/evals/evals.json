@@ -9,7 +9,7 @@
         "eval_mode": "text"
       },
       "prompt": "Linear Attention 进入方案设计时，R01 到 R21 如何在 CANNBot 中执行？",
-      "expected_output": "回复应要求完整读取 knowledge/workflow/solution-design-reference.md 和 stage-design-rules.md，先从 workflow.json 读取并冻结 target_architecture，写明匹配的 CATLASS_ARCH、ArchTag、Vector 执行模型及 Cube→Vector/Vector→Cube 数据路径，再完成 Stage 划分和具体详设，并逐条应用 R01-R21。完整设计推演可保存为 docs/design.full.md 中间产物；最终按 design.md.template 将结论投影为仅含‘目标与数学语义’和‘Stage 总览与完整详设’两章的 docs/design.md，Workspace 总量必须是第 2 章最后一小节，不生成独立 R01-R21 检查表章节。",
+      "expected_output": "回复应说明完整读取 knowledge/workflow 的方案设计与 Stage 设计规则文档，先完成 Stage 划分再做具体详设，逐条应用 R01-R21；完整推演可保存为 docs/design.full.md，最终按模板投影为仅含两章的 docs/design.md，不生成独立 R01-R21 检查表章节。",
       "files": [],
       "expectations": []
     },
@@ -21,7 +21,7 @@
         "eval_mode": "text"
       },
       "prompt": "一个本地 finalize 代码参考按 head 分配 AIV 任务。当前算子独立 head 较少，部分 shape 的完整 head 工作集超出单个 AIV 的 UB，应如何选择分工并完成 Stage 和同步实现？",
-      "expected_output": "回复应按 R01 的容量和依赖判据，在逐 head 分配与同 head 分片（SYNC_HEAD_SPLIT）之间给出选择：先计算单个 AIV 的 head 工作集并与可用 UB 上限比较，独立 head 不足以覆盖 AIV 或完整 head 工作集超限时切换为同 head 分片；分片后仍超限时按 R08/R14/R19 的次序先减小单次驻留工作集、再走 GM 中转，最后才考虑增加 Stage。同 head 分片要写明连续不重叠的有效区划分（split/begin/end/validCount）、对齐和尾块（tail）处理、共享输入的重复读取代价、跨片归约的 partial 与合并时机，以及 validCount 为 0 的空片跳过计算和 DMA 但仍参与通知。同步实现需给出目标平台 API：AIC 与两个 AIV 之间的 ready/free 用 CrossCoreSetFlag/WaitFlag，按产生数据的 pipe（如 PIPE_MTE3）发布，核内用成对 HardEvent；两片写回完成后 AIC 才消费完整输入，消费者结束最后一次读取后发布对应 free。参数化说明 CG、Nbase、Nwork 与 AIV 分工的联动即可，不要求枚举全部 CG 候选，也不要求给出同条件性能实测结论；地址、容量与同步约定说明其应写回 docs/design.md 的位置即可，不要求在本轮对话中实际创建该文件。",
+      "expected_output": "回复应按容量与依赖判据在逐 head 分配与同 head 分片之间选择，说明分片的有效区划分、对齐与尾块处理、跨片归约与空片处理，并说明使用跨核同步机制完成 ready/free 握手（API 命名不限）；参数化说明分工与工作集参数即可。",
       "files": [],
       "expectations": []
     },
@@ -33,7 +33,7 @@
         "eval_mode": "text"
       },
       "prompt": "一个算子的所有计算都由同一个 AIV 顺序执行，Stage 应如何划分？Stage 之间如何设计同步？",
-      "expected_output": "回复应先依据数据依赖、计算类型、生命周期和精度观察点划分 Stage，再映射 AIC/AIV；同一 AIV 可以顺序执行多个逻辑 Stage。同步应按实际 producer-consumer 边使用成对 HardEvent/CrossCore 通知，同一执行管线的连续计算按程序顺序组织，并在设计和代码校验中保持一致。",
+      "expected_output": "回复应先依据数据依赖、计算类型、生命周期和精度观察点划分 Stage，再映射 AIC/AIV；同一 AIV 可以顺序执行多个逻辑 Stage。同步应按实际 producer-consumer 边使用成对 HardEvent/CrossCore 通知，同一执行管线的连续计算按程序顺序组织，并在设计和代码校验中保持一致。回复能说明设计需与工程 marker 的 algorithm_family/workflow_id/target_architecture 对齐（如 flash_attention 为 catlass-flash-attention-v1、atlas_a2_a3）属加分项，不作为硬性判分点。",
       "files": [],
       "expectations": []
     }

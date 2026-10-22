@@ -300,6 +300,45 @@ def test_fag_aliases_resolve_only_to_ascend950_operator_knowledge(
     )
 
 
+@pytest.mark.parametrize(
+    "family",
+    [
+        "flash-attention",
+        "flash_attention",
+        "FlashAttention",
+        "flash_attn",
+        "fa",
+        "mha",
+        "gqa",
+    ],
+)
+def test_fa_aliases_resolve_only_to_flash_attention_operator_knowledge(
+    tmp_path: Path, family: str
+) -> None:
+    target = tmp_path / ".catlass-cpp/knowledge"
+    knowledge.initialize(BUNDLE, target)
+    knowledge.reindex(target)
+    result = knowledge.query_bundle(
+        target, "operator", [], family, "atlas_a2_a3", None, True
+    )
+    assert [item["path"] for item in result["results"]] == [
+        "operator/flash-attention/fa-variants-patterns.md",
+        "operator/flash-attention/flash-attention-infer-patterns.md",
+    ]
+    ascend950 = knowledge.query_bundle(
+        target, "operator", [], family, "ascend950", None, True
+    )
+    assert [item["path"] for item in ascend950["results"]] == [
+        "operator/flash-attention/fa-sageattention-patterns.md"
+    ]
+    assert (
+        knowledge.query_bundle(
+            target, "operator", [], family, "DAV_2201", None, True
+        )["count"]
+        == 0
+    )
+
+
 def test_get_rejects_escape_and_indexes(tmp_path: Path) -> None:
     target = tmp_path / ".catlass-cpp/knowledge"
     knowledge.initialize(BUNDLE, target)

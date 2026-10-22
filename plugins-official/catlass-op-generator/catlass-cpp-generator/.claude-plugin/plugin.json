@@ -1,6 +1,6 @@
 {
   "name": "catlass-cpp-generator",
-  "description": "CATLASS C++ 领域算子五阶段独立开发工作流（Linear Attention / BSA Arch22 / BSAG Ascend 950 / FAG Ascend 950）。",
+  "description": "CATLASS C++ 领域算子五阶段独立开发工作流（Linear Attention / BSA Arch22 / BSAG Ascend 950 / FAG Ascend 950 / FA A2 A3）。",
   "version": "0.1.0",
   "author": {
     "name": "CANNBot"
@@ -17,6 +17,10 @@
     "block-sparse-attention-grad",
     "bsag",
     "flash-attention-grad",
-    "fag"
+    "fag",
+    "flash-attention",
+    "fa",
+    "mha",
+    "gqa"
   ]
 }

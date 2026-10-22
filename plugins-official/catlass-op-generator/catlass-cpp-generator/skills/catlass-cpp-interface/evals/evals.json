@@ -9,7 +9,7 @@
         "eval_mode": "text"
       },
       "prompt": "Linear Attention 算子开发中途切换窗口，发现精度问题。应该读取哪些现场文件，从哪个阶段恢复？",
-      "expected_output": "回复应要求读取 docs/workflow.json、docs/api.md、docs/design.md、docs/validation.md、reference/reference.py 和算子源码；先校验开发状态，再根据失败证据分类，按主 Skill 恢复表一次更新 stage、issue_type、resume_from、validation_scope、operator_contract 和 golden_contract 并校验。实现精度错误从 implementation 恢复，issue_type 为 precision_debug；设计问题回到 design，标杆问题回到 reference，对外接口、语义或支持范围变化回到 interface。",
+      "expected_output": "回复应说明先校验 docs/workflow.json 的当前状态，再根据失败证据按主 Skill 恢复表分类恢复：精度错误回 implementation（issue_type=precision_debug），设计问题回 design，标杆问题回 reference，接口或语义变化回 interface；恢复时按表更新状态字段并再次校验。",
       "files": [],
       "expectations": []
     },
@@ -21,7 +21,7 @@
         "eval_mode": "text"
       },
       "prompt": "Linear Attention CATLASS 专用工作流的五个阶段分别做什么？",
-      "expected_output": "回复应明确列出五个阶段：01 接口确认、02 标杆生成、03 方案设计、04 算子开发、05 算子测试，并说明只有通过 full 全量验收才能进入 complete。interface 阶段必须把 target_architecture 从 pending 冻结为 atlas_a2_a3 或 ascend950，设备代际未确认不得进入 reference；后续设计、开发和测试保持架构、CATLASS 编译标识和数据路径一致。reference 阶段说明 reference.py 是唯一可编辑标杆源码，用纯 PyTorch 在 CPU 上按固定版本、种子和计算顺序执行。design 阶段要求完整读取 solution-design-reference.md 等 workflow 知识，按该参考完成 Stage 划分和详细设计（可保存 docs/design.full.md 中间产物），再投影为仅含两章的 docs/design.md 并运行 validate_design.py 校验。implementation 阶段按 Stage 依次完成实现、编译、设计一致性检查和精度比较。validation 阶段执行全量精度、功能和性能验收，性能按工程统一口径采集（如 msprof op_summary 的 Task Duration），不达标仍保留在 validation。另需说明 catlass-cpp-knowledge 是横向能力而非第六阶段。",
+      "expected_output": "回复应列出五个阶段：01 接口确认、02 标杆生成、03 方案设计、04 算子开发、05 算子测试，说明各阶段的核心职责，并说明只有通过 full 全量验收才能进入 complete。",
       "files": [],
       "expectations": []
     }

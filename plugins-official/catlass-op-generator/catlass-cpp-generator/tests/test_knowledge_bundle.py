@@ -31,7 +31,7 @@ def test_builtin_bundle_validates() -> None:
     report = knowledge.validate_bundle(BUNDLE)
     assert report["status"] == "passed", report["errors"]
     assert report["okf_version"] == "0.2"
-    assert report["count"] == 37
+    assert report["count"] == 40
 
 
 def test_business_partitions_are_exact() -> None:
@@ -106,6 +106,30 @@ def test_fag_knowledge_stays_in_its_ascend950_operator_family() -> None:
         body,
         re.IGNORECASE,
     )
+
+
+def test_fa_knowledge_stays_in_its_operator_family() -> None:
+    family = BUNDLE / "operator/flash-attention"
+    concepts = sorted(
+        path for path in family.glob("*.md") if path.name != "index.md"
+    )
+    assert [path.name for path in concepts] == [
+        "fa-sageattention-patterns.md",
+        "fa-variants-patterns.md",
+        "flash-attention-infer-patterns.md",
+    ]
+    for path in concepts:
+        data, body = knowledge._frontmatter(path)
+        assert data["operator_families"] == ["flash-attention"]
+        assert data["architectures"] in (["atlas_a2_a3"], ["ascend950"])
+        assert "provenance" not in data
+        assert not re.search(
+            r"EXP-[A-Z0-9]+-\d+|\bround\s*\d+|legacy_evidence_ids|/(?:home|root|Users)/",
+            body,
+            re.IGNORECASE,
+        )
+        for footnote in re.findall(r"^\[\^[^\]]+\]:.*$", body, re.MULTILINE):
+            assert "http" not in footnote, path
 
 
 def _heading_anchors(text: str) -> set[str]:

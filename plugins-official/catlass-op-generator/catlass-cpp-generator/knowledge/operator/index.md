@@ -3,6 +3,7 @@
 - [linear-attention](linear-attention/index.md)
 - [block-sparse-attention-grad](block-sparse-attention-grad/index.md)
 - [flash-attention-grad](flash-attention-grad/index.md)
+- [flash-attention](flash-attention/index.md)
 - [sparse-attention](sparse-attention/index.md)
 
 - [sparse-flash-mla](sparse-flash-mla/index.md)

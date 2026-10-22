@@ -12,14 +12,14 @@
 set -euo pipefail
 
 if { [ "$#" -ne 1 ] && [ "$#" -ne 3 ]; } || { [ "$#" -eq 3 ] && [ "$2" != "--algorithm-family" ]; }; then
-    echo "Usage: $0 <operator_name> [--algorithm-family linear_attention|block_sparse_attention|sparse_flash_mla|block_sparse_attention_grad|flash_attention_grad]" >&2
+    echo "Usage: $0 <operator_name> [--algorithm-family linear_attention|block_sparse_attention|sparse_flash_mla|block_sparse_attention_grad|flash_attention_grad|flash_attention]" >&2
     exit 2
 fi
 
 operator_name="$1"
 algorithm_family="${3:-linear_attention}"
 case "$algorithm_family" in
-    linear_attention|block_sparse_attention|sparse_flash_mla|block_sparse_attention_grad|flash_attention_grad) ;;
+    linear_attention|block_sparse_attention|sparse_flash_mla|block_sparse_attention_grad|flash_attention_grad|flash_attention) ;;
     *) echo "unsupported algorithm family: $algorithm_family" >&2; exit 2 ;;
 esac
 case "$operator_name" in

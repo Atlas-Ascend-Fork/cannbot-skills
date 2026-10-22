@@ -86,6 +86,34 @@ def test_grad_families_identity_and_architecture_gate() -> None:
         )
 
 
+def test_fa_identity_and_architecture_gate() -> None:
+    state = {
+        **initial(),
+        "algorithm_family": "flash_attention",
+        "workflow_id": "catlass-flash-attention-v1",
+        "target_architecture": "atlas_a2_a3",
+    }
+    assert workflow.validate_workflow(state) == []
+    assert workflow.validate_workflow(
+        {**state, "target_architecture": "atlas_a2_a3", "stage": "reference"}
+    ) == []
+    assert any(
+        "requires a frozen target_architecture" in error
+        for error in workflow.validate_workflow(
+            {**state, "stage": "reference", "target_architecture": "pending"}
+        )
+    )
+    assert any(
+        error.startswith("flash_attention knowledge currently covers")
+        for error in workflow.validate_workflow(
+            {**state, "target_architecture": "ascend950"}
+        )
+    )
+    assert workflow.validate_workflow(
+        {**state, "workflow_id": "catlass-flash-attention-grad-v1"}
+    )
+
+
 def test_bsa_identity_architecture_and_recovery() -> None:
     state = {
         **initial(),

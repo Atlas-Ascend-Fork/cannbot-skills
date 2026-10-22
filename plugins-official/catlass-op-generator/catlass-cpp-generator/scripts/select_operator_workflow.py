@@ -22,11 +22,13 @@ WORKFLOW_ID = "catlass-linear-attention-v1"
 BSA_WORKFLOW_ID = "catlass-block-sparse-attention-arch22-v1"
 BSAG_WORKFLOW_ID = "catlass-block-sparse-attention-grad-v1"
 FAG_WORKFLOW_ID = "catlass-flash-attention-grad-v1"
+FA_WORKFLOW_ID = "catlass-flash-attention-v1"
 LINEAR_FAMILY = "linear_attention"
 BSA_FAMILY = "block_sparse_attention"
 SMLA_FAMILY = "sparse_flash_mla"
 BSAG_FAMILY = "block_sparse_attention_grad"
 FAG_FAMILY = "flash_attention_grad"
+FA_FAMILY = "flash_attention"
 LEGACY_FAMILY = "legacy"
 PENDING_FAMILY = "pending"
 DEDICATED_WORKFLOWS = {
@@ -35,6 +37,7 @@ DEDICATED_WORKFLOWS = {
     SMLA_FAMILY: "catlass-sparse-flash-mla-v1",
     BSAG_FAMILY: BSAG_WORKFLOW_ID,
     FAG_FAMILY: FAG_WORKFLOW_ID,
+    FA_FAMILY: FA_WORKFLOW_ID,
 }
 SUPPORTED_FAMILIES = set(DEDICATED_WORKFLOWS) | {LEGACY_FAMILY, PENDING_FAMILY}
 SAFE_OPERATOR = re.compile(r"^[a-z][a-z0-9_]*$")

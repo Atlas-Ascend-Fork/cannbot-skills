@@ -45,6 +45,18 @@
         "flash_attn_grad",
         "fag"
       ]
+    },
+    "flash-attention": {
+      "aliases": [
+        "flash_attention",
+        "FlashAttention",
+        "flash-attention",
+        "flash_attn",
+        "fa",
+        "mha",
+        "gqa",
+        "fused_attention"
+      ]
     }
   },
   "catlass_apis": {

@@ -339,6 +339,35 @@ class DesignValidatorTests(unittest.TestCase):
                     )
                 )
 
+    def test_fa_design_identity_and_architecture_match_marker(self) -> None:
+        marker = {
+            "algorithm_family": "flash_attention",
+            "workflow_id": "catlass-flash-attention-v1",
+            "target_architecture": "atlas_a2_a3",
+        }
+        design = valid_design().replace(
+            "catlass-linear-attention-v1", "catlass-flash-attention-v1"
+        )
+        self.assertEqual([], validate(design))
+        self.assertEqual([], workflow_alignment_errors(design, marker))
+        self.assertTrue(
+            any(
+                "workflow_id does not match" in error
+                for error in workflow_alignment_errors(
+                    design,
+                    {**marker, "workflow_id": "catlass-flash-attention-grad-v1"},
+                )
+            )
+        )
+        self.assertTrue(
+            any(
+                "atlas_a2_a3 only" in error
+                for error in workflow_alignment_errors(
+                    design, {**marker, "target_architecture": "ascend950"}
+                )
+            )
+        )
+
     def test_model_case_and_tiling_require_quantified_evidence(self) -> None:
         row = "| case0 | 8 | 1 | 8 | 8 | 1 | 每核1个work | 无尾work，head完整 |"
         self.assert_fails_with(
