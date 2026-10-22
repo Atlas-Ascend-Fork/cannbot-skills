@@ -87,13 +87,15 @@ Marketplace 方式由 Claude Code 原生加载插件 manifest、agent、skills �
 ## 四、验证安装
 
 ```bash
-# 查看 manifest
-cat .claude/cannbot-manifest.json
+# 将 init.sh 输出的 Path 粘贴到提示中
+read -r -p "Config root (Path from init.sh): " CONFIG_ROOT
 
-# 查看 skills/subagent/hooks
-ls .claude/skills | grep -E 'triton-npu'
-ls .claude/agents
-ls .claude/hooks
+# 查看 manifest
+cat "$CONFIG_ROOT/cannbot-manifest.json"
+
+# 查看已安装的 skills 和 hooks
+ls "$CONFIG_ROOT/skills" | grep -E 'triton-npu'
+ls "$CONFIG_ROOT/hooks"
 ```
 
 Claude Marketplace 方式可使用：
