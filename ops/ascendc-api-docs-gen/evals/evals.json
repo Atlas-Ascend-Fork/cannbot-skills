@@ -1,0 +1,66 @@
+{
+  "eval_mode": "file_based",
+  "evals": [
+    {
+      "id": 1,
+      "title": "为单个 Ascend C API 生成全量参考文档",
+      "config": {
+        "max_tokens": 200000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "file_based"
+      },
+      "prompt": "请为以下 Ascend C API 生成完整的 API 参考文档。头文件声明如下：\n\ntemplate <typename T>\n__aicore__ inline void Exp(const LocalTensor<T>& x, const LocalTensor<T>& y, uint32_t calCount)\n\n所在头文件：exp.h\n支持的芯片架构：DAV_C220、DAV_C22\n支持的产品型号：Atlas A2 训练系列产品、Atlas 200I/500 A2 推理产品\n支持的数据类型：half、float\n\n请生成 Exp.md。",
+      "expected_output": "生成的 Exp.md 应遵循 Ascend C API 参考文档模板结构，包含以下关键章节：\n\n- 功能描述：说明 API 的计算功能（逐元素计算自然指数 e^x，结果写入 y）\n- 函数原型：与头文件声明完全一致（不臆造参数、不改动签名），按芯片架构列出支持情况\n- 参数说明表：表格形式（参数名/输入/输出/描述），覆盖 x、y、calCount 三个参数，描述中标注数据类型与取值约束（如 calCount 需满足的对齐要求）\n- 返回值说明：void 类型接口应明确说明无返回值及异常场景行为\n- 约束说明：数据类型支持范围（half、float）、对齐约束、平台限制（按芯片架构区分）\n- 支持的芯片型号/产品型号：按给定信息列出（Atlas A2 训练系列产品、Atlas 200I/500 A2 推理产品），未给定的产品不得标注支持\n- 调用示例：给出 Kernel 侧完整调用代码示例",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 2,
+      "title": "API 变更后的增量文档更新",
+      "config": {
+        "max_tokens": 200000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "file_based"
+      },
+      "prompt": "Softmax API 的参考文档已有旧版本，现在头文件发生了如下变更，请增量更新文档：\n\n变更前：\ntemplate <typename T>\n__aicore__ inline void Softmax(const LocalTensor<T>& x, const LocalTensor<T>& y, const SoftMaxTiling& tiling, uint32_t rowNum)\n\n变更后（新增 shareTmpBuffer 参数，支持的数据类型从 half、float 扩展到 half、float、bfloat16）：\ntemplate <typename T>\n__aicore__ inline void Softmax(const LocalTensor<T>& x, const LocalTensor<T>& y, const SoftMaxTiling& tiling, uint32_t rowNum, const SharedTmpBuffer& shareTmpBuffer)\n\n请基于旧文档做增量更新，只更新受变更影响的部分。",
+      "expected_output": "回复应体现增量更新原则：\n\n1. 仅更新受变更影响的章节：函数原型（补充 shareTmpBuffer 参数）、参数说明表（新增 shareTmpBuffer 一行，说明共享临时空间的用途）、约束说明（数据类型支持范围扩展 bfloat16）\n2. 未受影响的章节（功能描述、调用示例中不变的部分、其他产品支持信息等）应保持原样，不做重写或删减\n3. 更新内容必须与头文件变更严格一致，不得臆造头文件中不存在的参数、默认值或行为\n4. 如提供了修订记录章节，应新增一条修订记录（版本号、变更内容、日期）",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 3,
+      "title": "信息不足时主动追问",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "帮我写个 Ascend C API 文档",
+      "expected_output": "回复应主动追问关键信息，而不是直接生成文档。应至少询问以下信息中的一项或多项：目标 API 名称及头文件路径（或头文件声明）、支持的芯片架构/产品型号、支持的数据类型、是全量文档生成还是基于旧文档的增量更新、输出文件名。不应在缺乏 API 声明信息的情况下直接输出完整的 API 参考文档。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 4,
+      "title": "Ascend C API 文档规范与章节结构咨询",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "Ascend C API 参考文档必须包含哪些章节？各章节的写作要求是什么？",
+      "expected_output": "回复应完整列出 Ascend C API 参考文档的标准章节及写作要求：\n\n- 功能描述：一句话说明 API 功能，必要时给出计算公式\n- 函数原型：与头文件声明一致，按芯片架构区分支持情况\n- 参数说明：表格形式（参数名/输入/输出/描述），描述数据类型与约束\n- 返回值：说明返回值含义及异常行为\n- 约束说明：数据类型支持、对齐要求、平台限制等\n- 支持的芯片型号/产品型号：明确列出，未验证的不得标注支持\n- 调用示例：完整可参考的 Kernel 侧代码示例\n\n并应说明文档内容必须来源于头文件等可信代码，禁止臆造 API 行为。",
+      "files": [],
+      "expectations": []
+    }
+  ],
+  "skill_name": "ascendc-api-docs-gen"
+}
