@@ -20,7 +20,6 @@
         </policylist>
         <filefilterlist>
             <filefilter name="defaultFilter" desc="Files not to check">
-                <filteritem type="filepath" name="plugins-community/collaborative-agent-kernel-evolution/skills/op-dashboard/assets/chart.umd.min.js" desc="Third-party Chart.js 4.4.7 (MIT), vendored minified build; keeps upstream MIT license, exempt from CANN-2.0 header policy."/>
                 <filteritem type="filename" name="*.mjs" desc="Workflow runtime ES modules, not distributed, skip OAT entirely"/>
                 <filteritem type="filename" name="*.tpl" desc="Code generation templates with placeholder variables, not distributed source files"/>
                 <!--filteritem type="filename" name="*.uvwxyz" desc="Describe the reason for filtering scan results"/-->

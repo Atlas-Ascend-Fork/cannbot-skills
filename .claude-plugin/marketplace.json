@@ -677,29 +677,6 @@
       ]
     },
     {
-      "name": "cake",
-      "source": "./plugins-community/collaborative-agent-kernel-evolution",
-      "description": "CAKE2 进化式 AscendC 算子生成 Team（仅 Vector 算子）。从算子描述→PyTorch 参考→DSL→AscendC→编译评估→进化优化的全自动流水线。含 3 个 Agent（cake/cake-evo/cake-partial）与内置 Skill。",
-      "version": "0.1.1",
-      "author": {
-        "name": "CANNBot"
-      },
-      "keywords": [
-        "cake",
-        "ascendc",
-        "operator",
-        "evolution",
-        "dsl",
-        "npu"
-      ],
-      "category": "development",
-      "agents": [
-        "./agents/cake.md",
-        "./agents/cake-evo.md",
-        "./agents/cake-partial.md"
-      ]
-    },
-    {
       "name": "ops-perf-optimize-skills",
       "description": "AscendC 算子性能调优 Skills（6 个）。性能仿真、Profiling 采集、Tiling 建模与流水分析、性能优化最佳实践、MC² 最佳实践、API 文档检索。",
       "source": "./ops",
