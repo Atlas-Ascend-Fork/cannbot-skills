@@ -56,12 +56,12 @@ python3 msaicerr.py -d <dump文件或目录路径> [-out <结果输出目录>]
 
 ### 3.2 输入数据有效性判读（NaN/Inf与0.9倍值域，关联104）
 
-dump解析时对每个可转numpy的tensor做两级有效性检查（`_check_tensor_data`，dump_data_parser.py:184-218），检查结果写入info.dump_info，是结论码104（算子输入数据错误，constant.py:75）的直接证据链：
+dump解析时对每个可转numpy的tensor做两级有效性检查（`_check_tensor_data`，dump_data_parser.py:184-218），检查结果写入info.dump_info；是否满足结论码104的直接判定条件，还需按下文核对提示文本中的连续子串。
 
 1. **NaN/Inf检查**：数组中存在NaN或Inf（源码判据`np.isinf(array).any() or np.isnan(array).any()`，:191）时，报`{parse_type}[{index}] NaN/INF. Input data invalid. Please check!`（parse_type为input/output/workspace类型、index为张量序号，:192-195）。bfloat16无finfo，按float32视角检查值域（:188-189）。
 2. **0.9倍值域检查**：数值型dtype（整型int16/int32/int64、无符号uint16/uint32/uint64、浮点float16/float32/float64）在`np.max(array) > 0.9 * dtype_max`或`np.min(array) < 0.9 * dtype_min`时（0.9规则在:212），报`{parse_type}[{index}] max {最大值} or min {最小值}. Input data maybe invalid. Please check!`（实际日志中{最大值}/{最小值}为具体数值，:213-217）。非数值型（如bool）不检查直接通过（:210-211）。
 
-**到104的链路**：上述提示串中的`Input data invalid`与`Input data maybe invalid`均含子串`data invalid`，随解析结果写入aic_info.dump_info后，get_return_code判定`elif "data invalid" in aic_info.dump_info: return 104`（aicore_error_parser.py:1968-1969）。
+**到104的链路**：NaN/Inf提示中的连续子串`data invalid`满足`get_return_code`的字面判断`elif "data invalid" in aic_info.dump_info: return 104`（aicore_error_parser.py:1968-1969）。0.9倍值域提示为`Input data maybe invalid`，`data`与`invalid`之间有`maybe`，不含连续子串`data invalid`，因此该提示本身不会触发这项返回码判断；它仍是弱线索，结合业务值域经人工确认输入数据非法后，可在诊断结论中关联104。
 
 **判读规则**：
 

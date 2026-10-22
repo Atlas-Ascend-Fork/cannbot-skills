@@ -366,7 +366,7 @@ python3 msaicerr.py -d <dump文件或目录路径> -out <结果目录> -dtype <�
 grep -n "Input data invalid\|Input data maybe invalid" <解析输出日志>
 ```
 
-**判读**：NaN/Inf 命中（`{类型}[{序号}] NaN/INF. Input data invalid. Please check!`）为强证据，输入数据非法、关联 104；0.9 倍值域命中（`{类型}[{序号}] max <最大值> or min <最小值>. Input data maybe invalid. Please check!`）为弱证据（源码措辞为 maybe），须结合业务值域人工确认后再关联 104；两提示串均含子串 `data invalid`，是结论码 104 的直接判定依据（oam-tools/src/msaicerr/ms_interface/dump_data_parser.py:184-218，0.9 规则在 :212）。判读表见 references/reproduction-guide.md「3.2 输入数据有效性判读（NaN/Inf 与 0.9 倍值域，关联 104）」。
+**判读**：NaN/Inf 命中（`{类型}[{序号}] NaN/INF. Input data invalid. Please check!`）为强证据，其提示含连续子串 `data invalid`，可满足结论码 104 的字面判定；0.9 倍值域命中（`{类型}[{序号}] max <最大值> or min <最小值>. Input data maybe invalid. Please check!`）为弱证据。该提示在 `data` 与 `invalid` 之间含 `maybe`，不含连续子串 `data invalid`，本身不会触发该字面判定；须结合业务值域人工确认输入确实非法后，再在诊断结论中关联 104（提示文本及判定源码见 oam-tools/src/msaicerr/ms_interface/dump_data_parser.py:184-218）。判读表见 references/reproduction-guide.md「3.2 输入数据有效性判读（NaN/Inf 与 0.9 倍值域，关联 104）」。
 **失败分支**：数据无效只关联 104，不得臆断其他结论（见第五节 NEVER 清单）；无命中则数据有效，转 P4.4。
 
 #### P4.4 tiling 重建与 16 键 config 构造
