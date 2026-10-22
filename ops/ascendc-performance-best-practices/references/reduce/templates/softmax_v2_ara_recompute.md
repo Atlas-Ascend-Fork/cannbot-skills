@@ -42,7 +42,7 @@ public:
 
 ## 5. 对应的 TilingData 和字段说明
 
-对应 `SoftmaxV2ARARecomputeTilingData`，定义在 [softmax_v2_tiling_data.h](softmax_v2_tiling_data.h)。
+对应 `SoftmaxV2ARARecomputeTilingData`，定义在 [softmax_v2_tiling_data.h](softmax_v2_tiling_data.template)。
 
 | 字段 | 含义 | 单位 |
 |------|------|------|
@@ -63,7 +63,7 @@ public:
 
 ## 6. Host tiling 参数计算方法
 
-使用 [softmax_v2_tiling.h](softmax_v2_tiling.h) 中的 `TilingAraRecompute`：
+使用 [softmax_v2_tiling.h](softmax_v2_tiling.template) 中的 `TilingAraRecompute`：
 
 ```cpp
 softmax_tiling::CaseShape shape{a1, r, a0, dtypeCode};
@@ -106,7 +106,7 @@ Process（逐 tile）:
 
 ### NlastReduceSum
 
-`NlastReduceSum` 是跨 R（行）方向对 A0（列）做规约求和的核心函数，实现在 [softmax_v2_base.h](dav310/softmax_v2_base.h) 中：
+`NlastReduceSum` 是跨 R（行）方向对 A0（列）做规约求和的核心函数，实现在 [softmax_v2_base.h](dav310/softmax_v2_base.template) 中：
 
 1. **R ≤ 8**：`NlastReduceSumSmallR`，使用 `NlastDichotomyAdd<RSize>` 模板做编译期二分展开。
    - `NlastDichotomyAdd<2>`：基例，2 行 `Add`。

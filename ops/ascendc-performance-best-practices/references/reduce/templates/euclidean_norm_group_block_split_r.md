@@ -76,7 +76,7 @@ public:
 
 ## 5. 对应的 TilingData 和字段说明
 
-对应 `EuclideanNormTilingData`（[euclidean_norm_tiling_data.h](euclidean_norm_tiling_data.h)），group 在 normal
+对应 `EuclideanNormTilingData`（[euclidean_norm_tiling_data.h](euclidean_norm_tiling_data.template)），group 在 normal
 字段之上多读一个 `rGroupCnt`：
 
 | 字段 | 含义 |

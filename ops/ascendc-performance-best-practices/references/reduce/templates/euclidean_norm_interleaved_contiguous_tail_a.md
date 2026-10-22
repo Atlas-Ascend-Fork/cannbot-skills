@@ -53,7 +53,7 @@ public:
 
 ## 5. 对应的 TilingData 和字段说明
 
-对应 `EuclideanNormTilingData`（[euclidean_norm_tiling_data.h](euclidean_norm_tiling_data.h)），本模板读取 pattern 字段 + `rara*` 字段：
+对应 `EuclideanNormTilingData`（[euclidean_norm_tiling_data.h](euclidean_norm_tiling_data.template)），本模板读取 pattern 字段 + `rara*` 字段：
 
 | 字段 | 含义 |
 |------|------|
@@ -65,7 +65,7 @@ public:
 
 ## 6. Host tiling 参数计算方法
 
-使用 [euclidean_norm_tiling.h](euclidean_norm_tiling.h) 中的 `TryComputeFastRARATiling`（或驱动 `ComputeInterleavedTiling`）：
+使用 [euclidean_norm_tiling.h](euclidean_norm_tiling.template) 中的 `TryComputeFastRARATiling`（或驱动 `ComputeInterleavedTiling`）：
 
 ```cpp
 euclidean_norm_host::Result r;

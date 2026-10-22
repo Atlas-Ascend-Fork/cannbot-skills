@@ -44,7 +44,7 @@ public:
 
 ## 5. 对应的 TilingData 和字段说明
 
-对应 `SoftmaxV2ARATilingData`，定义在 [softmax_v2_tiling_data.h](softmax_v2_tiling_data.h)。
+对应 `SoftmaxV2ARATilingData`，定义在 [softmax_v2_tiling_data.h](softmax_v2_tiling_data.template)。
 
 主要字段：
 
@@ -65,7 +65,7 @@ public:
 
 ## 6. Host tiling 参数计算方法
 
-使用 [softmax_v2_tiling.h](softmax_v2_tiling.h) 中的 `TilingAraFullLoad`：
+使用 [softmax_v2_tiling.h](softmax_v2_tiling.template) 中的 `TilingAraFullLoad`：
 
 ```cpp
 softmax_tiling::CaseShape shape{a1, r, a0, dtypeCode};

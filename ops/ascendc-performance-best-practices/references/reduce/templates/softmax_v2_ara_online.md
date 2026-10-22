@@ -42,7 +42,7 @@ public:
 
 ## 5. 对应的 TilingData 和字段说明
 
-对应 `SoftmaxV2ARAOnlineTilingData`，定义在 [softmax_v2_tiling_data.h](softmax_v2_tiling_data.h)。
+对应 `SoftmaxV2ARAOnlineTilingData`，定义在 [softmax_v2_tiling_data.h](softmax_v2_tiling_data.template)。
 
 | 字段 | 含义 | 单位 |
 |------|------|------|
@@ -58,7 +58,7 @@ public:
 
 ## 6. Host tiling 参数计算方法
 
-使用 [softmax_v2_tiling.h](softmax_v2_tiling.h) 中的 `TilingAraOnline`：
+使用 [softmax_v2_tiling.h](softmax_v2_tiling.template) 中的 `TilingAraOnline`：
 
 ```cpp
 softmax_tiling::CaseShape shape{a1, r, a0, dtypeCode};
