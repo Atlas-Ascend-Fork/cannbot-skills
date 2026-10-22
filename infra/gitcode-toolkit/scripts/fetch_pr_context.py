@@ -32,6 +32,8 @@ import time
 from dataclasses import dataclass, field
 from _logging import init_output_logger, init_error_logger
 
+ERROR_LOGGER = init_error_logger()
+
 ALLOWED_DOMAIN = "gitcode.com"
 DEFAULT_DEPTH = 500
 TMP_PREFIX = "gitcode_pr_ctx_"
@@ -175,7 +177,6 @@ def get_pr_meta(pr_branch: str, work_dir: str) -> tuple[str, str]:
 
 def main(argv: list[str] | None = None) -> int:
     OUTPUT_LOGGER = init_output_logger()
-    ERROR_LOGGER = init_error_logger()
 
     parser = argparse.ArgumentParser(
         description="One-shot PR context fetch (clone + diff + log).",
