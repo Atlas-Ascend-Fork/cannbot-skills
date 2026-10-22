@@ -5,9 +5,9 @@ description: "CANN 一键式故障信息收集工具 asys 使用指导。覆盖�
 
 # asys 故障维测工具
 
-asys 是 CANN 提供的一键式故障信息收集工具,用于提高系统故障维测效率。
+asys 是 CANN 提供的一键式故障信息收集工具，用于提高系统故障维测效率。
 
-> **形态限制**:asys **仅支持在 Ascend EP 形态下使用**,RC 形态不支持。使用前先确认,避免在不支持的环境上白跑。
+> **形态限制**:asys **仅支持在 Ascend EP 形态下使用**,RC 形态不支持。使用前先确认，避免在不支持的环境上白跑。
 
 ## 环境准备
 
@@ -17,7 +17,7 @@ asys 是 CANN 提供的一键式故障信息收集工具,用于提高系统故�
 source ${INSTALL_DIR}/set_env.sh
 ```
 
-`${INSTALL_DIR}` 替换为 CANN 软件安装路径。以 root 用户安装为例,默认路径为 `/usr/local/Ascend/cann`。
+`${INSTALL_DIR}` 替换为 CANN 软件安装路径。以 root 用户安装为例，默认路径为 `/usr/local/Ascend/cann`。
 
 设置环境变量后可**直接输入 `asys` 命令**,无需进入工具所在目录。
 
@@ -30,12 +30,12 @@ bash scripts/find_asys.sh
 
 ## 症状路由
 
-按现场症状选命令,不确定时从 `asys collect` 起步。
+按现场症状选命令，不确定时从 `asys collect` 起步。
 
 | 现场症状 | 命令 | 详细文档 |
 |---------|------|---------|
 | 需要打包一份完整维测信息交付分析 | `asys collect` | [collect-and-launch.md](references/collect-and-launch.md) |
-| 问题可稳定复现,想连带复跑一起收集 | `asys launch --task=...` | [collect-and-launch.md](references/collect-and-launch.md) |
+| 问题可稳定复现，想连带复跑一起收集 | `asys launch --task=...` | [collect-and-launch.md](references/collect-and-launch.md) |
 | 训练/推理进程卡住不退出 | `asys collect -r=stacktrace` | [collect-and-launch.md](references/collect-and-launch.md) |
 | 日志或屏幕出现 `there is an aivec error exception` / `there is an aicore error exception` | `asys analyze -r=aicore_error` | [analyze-files.md](references/analyze-files.md) |
 | 进程中断退出并报 `Segmentation fault` | `asys analyze -r=coredump` | [analyze-files.md](references/analyze-files.md) |
@@ -71,7 +71,7 @@ asys
 ### 最常用的三条命令
 
 ```bash
-# 1. 不复跑,直接收集环境上的软硬件信息与日志,并打包
+# 1. 不复跑，直接收集环境上的软硬件信息与日志，并打包
 asys collect --tar="True" --output=$HOME/dfx_info
 
 # 2. 复跑业务并收集（默认开启算子编译文件、GE dump 图收集）
@@ -100,9 +100,9 @@ asys analyze -r=aicore_error --path=${HOME}/aic_err_info_timestamp
 ## 使用前必读的四条约束
 
 1. **环境变量要与业务运行时一致**。自动收集依赖 `ASCEND_PROCESS_LOG_PATH`、`NPU_COLLECT_PATH`、`DUMP_GRAPH_PATH`、`ASCEND_WORK_PATH`、`ASCEND_CACHE_PATH`、`ASCEND_CUSTOM_OPP_PATH`,取值不一致时收集到的信息可能不准确。
-2. **不要并行执行**。asys 涉及大量维测信息收集、占用内存,多进程并行可能导致执行出错或环境异常;同一卡住进程不支持并行导出堆栈;组件检测不支持并行执行。
+2. **不要并行执行**。asys 涉及大量维测信息收集、占用内存，多进程并行可能导致执行出错或环境异常;同一卡住进程不支持并行导出堆栈;组件检测不支持并行执行。
 3. **权限决定数据范围**。Device 侧固件日志、系统日志、黑匣子、stackcore、coretrace 需 root;`diagnose` 与 `config` 必须在物理机且 root 用户下执行。
-4. **先清 trace 日志**。asys 会检索 trace 日志所在目录,文件过多会导致执行时间长。默认路径 `$HOME/ascend/atrace/`。
+4. **先清 trace 日志**。asys 会检索 trace 日志所在目录，文件过多会导致执行时间长。默认路径 `$HOME/ascend/atrace/`。
 
 完整约束、产品支持矩阵、外部依赖(gdb / readelf / addr2line)见 [constraints.md](references/constraints.md)。
 
@@ -110,7 +110,7 @@ asys analyze -r=aicore_error --path=${HOME}/aic_err_info_timestamp
 
 ## 产品支持速查
 
-并非所有功能全系列可用,在不支持的型号上执行会白跑:
+并非所有功能全系列可用，在不支持的型号上执行会白跑:
 
 | 功能 | Atlas A3 / A2 系列 | Atlas 200I/500 A2 推理、Atlas 推理/训练系列 |
 |------|:---:|:---:|
@@ -132,7 +132,7 @@ asys analyze -r=aicore_error --path=${HOME}/aic_err_info_timestamp
 |------|------|
 | [collect-and-launch.md](references/collect-and-launch.md) | `collect`、`launch`、实时堆栈导出的参数、产物结构、asys.ini 配置 |
 | [info-and-health.md](references/info-and-health.md) | `info` 三种信息类型、`health` 状态与故障级别映射 |
-| [diagnose-and-config.md](references/diagnose-and-config.md) | 压力 / HBM / CPU / AI Core STL / 组件检测,电压获取与恢复 |
+| [diagnose-and-config.md](references/diagnose-and-config.md) | 压力 / HBM / CPU / AI Core STL / 组件检测，电压获取与恢复 |
 | [analyze-files.md](references/analyze-files.md) | trace / coredump / stackcore / coretrace / UB / aicore_error 六种解析 |
 | [profiling.md](references/profiling.md) | `-r` 采集类型、`--aic_metrics` PMU 类型 |
 | [constraints.md](references/constraints.md) | 使用约束、产品支持矩阵、外部依赖、环境变量清单 |
@@ -142,16 +142,16 @@ asys analyze -r=aicore_error --path=${HOME}/aic_err_info_timestamp
 
 | 脚本 | 用途 |
 |------|------|
-| `scripts/find_asys.sh` | 定位 asys 可执行文件,检查 EP 形态、外部依赖与关键环境变量 |
+| `scripts/find_asys.sh` | 定位 asys 可执行文件，检查 EP 形态、外部依赖与关键环境变量 |
 
 ## 与其他 Skill 的关系
 
 **本 skill 是 asys 命令与参数的真源**,其他 skill 需要 asys 用法时引用本 skill,不要复制命令细节。
 
-- `ascendc-env-check`:npu-smi 不可用时的设备查询回退,回退命令引用本 skill。
-- `ascendc-crash-debug`:卡死/崩溃调试流程,堆栈与 coredump 解析步骤引用本 skill。
-- `ops-profiling`:算子性能采集主路径是 msprof;`asys profiling` 是系统级周期采样,定位不同。
-- `msnpureport-toolkit`:Device 侧 stackcore、coretrace、UB 文件的导出工具,是本 skill 解析功能的上游。
+- `ascendc-env-check`:npu-smi 不可用时的设备查询回退，回退命令引用本 skill。
+- `ascendc-crash-debug`:卡死/崩溃调试流程，堆栈与 coredump 解析步骤引用本 skill。
+- `ops-profiling`:算子性能采集主路径是 msprof;`asys profiling` 是系统级周期采样，定位不同。
+- `msnpureport-toolkit`:Device 侧 stackcore、coretrace、UB 文件的导出工具，是本 skill 解析功能的上游。
 
 ## 信息来源
 
