@@ -71,6 +71,8 @@ npx skills add https://gitcode.com/cann/cannbot-skills.git --skill ascendc-env-c
 
 全量 Skills/Agents 清单见 [功能清单](docs/feature-list.md)，使用样例见 [Skills 使用样例](docs/skills-usage.md)。
 
+下表仅保留 plugins-official 官方插件入口；领域目录级入口（graph/ runtime/ tools/ 等）与全量清单见 [功能清单](docs/feature-list.md)。
+
 | 领域 / 路径 | 适用场景 | 入口插件 |
 |------------|---------|---------|
 | **Ascend C 直调** | `<<<>>>` 直接调用核函数 | [ops-direct-invoke](plugins-official/ops-direct-invoke/AGENTS.md) / [ops-direct-invoke-flash](plugins-official/ops-direct-invoke-flash/AGENTS.md) |
@@ -80,13 +82,8 @@ npx skills add https://gitcode.com/cann/cannbot-skills.git --skill ascendc-env-c
 | **TileLang** | 按本机芯片路由，Ascend910 与 Ascend950 工作流及技能独立 | [tilelang-op-orchestrator](plugins-official/tilelang-op-orchestrator/AGENTS.md) |
 | **Triton** | `triton_ascend` DSL 生成并优化算子 | triton-op-generator（已迁移至 [cannbot](https://gitcode.com/cann/cannbot) 仓 `plugins-official/triton-op-generator`） |
 | **torch.compile 图模式** | npugraph_ex 图捕获与重放 | [torch-compile](plugins-official/torch-compile/AGENTS.md) |
-| **GE** | 图模式相关问题定位 | [graph](graph/) |
 | **模型推理优化** | NPU 推理端到端优化 | [model-infer-optimize](plugins-official/model-infer-optimize/AGENTS.md) |
 | **模型训练精度诊断** | PyTorch on Ascend NPU 的有限值偏差、非有限值和确定性异常诊断 | [cannbot 社区 Plugin](https://gitcode.com/cann/cannbot/tree/master/plugins-community/model-train-precision-diagnose) |
-| **Runtime** | Runtime LLT 开发与接口迁移 | [runtime](runtime/) |
-| **CANN 工具链** | 故障信息收集、Device 日志导出、AI Core Error 分析、npu-compute 性能采集与报告分析 | [tools](tools/) |
-| **科学计算模型迁移** | 框架级代码 NPU 迁移（环境门禁/脚本适配/精度性能对比） | — |
-| **治理与协作** | Skill 审查、GitCode PR/Issue 自动化 | — |
 
 ## 🔍 项目架构
 
