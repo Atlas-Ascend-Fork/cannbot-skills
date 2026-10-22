@@ -148,7 +148,11 @@ def main(argv: List[str] | None = None) -> int:
             print(f"scan_debug_apis: {exc}", file=sys.stderr)
             return 2
     else:
-        report = _merge_reports([scan_text(sys.stdin.read(), "<stdin>")])
+        try:
+            report = _merge_reports([scan_text(sys.stdin.read(), "<stdin>")])
+        except (OSError, ValueError) as exc:
+            print(f"scan_debug_apis: {exc}", file=sys.stderr)
+            return 2
 
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
