@@ -13,7 +13,8 @@
 | 3 | cpp-style.md | 代码风格 | STYLE | C++ | All | 默认启用 | 专项子 agent 独立托管（组名 style） | 16 | 命名/格式/注释风格，结果以 yaml category: style 输出，违反计入报告问题数（severity 取条款声明） |
 | 4 | ascendc-sunset-api.md | AscendC 日落检查 | SUNSET | C++ | All | 关键词触发（aclnn、aclrt、aclop） | 通用分组（容量2） | 2 | 跨侧别日落（废弃）API/头文件/库检查，预研报告驱动 + clause.get_sunset_api.py fallback |
 | 5 | ascendc-host-rules.md | AscendC工程约定 | HOST | C++ | Host | 关键词触发（InferDataType、IMPL_OP、REG_OP、IMPL_OP_INFERSHAPE、GetPlatformInfo、GetCoreNumAic/Aiv、GetUbBlockSize、TilingParse） | 通用分组（容量2） | 4 | HOST-1 InferDataType 须放 op_graph 目录（禁 op_host 链式写法）；HOST-2 REG_OP 算子必须实现 InferDataType（互斥分工）；HOST-3 platform 参数须校验取值合法性（判空+类型匹配零值拦截）；HOST-4 platform 参数须在 Tiling 方法中直接获取（禁 TilingParse→compileInfo→Tiling 传递） |
-| 6 | ascendc-log.md | AscendC日志 | LOG | C++ | Host | 关键词触发（OP_LOGE、OP_LOGI、OP_LOGW、OP_LOGD） | 通用分组（容量1） | 2 | LOG-1 裸 OP_LOGE 语义可映射时须替换为 log.h 预定义宏（EZ 码），意见须给出宏名+文件路径；LOG-2 日志中算子名须从 TilingContext 获取（优先直接传 context，GetNodeName() 亦合规），禁止硬编码算子名字符串，context 判空分支内豁免 |
+| 6 | ascendc-log.md | AscendC日志 | LOG | C++ | Host | 关键词触发（OP_LOGE、OP_LOGI、OP_LOGW、OP_LOGD） | 通用分组（容量1） | 2 | LOG-1 基于 cann-error-code-standard 核验实际入口，禁止推荐废弃宏，与 ERR 同根因合并；LOG-2 检查算子名来自上下文，保留判空分支豁免 |
+| 13 | ascendc-error-code.md | CANN错误码 | ERR | C++ | All | 必须触发（无条件启用，不参与内容筛查） | 通用分组（容量2） | 4 | ERR-1 检测 EZ0001、EZ0002、EZ0003、EZ0005、EZ0006、EZ0007 及旧宏；ERR-2 语义/注册/Arglist；ERR-3 首报唯一性；ERR-4 失败返回诊断；唯一基准 cann-error-code-standard |
 | 7 | ascendc-red-line.md | 高频问题清单 | RED | C++ | All | 必须触发（无条件启用，不参与内容筛查） | 通用分组（容量3），**最高优先级** | 10 | 生产环境总结的红线问题（除零/越界/溢出/未初始化/数据竞争等） |
 | 8 | ascendc-topk.md | 高频问题清单 | TOPK | C++ | All | 必须触发（无条件启用，不参与内容筛查） | 通用分组（容量3），**最高优先级** | 14 | 检视实践中高频风险点（野指针/特殊值/返回值校验/atomic 清零等） |
 | 9 | mc2-specific.md | 领域专项 | MC2 | C++ | Host, Kernel | 关键词触发（hccl_、expert、dispatch 等 26 个） | 通用分组（容量5） | 19 | MC² 通算融合算子：通信同步/MoE 专家路由/量化精度/CCU 硬件约束 |

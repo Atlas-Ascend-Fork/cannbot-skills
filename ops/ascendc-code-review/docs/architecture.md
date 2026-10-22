@@ -470,6 +470,7 @@ Step 2: 逐文件匹配：语言 → 侧别 → 默认启用 → 领域触发
 | `SIMT` | simt-api-analysis.md | SIMT API转换 |
 | `MC2` | mc2-specific.md | MC²领域 |
 | `LOG` | ascendc-log.md | AscendC日志上报 |
+| `ERR` | ascendc-error-code.md | CANN错误码，唯一基准为相邻 cann-error-code-standard；不复制正式码表 |
 | `HOST` | ascendc-host-rules.md | AscendC Host工程布局 |
 | `STYLE` | cpp-style.md | 代码风格（专项托管） |
 
@@ -509,3 +510,17 @@ Step 2: 逐文件匹配：语言 → 侧别 → 默认启用 → 领域触发
 **创建文件**：`scripts/{name}.py`（或 `.sh`）
 
 **使用**：在step文件中通过 `{skill_base}/scripts/{name}.py` 引用。脚本通过CLI参数接收输入，stdout输出结果，exit code表示状态。
+
+### 5.5 错误码基准与门禁部署工具（供维护者使用）
+
+`ascendc-error-code.md` 通过声明头自动纳入文件/PR 检视，快速检视按“错误码”等关键词匹配该文件。安装或分发本 skill 时须同时提供相邻的 `cann-error-code-standard`，基准缺失不能跳过该检测项。正式码表只在该上游维护。
+
+```bash
+python3 scripts/install_error_code_hooks.py --repo /path/to/ops-math
+```
+
+安装器将检测器和上游码表部署到目标有效 hooks 目录下的 `cann-error-code/`，记录来源与 SHA256；此副本是部署快照，更新上游后重新运行安装器刷新。拦截错误码为 `EZ0001、EZ0002、EZ0003、EZ0005、EZ0006、EZ0007`。`pre-commit` 检查 index 中新增的 C/C++ 行，`pre-push` 检查每个待推送提交（包括新建分支、合并提交）。未改动的历史存量、注释、文档、三方依赖和构建产物不在词法门禁范围；实验目录仍扫描。读取基准或 Git 数据失败时拦截，已有自定义 hook 不覆盖。安装只写目标本地 Git 元数据，不改源码、暂存区、分支、历史或远端。
+
+测试：`python3 scripts/test_error_code_gate.py`，用临时仓库构造 Git 对象验证 index/push 语义，不在目标仓库创建 commit。门禁只覆盖六个废弃码；正式码语义、include 链和运行时首报仍由 ERR-2~4 检视。
+
+Git 门禁的快照与增量语义由脚本测试覆盖，不属于代码检视 Skill 的问答评测；`evals/evals.json` 只验证检视能力。

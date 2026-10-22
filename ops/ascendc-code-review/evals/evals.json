@@ -142,6 +142,24 @@
       "expected_output": "应说明假设检验驱动的检视流程（core/methodology.md）：代码段识别→建立原假设 H0（代码段安全）与备择假设 H1（存在风险，自信值初始 0%）→收集并评估证据：正向证据（规范违反 +40%、上下文防御缺失 +30%、PR 归属 +20%、调用链/数据流风险 +15%、领域关联 +10%）与负向证据（防御存在 -20%、上游校验 -15%、范围外 -50%）→判定结论；负向证据必须附可验证的代码引用（格式 [文件路径]:[行号] [具体代码行内容]），否则该条证据得分为 0。",
       "expectations": [],
       "files": []
+    },
+    {
+      "id": 10,
+      "title": "错误码检视引用唯一基准与废弃码检测",
+      "config": {"max_tokens": 160000, "ascend_platforms": ["A2"], "eval_mode": "text"},
+      "prompt": "请说明新增的错误码检测项如何工作，要拦截哪些废弃错误码？Host 代码使用 OP_LOGE_WITH_INVALID_INPUT_SHAPE(opName, 0, actual, expected)，目前看不到依赖的 log.h，应该如何给出检视结论和修复建议？不要调用外部服务，也不要修改代码。",
+      "expected_output": "应说明引用 cann-error-code-standard 的 SKILL、development-standard 和 documented-error-codes.json，而不是复制正式码表。列出要拦截的 EZ0001、EZ0002、EZ0003、EZ0005、EZ0006、EZ0007 及对应旧宏。旧 shape 宏是废弃码候选，须解析实际宏定义和 include 链；缺少 log.h 时不能臆称实际叶子已验证。替换按语义参数名、单/多参数、expected/reason 选择目标版本已注册且可见的入口，不机械改编号。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 11,
+      "title": "正式码注册契约与首报唯一性",
+      "config": {"max_tokens": 160000, "ascend_platforms": ["A2"], "eval_mode": "text"},
+      "prompt": "检视错误码：LowerLayer 已报告具体参数错误，外层 if(rc != SUCCESS) 又 REPORT_INNER_ERR_MSG(\"EZ9999\", \"failed\") 并返回 rc。我们在官方文档看到了一个替代正式码，就能直接上报吗？不需要修改或编译代码。",
+      "expected_output": "应检查 ERR-2/3：资料收录不等于目标版本已注册或实际宏可用，须核对目标注册项、Arglist 名称数量顺序以及 include 链。下层已首报时外层只能补日志和原始 rc 并透传，不能再用内部码覆盖首错；保持公开返回值兼容。注明编译、负向日志和首错唯一性没有在本次静态咨询中验证。",
+      "expectations": [],
+      "files": []
     }
   ]
 }

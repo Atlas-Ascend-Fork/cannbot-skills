@@ -7,232 +7,51 @@
 触发: OP_LOGE, OP_LOGI, OP_LOGW, OP_LOGD
 默认启用: true
 适用场景: op_host/**/*.cpp, op_graph/**/*.cpp, op_api/**/*.cpp（覆盖 tiling、InferShape、InferDataType、aclnn 实现）
-介绍: 两条检视规则：LOG-1 语义可映射时禁止独立使用（裸调用）OP_LOGE 打印错误日志，必须替换为 log.h 预定义宏 OP_LOGE_WITH_*/OP_LOGE_FOR_*，检视意见须给出应替换的宏名称与宏定义所在文件路径；LOG-2 日志中打印算子名称必须从 TilingContext 获取——优先直接传 context（框架自动携带算子标识），context->GetNodeName() 合规，禁止自定义算子名称的字符串（context 判空分支内豁免）
+介绍: LOG-1 按 cann-error-code-standard 核验日志的实际上报入口和正式语义，禁止推荐治理废弃宏；LOG-2 检查日志中的算子名来源。
 </适用>
 
 <检视负载>
 通用检视子 agent 检视条款容量上限: 1
 </检视负载>
 
-> **适用范围**：AscendC host 侧代码——`op_host/`（tiling、InferShape、InferDataType）、`op_graph/`（infer 实现）、`op_api/`（aclnn 实现）中的错误日志打印
->
-> **背景**：opbase 在 `include/op_common/log/log.h` 中为常见参数校验场景预定义了带专属错误码（EZ 系列）的日志宏，打印日志的同时上报结构化错误信息
-
 ## 快速索引
 
 | 规范编号 | 规范名称 | 类别 | 侧别 | 严重级别 |
 |---------|---------|------|------|---------|
-| LOG-1 | 语义可映射时禁止独立使用 OP_LOGE，必须替换为 log.h 预定义宏 | 日志规范 | Host | 中 |
+| LOG-1 | 语义可映射时使用目标版本正式入口，不推荐治理废弃宏 | 错误码规范 | Host | 中 |
 | LOG-2 | 日志中打印算子名称必须从 TilingContext 获取，禁止自定义算子名字符串 | 日志规范 | Host | 中 |
 
----
-
-## LOG-1: 语义可映射时禁止独立使用 OP_LOGE `[适用: Host]`
+## LOG-1: 语义可映射时核验正式错误上报入口 `[适用: Host]`
 
 **严重级别**：中
 
 ### 问题描述
 
-裸 `OP_LOGE`（无下划线后缀）内部上报**通用错误码 EZ9999**，不携带结构化字段；而 `log.h` 预定义宏（`OP_LOGE_WITH_*` / `OP_LOGE_FOR_*`）在打印日志的同时，通过 `REPORT_PREDEFINED_ERR_MSG` 上报**专属 EZ 错误码（EZ0001–EZ0038）**及结构化 msgKey/msgValue，供错误诊断系统采集与聚合。
+本条的唯一错误码基准为 `{skill_base}/../cann-error-code-standard/SKILL.md` 及其 `references/development-standard.md`、`references/documented-error-codes.json`。废弃码、注册契约和首报判据分别由 ERR-1~4 定义，不再在日志规则中维护第二份宏码映射表。
 
-当裸 `OP_LOGE` 的日志语义属于预定义宏覆盖的场景（参数 shape/维度/shapeSize/dtype/format/属性取值/tensor 数量/列表长度/stride/文件/配置项等校验失败）时，必须替换为对应宏，否则错误信息无法进入结构化诊断链路。
+不能把所有裸 `OP_LOGE` 都判为 EZ9999，也不能把所有带后缀的 `OP_LOGE_WITH_*` 都判为合规。实际宏来源可能是 op_common、nnopbase 或项目包装；先解析目标 include 链，再判断最终上报叶子。已知下层首报后，外层仅日志并透传；过程信息不能无证据认定为正式上报缺陷。
 
-**覆盖的代码范围**：`op_host/**/*.cpp`（tiling、InferShape、InferDataType）、`op_graph/**/*.cpp`、`op_api/**/*.cpp`（aclnn 实现）。Kernel 侧（`op_kernel/`）不适用本条。
-
-### 关键定义："独立使用"（裸调用）
-
-检索正则：`\bOP_LOGE\s*\(`
-
-| 用法 | 是否本条检视对象 |
-|------|-----------------|
-| `OP_LOGE(...)` —— 裸调用，无下划线后缀 | 是 |
-| `OP_LOGE_WITH_*(...)` / `OP_LOGE_FOR_*(...)` —— log.h 预定义宏 | 否，合规用法 |
-| `OP_LOGE_LIBOPAPI_REPORT(...)` / `OP_LOGE_WITHOUT_REPORT(...)` —— 底层/别名宏 | 否 |
-
-### 检查点
-
-| 序号 | 检查项 | 判断依据 |
-|------|--------|---------|
-| 1 | op_host/ op_graph/ op_api/ 下是否存在裸 `OP_LOGE(` | 检索 `\bOP_LOGE\s*\(`，带后缀宏跳过 |
-| 2 | 裸调用的日志语义是否命中宏语义映射表 | 按下方映射表逐组比对格式串与实参 |
-| 3 | 宏所需参数在当前上下文是否可构造 | 检查 entityName/paramName/实际值/期望值等实参来源 |
-
-### 反例
+### 错误示例
 
 ```cpp
-// 反例1: InferShape 中裸 OP_LOGE 打印维度校验失败（op_host/xxx_infershape.cpp）
-static ge::graphStatus InferShape4Xxx(gert::InferShapeContext* context)
-{
-    const gert::Shape* xShape = context->GetInputShape(0);
-    if (xShape->GetDimNum() != 4) {
-        OP_LOGE(context, "the shape of x must be 4D, but got %lu dims.", xShape->GetDimNum());   // ❌ 裸 OP_LOGE
-        return ge::GRAPH_FAILED;
-    }
-    return ge::GRAPH_SUCCESS;
-}
+// 参数错误仍使用已被治理禁用的按 input index 上报码。
+OP_LOGE_WITH_INVALID_INPUT_SHAPE(context->GetNodeName(), 0, actualShape, expectedShape);
 ```
+
+### 正确示例
 
 ```cpp
-// 反例2: tiling 中裸 OP_LOGE 打印属性取值校验失败（op_host/xxx_tiling.cpp）
-static ge::graphStatus XxxTiling(gert::TilingContext* tilingContext)
-{
-    const int64_t kernelSize = tilingContext->GetAttrs()->GetAttrPointer<int64_t>(0);
-    if (kernelSize <= 0) {
-        OP_LOGE(tilingContext, "kernel_size must be positive, but got %ld.", kernelSize);   // ❌ 裸 OP_LOGE
-        return ge::GRAPH_FAILED;
-    }
-    return ge::GRAPH_SUCCESS;
-}
+// 目标版本已确认支持该语义宏及其 EZ0008 注册项；使用稳定参数名。
+OP_LOGE_FOR_INVALID_SHAPE(context->GetNodeName(), "x", actualShape, expectedShape);
 ```
-
-```cpp
-// 反例3: aclnn 实现中裸 OP_LOGE 打印入参数量校验失败（op_api/src/aclnn_xxx.cpp）
-if (numInputs != 2) {
-    OP_LOGE(opName, "the num of inputs must be 2, but got %ld.", numInputs);   // ❌ 裸 OP_LOGE
-    return ACLNN_ERR_PARAM_INVALID;
-}
-```
-
-### 正例
-
-```cpp
-// 正例1: 替换为 OP_LOGE_FOR_INVALID_SHAPEDIM（EZ0011）
-// 日志语义 = 参数 shape 维度错误且含期望值；实际维度可由 GetDimNum() 构造
-OP_LOGE_FOR_INVALID_SHAPEDIM("Xxx", "x", std::to_string(xShape->GetDimNum()) + "D", "4D");
-
-// 正例2: 替换为 OP_LOGE_FOR_INVALID_VALUE_WITH_REASON（EZ0026）
-// 日志语义 = 参数取值错误，约束为描述性（positive），无具体期望值 → 选 _WITH_REASON 变体
-OP_LOGE_FOR_INVALID_VALUE_WITH_REASON("Xxx", "kernel_size", std::to_string(kernelSize), "it must be positive");
-
-// 正例3: 替换为 OP_LOGE_FOR_INVALID_TENSORNUM（EZ0022）
-// incorrectNum 为 int64_t 直接传入，correctNum 为字符串
-OP_LOGE_FOR_INVALID_TENSORNUM(opName, "inputs", numInputs, "2");
-
-// 正例4【PASS】: 过程信息，映射表中无对应语义 → 不报
-OP_LOGE(opName, "enter XxxTiling, tilingKey = %lu.", tilingKey);
-```
-
-### 宏语义映射表（38 个预定义宏）
-
-> 来源：opbase 仓 `include/op_common/log/log.h`（master 分支，commit 245f557d）。
-> `entityName` 为算子名（REG_OP 注册名）或 aclnn 接口名（如 `"aclnnXxx"`），infershape/tiling 中通常传字符串字面量。
-
-**A. WITH_ 系列（EZ0001–EZ0007）——校验第 index 个输入/输出时优先使用**
-
-| 宏名称 | EZ码 | 日志语义 | 参数签名 |
-|--------|------|---------|---------|
-| OP_LOGE_WITH_INVALID_INPUT_SHAPE | EZ0001 | 第 index 个输入 shape 错误，应为 correctShape | entityName, index, incorrectShape, correctShape |
-| OP_LOGE_WITH_INVALID_ATTR | EZ0002 | 属性值错误，应为 correctVal | entityName, attrName, incorrectVal, correctVal |
-| OP_LOGE_WITH_INVALID_ATTR_SIZE | EZ0003 | 属性 size 错误，应为 correctSize | entityName, attrName, incorrectSize, correctSize |
-| OP_LOGE_WITH_INVALID_INPUT | EZ0004 | 参数必填但为空 | entityName, paramName |
-| OP_LOGE_WITH_INVALID_INPUT_SHAPESIZE | EZ0005 | 第 index 个输入 shape size（元素总数）错误 | entityName, index, incorrectSize, correctSize |
-| OP_LOGE_WITH_INVALID_INPUT_FORMAT | EZ0006 | 输入 format 错误，应为 expectedFormatList | entityName, paramName, dataFormat, expectedFormatList |
-| OP_LOGE_WITH_INVALID_INPUT_DTYPE | EZ0007 | 输入 dtype 错误，应为 expectedDtypeList | entityName, paramName, dataDtype, expectedDtypeList |
-
-**B. FOR_ 系列——shape / 维度 / shapeSize（EZ0008–EZ0016）**
-
-| 宏名称 | EZ码 | 日志语义 | 参数签名 |
-|--------|------|---------|---------|
-| OP_LOGE_FOR_INVALID_SHAPE | EZ0008 | 单参数 shape 错误（含期望值） | entityName, paramName, incorrectShape, correctShape |
-| OP_LOGE_FOR_INVALID_SHAPE_WITH_REASON | EZ0009 | 单参数 shape 错误（含原因） | entityName, paramName, incorrectShape, reason |
-| OP_LOGE_FOR_INVALID_SHAPES_WITH_REASON | EZ0010 | 多参数 shape 错误（含原因） | entityName, paramNames, incorrectShapes, reason |
-| OP_LOGE_FOR_INVALID_SHAPEDIM | EZ0011 | 单参数 shape 维度错误（含期望值） | entityName, paramName, incorrectDim, correctDim |
-| OP_LOGE_FOR_INVALID_SHAPEDIM_WITH_REASON | EZ0012 | 单参数维度错误（含原因） | entityName, paramName, incorrectDim, reason |
-| OP_LOGE_FOR_INVALID_SHAPEDIMS_WITH_REASON | EZ0013 | 多参数维度错误（含原因） | entityName, paramNames, incorrectDims, reason |
-| OP_LOGE_FOR_INVALID_SHAPESIZE | EZ0014 | 单参数 shape size 错误（含期望值） | entityName, paramName, incorrectSize, correctSize |
-| OP_LOGE_FOR_INVALID_SHAPESIZE_WITH_REASON | EZ0015 | 单参数 shape size 错误（含原因） | entityName, paramName, incorrectSize, reason |
-| OP_LOGE_FOR_INVALID_SHAPESIZES_WITH_REASON | EZ0016 | 多参数 shape size 错误（含原因） | entityName, paramNames, incorrectSizes, reason |
-
-**C. FOR_ 系列——format / dtype（EZ0017–EZ0021, EZ0035）**
-
-| 宏名称 | EZ码 | 日志语义 | 参数签名 |
-|--------|------|---------|---------|
-| OP_LOGE_FOR_INVALID_FORMAT | EZ0017 | 单参数 format 错误（含期望值） | entityName, paramName, incorrectFormat, correctFormat |
-| OP_LOGE_FOR_INVALID_FORMATS_WITH_REASON | EZ0018 | 多参数 format 错误（含原因） | entityName, paramNames, incorrectFormats, reason |
-| OP_LOGE_FOR_INVALID_DTYPE | EZ0019 | 单参数 dtype 错误（含期望值） | entityName, paramName, incorrectDtype, correctDtype |
-| OP_LOGE_FOR_INVALID_DTYPE_WITH_REASON | EZ0020 | 单参数 dtype 错误（含原因） | entityName, paramName, incorrectDtype, reason |
-| OP_LOGE_FOR_INVALID_DTYPES_WITH_REASON | EZ0021 | 多参数 dtype 错误（含原因） | entityName, paramNames, incorrectDtypes, reason |
-| OP_LOGE_FOR_INVALID_FORMAT_WITH_REASON | EZ0035 | 单参数 format 错误（含原因） | entityName, paramName, incorrectFormat, reason |
-
-**D. FOR_ 系列——取值 / 数量 / 长度 / stride / 通用非法（EZ0022–EZ0028, EZ0037, EZ0038）**
-
-| 宏名称 | EZ码 | 日志语义 | 参数签名 |
-|--------|------|---------|---------|
-| OP_LOGE_FOR_INVALID_TENSORNUM | EZ0022 | 参数 tensor 数量错误（含期望值） | entityName, paramName, incorrectNum(int64_t), correctNum |
-| OP_LOGE_FOR_INVALID_TENSORNUMS_WITH_REASON | EZ0023 | 多参数 tensor 数量错误（含原因） | entityName, paramNames, incorrectNums, reason |
-| OP_LOGE_FOR_INVALID_VALUE | EZ0024 | 单参数取值错误（含期望值） | entityName, paramName, incorrectValue, correctValue |
-| OP_LOGE_FOR_INVALID_LISTSIZE | EZ0025 | 参数列表长度错误（含期望值） | entityName, paramName, incorrectSize, correctSize |
-| OP_LOGE_FOR_INVALID_VALUE_WITH_REASON | EZ0026 | 单参数取值错误（含原因） | entityName, paramName, incorrectValue, reason |
-| OP_LOGE_FOR_INVALID_VALUES_WITH_REASON | EZ0027 | 多参数取值错误（含原因） | entityName, paramNames, incorrectValues, reason |
-| OP_LOGE_FOR_INVALID_STRIDE | EZ0028 | 参数 stride 错误（含期望值） | entityName, paramName, incorrectStride, correctStride |
-| OP_LOGE_FOR_INVALID_ARGUMENT_WITH_REASON | EZ0037 | 参数非法（含原因，无期望值） | entityName, paramName, reason |
-| OP_LOGE_FOR_INVALID_LISTSIZE_WITH_REASON | EZ0038 | 参数列表长度错误（含原因） | entityName, paramName, incorrectSize, reason |
-
-**E. FOR_ 系列——文件 / 配置项 / 图节点（EZ0029–EZ0034, EZ0036）**
-
-| 宏名称 | EZ码 | 日志语义 | 参数签名 |
-|--------|------|---------|---------|
-| OP_LOGE_FOR_FILE_PATH | EZ0029 | 输入路径非法 | opName, filePath, reason |
-| OP_LOGE_FOR_FILE_OPEN | EZ0030 | 文件打开失败 | opName, filePath, reason |
-| OP_LOGE_FOR_FILE_PARSE | EZ0031 | 文件解析失败 | opName, fileName, reason |
-| OP_LOGE_FOR_INVALID_CONFIG | EZ0032 | 配置项取值错误（含期望值） | opName, configFile, item, value, expect |
-| OP_LOGE_FOR_INVALID_CONFIG_WITH_REASON | EZ0033 | 配置项取值错误（含原因） | opName, configFile, item, value, reason |
-| OP_LOGE_FOR_INVALID_CONFIGS_WITH_REASON | EZ0034 | 多配置项取值错误（含原因） | opName, configFile, items, values, reason |
-| OP_LOGE_FOR_INVALID_GRAPH_NODE | EZ0036 | 输入图含非法节点 | nodeName, reason |
 
 ### 专属检视方法
 
-**步骤1 — 定位裸调用**：在 `op_host/` `op_graph/` `op_api/` 范围内检索 `\bOP_LOGE\s*\(`；带后缀宏（`OP_LOGE_WITH_*` / `OP_LOGE_FOR_*` / `OP_LOGE_LIBOPAPI_REPORT` / `OP_LOGE_WITHOUT_REPORT`）跳过；`op_kernel/` 下的命中跳过（Kernel 侧不适用）。
-
-**步骤2 — 语义判定**：逐条提取裸调用的格式串与实参，按映射表比对。常见信号：
-
-| 裸日志中的语义信号 | 候选宏组 |
-|-------------------|---------|
-| "shape of xx must/should be [具体 shape]" | A 组 SHAPE / B 组 SHAPE/SHAPESIZE |
-| "dim of xx / must be 2D/4D"（维度数错误） | B 组 SHAPEDIM 类 |
-| "shape size / element nums" | B 组 SHAPESIZE 类 |
-| "dtype of xx must be" | A 组 WITH_INVALID_INPUT_DTYPE / C 组 DTYPE 类 |
-| "format of xx must be" | A 组 WITH_INVALID_INPUT_FORMAT / C 组 FORMAT 类 |
-| "attr xxx must be" | A 组 ATTR 类 / D 组 VALUE 类 |
-| "num of inputs/outputs/tensors" | D 组 TENSORNUM 类 |
-| "list size / length of list" | D 组 LISTSIZE 类 |
-| "stride of xx" | D 组 FOR_INVALID_STRIDE |
-| 文件路径无效 / 打开失败 / 解析失败 | E 组 FILE_* |
-| 配置项取值非法 | E 组 CONFIG 类 |
-
-变体选择规则：
-1. 校验明确第 index 个输入/输出（如 aclnn 入参、`context->GetInputShape(i)`）→ 优先 WITH_ 系列（EZ0001–EZ0007）；不区分输入输出的通用参数 → FOR_ 系列
-2. 有明确期望值（"must be 4D" / "should be [1,128]"）→ 基础变体；只有描述性原因（positive / in range 等）→ `_WITH_REASON` 变体
-3. 单个参数 → 单数形式；多个参数 → 复数形式（`*_S_WITH_REASON`）
-
-**步骤3 — 参数可得性判定**：
-- 语义命中，且宏所需参数（entityName/paramName/实际值/期望值）在当前上下文可构造 → **FAIL(HIGH)**
-- 语义命中但个别参数确实不可得（如上下文无 opName 且算子名无法确认）→ **SUSPICIOUS(MED)**，意见中说明缺失参数
-- 语义不匹配（过程/调试/性能打点等，映射表无对应场景）→ **PASS**，不报
-
-**步骤4 — 意见输出（FAIL/SUSPICIOUS 强制三要素）**：
-1. 应替换的**宏名称**（如 `OP_LOGE_FOR_INVALID_SHAPEDIM`）
-2. 宏定义所在的**文件路径**：opbase 仓 `include/op_common/log/log.h`（https://gitcode.com/cann/opbase/blob/master/include/op_common/log/log.h ；若被检视仓依赖路径下可见本地 log.h，优先引用本地路径）
-3. 按宏参数签名给出的**替换写法示例**
-
-意见模板：
-
-```
-[LOG-1] 独立使用 OP_LOGE 打印参数校验日志，语义可由预定义宏替代：
-- 应替换宏: OP_LOGE_FOR_INVALID_SHAPEDIM（EZ0011）
-- 宏定义位置: opbase 仓 include/op_common/log/log.h
-  （https://gitcode.com/cann/opbase/blob/master/include/op_common/log/log.h）
-- 建议写法: OP_LOGE_FOR_INVALID_SHAPEDIM("Xxx", "x", std::to_string(xShape->GetDimNum()) + "D", "4D");
-- 原因: 裸 OP_LOGE 上报通用码 EZ9999 且无结构化字段，预定义宏上报专属 EZ 码供错误诊断系统采集
-```
-
-### 注意事项
-
-1. 替换的根本动机：裸 `OP_LOGE` 上报通用码 EZ9999、无结构化字段；预定义宏上报专属 EZ 码 + 结构化 msgKey/msgValue
-2. 替换后错误消息由宏内部固定模板生成，原裸调用中的自定义格式串删除，只按参数签名传值
-3. 映射表来源为 log.h master 分支（commit 245f557d，2026-09-05），宏清单可能随 opbase 演进；检视时若被检视仓内可见实际依赖的 log.h，以其为准核对宏存在性与签名
-4. 语义无法映射的裸 `OP_LOGE`（过程/调试信息）按 PASS 处理，不强制改用 `OP_LOGE_WITHOUT_REPORT`
-5. 上述宏"仅供算子或 aclnn 实现使用"（log.h 原文注释），本条覆盖的 op_host/op_graph/op_api 代码即属此类
+1. 定位被检范围的日志与包装宏，读取上述基准规范，追溯实际宏定义文件、include 链和最终 ErrorManager 入口。
+2. 语义可映射且目标注册项、宏签名和参数可得性已核验，才建议具体替换；缺少目标版本证据时标记 SUSPICIOUS 并列出缺口，不依据宏名臆测。
+3. 禁止推荐基准 `governance_deprecated` 中的 `EZ0001、EZ0002、EZ0003、EZ0005、EZ0006、EZ0007` 及其对应旧宏。
+4. 沿用通用假设检验方法。意见给出原调用、真实叶子、根因类别、资料 URL、目标注册/宏路径、Arglist 和建议写法；保持公开返回值兼容。
+5. 同一调用点同根因已由 ERR-* 报告时合并为一条意见；LOG-2 仍单独检查算子名来源。
 
 ---
 
