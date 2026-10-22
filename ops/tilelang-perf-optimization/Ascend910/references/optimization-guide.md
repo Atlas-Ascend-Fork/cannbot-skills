@@ -554,7 +554,7 @@ def find_max_tile(total_dim, fixed_dim, N_cal, N_input, dtype_str):
     """根据 UB 容量反推最大 tile 尺寸。"""
     UB_BUDGET = 192 * 1024
     cal_bytes   = 4 if dtype_str in ("float16", "bfloat16") else int(dtype_str[-2:]) // 8
-    input_bytes = cal_bytes if dtype_str == "float32" else 2
+    input_bytes = cal_bytes if dtype_str in ("float32", "int32") else 2
     c = max(fixed_dim, 1)
     per_unit = c * (N_cal * cal_bytes + N_input * input_bytes)
     max_tile = (UB_BUDGET // per_unit // 16) * 16
