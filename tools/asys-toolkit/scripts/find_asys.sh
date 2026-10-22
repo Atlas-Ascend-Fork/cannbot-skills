@@ -54,7 +54,12 @@ if [ -z "$ASYS_BIN" ]; then
 else
     note ""
     note "=== 帮助信息 ==="
-    if ! "$ASYS_BIN" --help 2>&1 | head -20; then
+    # 先完整捕获 help 输出并记录退出码，再截取前 20 行；
+    # 直接管道 head 在 pipefail 下会因 SIGPIPE 把输出多于 20 行的
+    # --help 误判为执行失败
+    help_output=$("$ASYS_BIN" --help 2>&1) && help_status=0 || help_status=$?
+    printf '%s\n' "$help_output" | head -20
+    if [ "$help_status" -ne 0 ]; then
         note "[WARN] asys --help 执行失败，工具可能不完整"
     fi
 fi
