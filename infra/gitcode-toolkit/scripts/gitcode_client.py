@@ -48,6 +48,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import tempfile
 import threading
 import time
@@ -385,15 +386,10 @@ def session_rate_limiter(session):
 # Token redaction (for safe logging)
 # --------------------------------------------------------------------------- #
 def redact_token(url):
-    """Strip access_token=... from a URL for safe logging."""
+    """Strip every access_token=... value from a URL for safe logging."""
     if not url:
         return url
-    if "access_token=" in url:
-        head, _, tail = url.partition("access_token=")
-        token_val = tail.split("&", 1)[0]
-        rest = tail[len(token_val):]
-        url = f"{head}access_token=***{rest}"
-    return url
+    return re.sub(r"(access_token=)[^&#]*", r"\1***", url)
 
 
 def safe_error_text(resp):

@@ -318,3 +318,21 @@ class TestPost:
             "Accept": "application/json",
         }
         assert kwargs["json"] == [42]
+
+
+class TestRedactToken:
+    @staticmethod
+    def test_redacts_every_access_token_occurrence() -> None:
+        url = "https://api.example/issues?access_token=FAKE_A&access_token=FAKE_B&x=1"
+
+        assert CLIENT.redact_token(url) == (
+            "https://api.example/issues?access_token=***&access_token=***&x=1"
+        )
+
+    @staticmethod
+    def test_redacts_trailing_access_token() -> None:
+        url = "https://api.example/issues?x=1&access_token=FAKE_TOKEN"
+
+        assert CLIENT.redact_token(url) == (
+            "https://api.example/issues?x=1&access_token=***"
+        )
