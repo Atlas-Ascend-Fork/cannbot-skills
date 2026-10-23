@@ -62,6 +62,7 @@
                 <filteritem type="filename" name="*.csv" desc="CSV test case files, no license header required"/>
                 <filteritem type="filename" name="*.png" desc="PNG image files for documentation"/>
                 <filteritem type="filename" name="*.tpl" desc="Code generation templates with placeholder variables, license header injected at generation time"/>
+                <filteritem type="filename" name="requirements*.txt" desc="Dependency manifest files, license header not applicable"/>
                 <!--filteritem type="filename" name="*.uvwxyz" desc="Describe the reason for filtering scan results"/-->
                 <!--filteritem type="filepath" name="abcdefg/.*.uvwxyz" desc="Describe the reason for filtering scan results"/-->
                 <!--filteritem type="filepath" name="projectroot/[a-zA-Z0-9]{20,}.sh" desc="Temp files"/-->

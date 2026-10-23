@@ -1,6 +1,6 @@
 # ST 测试覆盖率报告
 
-当前 ST 框架覆盖 **110 个 Skill + 18 个 Team**，共 **906 个评测用例**（仅统计已启用用例，截止 2026-10-20）。
+当前 ST 框架覆盖 **112 个 Skill + 17 个 Team**，共 **913 个评测用例**（仅统计已启用用例，截止 2026-10-23）。
 
 > **统计口径**：统计代码仓内所有符合结构要求的 Skill（`skill_dirs` 下含 `SKILL.md`）与 Team（`team_dirs` 下含 `AGENTS.md` + `.claude-plugin/plugin.json`），与是否携带 `evals/evals.json` 无关——无 evals 的实体用例数计 0。
 
@@ -21,12 +21,13 @@
 
 按域分组统计：
 
-### ops/（70 Skills，共 522 个用例）
+### ops/（71 Skills，共 526 个用例）
 
 | 名称 | 用例数 | 正向看护 | 负向看护 | 正确性看护 | 调用流程看护 | 资源消耗看护 |
 | --- | :--: | :--: | :--: | :--: | :--: | :--: |
 | aiss-tiling-solver | 5 |   |   | √ |   | √ |
 | ascendc-api-best-practices | 10 | √ |   | √ |   | √ |
+| ascendc-api-docs-gen | 4 |   |   | √ |   | √ |
 | ascendc-blaze-best-practice | 15 |   |   | √ |   | √ |
 | ascendc-blaze-migration | 10 |   |   | √ | √ | √ |
 | ascendc-code-review | 8 | √ |   | √ |   | √ |
@@ -95,6 +96,12 @@
 | triton-precision-debug | 10 | √ |   | √ |   | √ |
 | triton-simulator-optimizer | 10 |   |   | √ |   | √ |
 | triton-task-extractor | 7 |   |   | √ |   | √ |
+
+### community/ops/（1 Skill，共 6 个用例）
+
+| 名称 | 用例数 | 正向看护 | 负向看护 | 正确性看护 | 调用流程看护 | 资源消耗看护 |
+| --- | :--: | :--: | :--: | :--: | :--: | :--: |
+| pypto-pro-kernel | 6 |   |   | √ |   | √ |
 
 ### graph/（12 Skills，共 96 个用例）
 

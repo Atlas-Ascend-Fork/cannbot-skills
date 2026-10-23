@@ -101,6 +101,25 @@
       ]
     },
     {
+      "name": "pypto-pro-op-orchestrator-skills",
+      "description": "PyPTO-Pro 算子开发 Skill（1 个）。原生 pypto_pro kernel 编写、验证、调试、native-task 计时与性能优化，含可运行样例与静态检查。",
+      "source": "./community/ops",
+      "strict": false,
+      "version": "1.0.0",
+      "author": {
+        "name": "CANNBot"
+      },
+      "keywords": [
+        "pypto",
+        "pypto-pro",
+        "skills"
+      ],
+      "category": "skills",
+      "skills": [
+        "./pypto-pro-kernel"
+      ]
+    },
+    {
       "name": "torch-npugraph-ex-skills",
       "description": "PyTorch 昇腾 NPU npugraph_ex Skills（7 个）。覆盖图模式知识、代码模板、问题分诊、编译错误、运行时错误、性能诊断和自定义算子入图。",
       "source": "./graph",

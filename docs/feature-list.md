@@ -138,6 +138,18 @@
 | **pypto-op-optimizer** | 性能分析与自动调优（分步骤） |
 | **pypto-op-auto-tuner-panko** | PANKO 搜索式自动调优（world model + evaluator，用户要求 PANKO 时启用） |
 
+## PyPTO-Pro 算子开发
+
+> 以下 Skill 位于 `community/ops/` 目录，属实验/非正式版本，可能存在平台或能力限制。
+
+### Skills（1 个）
+
+| Skill | 功能 |
+|-------|------|
+| **pypto-pro-kernel** | 原生 pypto_pro kernel 编写、验证、调试、native-task 计时与性能优化（@pl.jit / VF / SIMT / Cube API，含可运行样例与静态检查） |
+
+> PyPTO-Pro 的编排入口等插件资产统一维护在 cannbot 仓，本仓仅保留 skill 本体。
+
 ## TileLang 算子开发
 
 ### Skills
