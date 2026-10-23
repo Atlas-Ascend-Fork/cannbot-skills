@@ -13,7 +13,7 @@ description: Ascend C 算子 Tiling 设计指南。提供算子分类体系和 T
 | **Sort 排序类** | 排序、TopK、外部归并 | Sort, ArgSort, TopK | ✅ [场景路由](references/sort/patterns.md)（⚠️ 必须先读） / [多核两级归并方案](references/sort/alg-two-level-mrgsort.md) |
 | **Elementwise 逐元素类** | 输入输出Shape相同，逐元素独立计算 | Sin, Cos, Abs, Exp | ✅ [场景路由](references/elewise/patterns.md)（⚠️ 必须先读） |
 | Broadcast 广播类 | 输入Shape不同，需广播对齐 | Add, Mul, Sub | ✅ [场景路由](references/broadcast/patterns.md)（⚠️ 必须先读） |
-| Conversion 数据转换类 | 改变布局/形状，合并/拆分张量 | Transpose, Concat, Split | ⚠️ [场景路由](references/conversion/patterns.md)（当前仅 Transpose 部分支持） |
+| **Conversion 数据转换类** | 改变布局/形状，合并/拆分张量 | Transpose, Slice/StridedSlice, Pad, ChunkCat, Split | ✅ [场景路由](references/conversion/patterns.md)（⚠️ 必须先读；已展开 small-channel Transpose / Slice / Pad / ChunkCat，其余子场景待补） |
 | Random 随机类 | 生成随机数，需种子管理 | RandomUniform, Dropout | 📋 规划中 |
 | MatMul 矩阵乘类 | 矩阵乘法，高计算密度，用Cube单元 | MatMul, BatchMatMul, MatMulBias, GroupedMatmul | ✅ [场景路由](references/matmul/patterns.md)（⚠️ 必须先读平台路由） |
 | Convolution 卷积类 | 空间卷积，滑动窗口计算 | Conv2D, DepthwiseConv | 📋 规划中 |
@@ -21,6 +21,8 @@ description: Ascend C 算子 Tiling 设计指南。提供算子分类体系和 T
 | Scatter 累加散射类 | 按 index 散射写入/累加，updates 按行组织 | MaskedScatter, ScatterNdAdd, ScatterElementsV2, ScatterAdd, InplaceIndexAdd, scatter_reduce | ✅ [场景路由](references/scatter/patterns.md)（⚠️ 必须先读） |
 | **Index 索引类**（A2/A3） | 以索引为核心访问数据，存在跨元素寻址 | Gather, GatherElements, IndexSelect, IndexAdd, RepeatInterleave, Take, Scatter, ScatterElements | ✅ [场景路由](references/index/patterns.md)（⚠️ 必须先读，按 P1~P7 分流到各 Pattern 文档） |
 | NN 神经网络类(其它)| 神经网络专用，多种操作组合 | GroupNorm 等非 attention | 📋 规划中 |
+
+> **Pad / 填充 / 镜像类算子：设计前必须先读 [conversion/pad.md](references/conversion/pad.md)**（该文的结构判据优先于 tile 参数）。
 
 > **芯片代际说明**：`references/index/` 下的文档面向 **A2/A3 代际**（910B / 910C，`arch22`，`dav_c220` / `DAV_2201`，单核 UB 192KB）；
 > 其中 `index/scatter.md` 为 A2/A3 的 UB 内标量散写方案，与面向 **A5 代际**（950，`arch35`，`DAV_3510`）的 `references/scatter/patterns.md` 分属两代，按目标芯片选用。

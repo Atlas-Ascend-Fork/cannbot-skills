@@ -70,4 +70,11 @@ plugins-official/model-infer-optimize/cann-recipes-infer/
 
 # operator workspace (local-only deliverables, not tracked)
 plugins-official/ops-direct-invoke/operators/
+
+
+# CANNBot 本地工作区产物（实验/安装残留，不纳入版本管理）
+.cannbot/
+
+# 其他
 pre-commit_reports/
+
