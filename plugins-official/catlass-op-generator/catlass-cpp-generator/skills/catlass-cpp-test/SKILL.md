@@ -1,9 +1,45 @@
 ---
 name: catlass-cpp-test
-description: CATLASS C++ 已注册算法族五阶段工作流的 05 算子测试。用于精度看护用例生成与用例设计覆盖评估，以及全量精度、功能、异常和性能验收，失败恢复和性能候选迭代。触发条件：workflow 处于 validation 阶段且 validation_scope=full。
+description: CATLASS C++ 已注册算法族五阶段工作流的 05 算子测试，也可用于其他类型算子工程的用例泛化与用例设计覆盖评估。默认不询问用户、按工程类型分流：CATLASS C++ 五阶段工程只执行全量精度、功能、异常和性能验收的编排、失败恢复与性能候选迭代；其他类型算子工程直接执行泛化模式，由用户提供算子源码与入口后对多类型算子生成用例、执行用例并评估用例设计覆盖。CATLASS 五阶段工程下，仅当用户主动强调泛化、泛化性、泛化功能、泛化用例、覆盖评估或指定执行后端时，才追加泛化模式。触发条件：CATLASS 五阶段工程进入 validation 阶段且 validation_scope=full，或用户主动要求泛化与覆盖测试。
 ---
 
 # 05 算子测试
+
+## 模式判定（默认路径与触发条件）
+
+**默认不询问用户，按工程类型直接分流。**
+
+- **CATLASS C++ 五阶段工程** → 默认只执行「默认流程」，本文件中所有标注「泛化模式」的
+  章节一律不进入。
+- **其他类型的算子工程** → 默认执行「泛化模式」，「默认流程」不适用、直接跳过。
+- **触发** → CATLASS C++ 五阶段工程下，用户主动强调泛化性、泛化功能、用例泛化、
+  覆盖评估，或指定执行后端时，在「默认流程」之外启用「泛化模式」：执行全部标注
+  「泛化模式」的章节。
+
+触发词（必须是用户主动提出的需求，而非顺带提及）：泛化、泛化性、泛化功能、泛化用例、
+覆盖评估、指定执行后端。
+
+### 泛化模式的适用范围（可脱离 CATLASS 五阶段工程独立运行）
+
+- **CATLASS C++ 五阶段工程**：泛化模式与「默认流程」并行执行，精度证据仍归「默认流程」
+  的判定口径所有。
+- **其他类型的算子工程**（如 Ascend C 直调工程）：跳过「默认流程」，只执行泛化
+  模式章节，可对多类型算子生成用例并评估用例设计覆盖。此时不需要 `workflow.json`
+  状态，也不需要 `reference/precision-policy.json` 或家族知识。
+
+非 CATLASS 工程下的最小启动输入：
+
+1. 算子源码根目录；
+2. 入口文件名，或设计文档路径（至少提供其一；源码路径与入口文件名不得推测，必须由用户
+   提供或确认候选）；
+3. 测试工程落盘位置（用户指定，未指定时用当前工作目录）；
+4. 执行后端可用性（在流程起点主动检测，不依赖用户口述）。后端不可用时退化为「仅生成
+   用例」，仍交付用例配置、约束修正与覆盖评估报告。
+
+判定结果写入本次任务的执行记录。非 CATLASS 工程下不得因缺少 workflow 状态或
+`reference/precision-policy.json` 而拒绝执行泛化模式。
+
+## 默认流程
 
 进入条件：workflow 状态为 `validation`、`validation_scope=full`。
 读取 `workflow/precision-policy.md` 和
@@ -31,14 +67,14 @@ TilingKey 和 `blockDim` 写入 `docs/validation.md`；该用例不得计为通�
 只有 full 精度、功能和要求的性能验收实际通过后，才能设置 `stage=complete`，清空问题字段并
 整理验收 README。未达到目标时如实保留未达标状态，不降低门禁。
 
-## 绝对不要做的事（NEVER 清单）
+## 绝对不要做的事（NEVER 清单，泛化模式）
 
 以下规则任何场景下不得违反：
 
 | # | NEVER 规则 | 理由 |
 |---|---|---|
 | 1 | **禁止依赖记忆或历史版本读精度标准** | 精度标准持续更新，记忆会导致用过时数值 |
-| 2 | **禁止推测算子源码路径/aclnn 入口文件名/设计文档路径** | 算子目录名与入口文件名无可靠映射，推测极易出错；必须由用户提供或确认候选（置信度 ≥ 95%） |
+| 2 | **禁止推测算子源码路径/入口文件名/设计文档路径** | 算子目录名与入口文件名无可靠映射，推测极易出错；必须由用户提供或确认候选（置信度 ≥ 95%） |
 | 3 | **禁止跳过源码定位流程直接分析算子** | 源码缺失会导致约束设计错误 |
 | 4 | **禁止用 PyTorch 语义推断 C++ assert 条件** | C++ assert 与 PyTorch 行为不一致，必须从源码提取 |
 | 5 | **禁止使用 `range: [1, N]` 范围方式定义 shape 维度值** | 执行后端按笛卡尔积展开会爆炸、生成卡死；必须用 `values` 离散列表 |
@@ -54,7 +90,7 @@ TilingKey 和 `blockDim` 写入 `docs/validation.md`；该用例不得计为通�
 | 15 | **禁止将末维约束泛化为全维度上限** | 若 C++ `assert(dim[-1] == N)` 仅约束末维，只修正 `shape[-1]`，不得对其他维度做相同裁剪 |
 | 16 | **禁止依赖用户口述判断执行后端可用性** | 必须在流程起点主动执行 `python -c "import atk"`（或等效命令）检测后端状态 |
 
-## 环境阶段确认
+## 环境阶段确认（泛化模式）
 
 流程起点必须用 `AskUserQuestion` 主动询问用户：
 
@@ -66,7 +102,7 @@ TilingKey 和 `blockDim` 写入 `docs/validation.md`；该用例不得计为通�
 
 2. **算子关键信息**：源码根目录路径、入口文件名或设计文档路径。若用户未提供，可做候选搜索后交用户确认，禁止自行推测。
 
-## 用例生成约定（每次任务必读）
+## 用例生成约定（泛化模式，每次任务必读）
 
 本节只定**生成侧**取值；精度判定以执行后端报告为准，本 Skill 不重算阈值（NEVER #1）。
 
@@ -81,14 +117,15 @@ TilingKey 和 `blockDim` 写入 `docs/validation.md`；该用例不得计为通�
    `mixed_tolerance_bm_v2`（缺省 `default` 即生态开源混合容差标准）；独立算子无 workflow 时
    按后端默认，并在覆盖评估报告 §1「精度策略路径」注明取值来源。
 
-## 用例生成流程
+## 用例生成流程（泛化模式）
 
 ### 步骤 0-2：源码定位与约束提取
 
 **核心原则**：算子源码路径、入口文件名、设计文档路径属于关键信息，禁止自行推测（NEVER #2）。必须由用户明确提供，或候选搜索后由用户确认（置信度 ≥ 95%）。
 
 **候选搜索策略**（辅助用户确认）：
-- `Glob **/aclnn_*.cpp` 或 `Glob **/*<op>*.cpp`，按算子名 token 筛选，交用户选择
+- 按目标工程的入口文件命名约定搜索（如 aclnn 工程用 `Glob **/aclnn_*.cpp`，直调工程用
+  `Glob **/*_host.cpp`），并配合 `Glob **/*<op>*.cpp`，按算子名 token 筛选，交用户选择
 - `Glob **/<op>*/` 处理版本号（如 `xxx_v3`），多版本目录交用户选择最新
 - `Glob **/docs/*.md` 交用户选择设计文档
 
@@ -99,12 +136,13 @@ TilingKey 和 `blockDim` 写入 `docs/validation.md`；该用例不得计为通�
 - C++ 源码和设计文档都缺失 → 拒绝执行
 
 **局部推断**（用户确认源码根目录后允许）：
-- 在该目录下 `Glob **/op_tiling/*.cpp`、`Glob **/op_kernel/*.cpp` 定位子文件
+- 在该目录下按工程约定的目录继续定位子文件（如 `Glob **/op_tiling/*.cpp`、
+  `Glob **/op_kernel/*.cpp`）
 - `Grep` 搜索 `assert` / `TORCH_CHECK` / `OP_LOGE`
 - 扫描 INT32 溢出风险 pattern
 - 若算子支持 N 维但实际按低维计算，用例只覆盖实际计算维度
 
-**创建测试工程目录**：`test_<算子名>/`，算子名用 snake_case；工程根目录以 workflow 约定为准。
+**创建测试工程目录**：`test_<算子名>/`，算子名用 snake_case。CATLASS 五阶段工程按 workflow 约定落盘；其他类型算子工程用用户指定位置，未指定时落在当前工作目录下。
 
 **提取内容**：逐行提取所有 `assert` / `TORCH_CHECK` / `OP_LOGE` 等拦截语句，记录：
 - 条件表达式（如 `hidden_dim == 128`、`dim % 16 == 0`）
@@ -132,7 +170,7 @@ api: pytorch            # 框架默认值；该字段仅用于报表展示/兼�
 api_type: function      # 自定义算子须改为执行插件 @register 的注册名，见下方说明
 version: v2.1
 generate: <op>_constraint   # 须等于 constraint 中 @GENERATOR_REGISTRY.register 的注册名
-# aclnn 路径（catlass 算子经 aclnn 调用时必填，见下方「执行后端」章节）
+# aclnn 路径（算子经 aclnn 调用时必填，见下方「执行后端」章节）
 # aclnn_name: <算子名>          # 无 acl 前缀时后端自动补成 aclnn<name>
 # aclnn_api_type: aclnn_function # 默认值；仅自定义 aclnn 执行插件时才改
 standard:
@@ -181,7 +219,7 @@ inputs:
 - `api_type` 必须等于执行插件 `@register("<name>")` 的注册名；`function` 是后端内置执行器
   （按 YAML `name` 求值），仅适用于内置 torch 函数，自定义算子写成 `function` 会在执行期报
   `NameError`。自定义执行方式见「执行后端」章节的 `03 扩展开发/自定义执行方式.md`。
-- aclnn 路径：catlass 算子经 aclnn 调用时 `aclnn_name` 必填（无 `acl` 前缀时后端自动补成
+- aclnn 路径：算子经 aclnn 调用时 `aclnn_name` 必填（无 `acl` 前缀时后端自动补成
   `aclnn<name>`），`aclnn_api_type` 默认 `aclnn_function`。`api_type` 与 `aclnn_api_type`
   是两条独立路由，`atk aclnn` 只走后者；默认值够用条件见「执行后端」章节。
 - aclnn 路径不在 YAML 声明出参：后端按参考输出自动生成 out 张量，再按 c++ 原型顺序追加到
@@ -357,12 +395,13 @@ python scripts/sample_quality_cases.py \
 
 **降级模式**（后端不可用、无用例 JSON）：「当前覆盖情况」列填 YAML/约束修正设计值并标注「降级（设计值）」；依赖用例 JSON 的统计项填 N/A。
 
-**输出**：按 `templates/test_case_design_report.md` 的 8 个章节填写，输出到
-`docs/validation.md` 或独立报告文件。
+**输出**：按本 Skill 的 `templates/test_case_design_report.md` 的 8 个章节填写。CATLASS 五阶段
+工程写入 `docs/validation.md`；其他类型算子工程输出到用户指定路径，未指定时写入测试工程
+目录下的 `coverage_report.md`。
 
 **✅ 检查点**：8 维度全部填充，无未替换占位符；约束覆盖逐条核验。不通过 → 补充缺失数据后重新生成。
 
-## Bug-Hunting 用例设计
+## Bug-Hunting 用例设计（泛化模式）
 
 用例好坏的衡量标准是**能否识别代码中的 bug**，而非通过率。三种模式配合使用，缺一不可：
 
@@ -380,7 +419,7 @@ python scripts/sample_quality_cases.py \
 | LayerNorm 类 | hidden_dim 对齐（16/32/64）、normalize 维度全 1、affine=True/False |
 | 激活函数类 | 输入为 0、负数极大、nan 透传、inplace 行为 |
 
-## INT32 溢出看护
+## INT32 溢出看护（泛化模式）
 
 **背景**：算子 C++ 内核若用 `int32` 计算 shape 维度乘积（`total = M * N`、`offset = idx * stride`），乘积超
 2^31 时溢出。INT32 溢出是需要主动构造的看护场景（非拦截条件），约束不修正而是保留以暴露 bug（NEVER #9）。
@@ -411,7 +450,7 @@ python scripts/sample_quality_cases.py \
 
 **保守策略**：无法确定是否溢出时，默认启用看护。多生成几条溢出用例的代价远小于漏掉一个溢出 bug。
 
-## 执行后端
+## 执行后端（泛化模式）
 
 用例由执行后端在 NPU 与 CPU 上双端执行，逐 case 比对并生成报告。后端未安装时先安装再执行，不得跳过。
 
@@ -441,7 +480,7 @@ YAML 字段以「步骤 3」内联的最小 schema 为准（离线可用）；�
 该结论为最终精度证据。`workflow/precision-policy.md` 与 `scripts/compare_precision.py` 作为 catlass
 工作流的补充验证手段，不替代执行后端判定。
 
-## 常见失败速查
+## 常见失败速查（泛化模式）
 
 部分条目涉及执行后端专有的命令与报错（如 `atk case`、`oversize_case`）。
 
@@ -460,7 +499,7 @@ YAML 字段以「步骤 3」内联的最小 schema 为准（离线可用）；�
 | `oversize_case: true` 警告但用例仍生成 | 框架对 > 2^31 用例的软限制提示 | 正常现象；启用看护时属预期，否则检查 2^31 修正是否生效 |
 | INT32 看护用例 NPU 结果 ≠ CPU | 内核未做 int64 提升，shape 乘积超 2^31 溢出 | 算子缺陷，收集日志报告，不用约束修正掩盖（NEVER #9） |
 
-## 职责边界
+## 职责边界（泛化模式）
 
 - 不修改算子源码与执行后端代码（NEVER #11）
 - 不定位、不修复算子精度问题；只修复用例设计自身缺陷（NEVER #12）
