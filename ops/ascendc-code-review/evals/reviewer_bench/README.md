@@ -118,10 +118,53 @@ python scripts/prepare_bench_data.py --reports-dir benchmark_tasks/{type}-tasks
 
 说明：评测（run_eval）只取 GT 的 文件/行号/问题描述，不依赖代码片段，故提示词产出的 md 代码片段可标"待补"或省略，不影响评测。
 
-## 依赖
+### 新增任务集与启动
+
+以下命令在 `reviewer_bench` 根目录执行，以新任务集 `myset-tasks` 为例。
+
+**1. 准备任务集**
+
+新建 `benchmark_tasks/myset-tasks/`，每个 PR 放一份 Markdown，文件名例: `01_ops-nn_pr_12523_<commit前12位>.md`，commit id 对应检视意见产生,且问题尚未修复的版本(请尤其注意 commit id 的计算, 这会直接影响检视内容)。
+
+沿用现有样本格式：每条以 `#### [1] 人工检视意见` 开始，包含 `- **文件**:`、`- **行号**:`、`- **问题描述**:`，描述正文使用引用块。
+
+**2. 准备代码和配置**
+
+复制 `src/batch_review/review-config.json` 为 `review-template-myset.json`，配置本次模型和 Key 环境变量。
 
 ```bash
-pip install -e .
+python scripts/prepare_bench_data.py \
+  --reports-dir benchmark_tasks/myset-tasks \
+  --data-dir bench_data_myset \
+  --output manifest-myset.json
+```
+
+确认数据准备成功，将 manifest 中的 `repo_dir`、`diff_file` 按 `reviewer_bench` 根目录转成绝对路径，再生成配置：
+
+```bash
+python scripts/gen_bench_config.py \
+  --manifest manifest-myset.json \
+  --template-config review-template-myset.json \
+  --output review-config-myset.json
+```
+
+**3. 启动检视**
+
+```bash
+PYTHONPATH=src python -m batch_review run \
+  --config review-config-myset.json \
+  --output reports/myset --run-id run_myset_01 \
+  --max-parallel 1
+```
+
+报告输出到 `reports/myset/run_myset_01/`。可追加 `--dry-run` 仅预览启动命令。
+
+## 依赖
+
+先准备好 Python 和 pip，在本目录执行：
+
+```bash
+python -m pip install -e .
 ```
 
 ## 文档

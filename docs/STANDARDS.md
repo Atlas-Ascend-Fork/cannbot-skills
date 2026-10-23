@@ -211,15 +211,12 @@ skills:
 | 分类 | Agent 名称 | 核心职责 | 典型场景 |
 |------|-----------|---------|---------|
 | **架构类** | `ascendc-ops-architect` | 需求分析、方案设计、技术选型 | 新算子开发启动时 |
-| **检视类** | `ascendc-ops-reviewer` | 逐条例假设检验、规范检查 | 开发完成后、上库前 |
-| **检视类** | `ascendc-code-summarizer` | 代码结构摘要、侧别识别 | 检视流程 Stage 0 |
 
 ### 参考示例
 
 查看 `plugins-official/` 下各 Team 目录中的 Agent 实现：
 - `ops-direct-invoke/agents/` - 直调开发子 Agent（architect / developer / developer-code / developer-test / developer-doc / qa，skill 驱动工作流）
 - `pypto-op-orchestrator/agents/` - PyPTO 开发子 Agent（planner / mathematician / architect / coder / verifier / debugger / optimizer / auto-tuner-panko；编排者以 AGENTS.md 注入）
-- `ops-code-reviewer/agents/` - 代码检视子 Agent
 
 ---
 

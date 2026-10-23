@@ -163,7 +163,7 @@ npx skills remove ascendc-tiling-design
 | 调试精度问题 | "我的 Add 算子精度不达标，帮我排查一下" | Skill: `ascendc-precision-debug` |
 | 查阅 API 文档 | "aclnnAdd 接口的参数和返回值是什么" | Skill: `ascendc-docs-search` |
 | 检查开发环境 | "帮我检查一下当前的 CANN 开发环境" | Skill: `ascendc-env-check` |
-| 代码检视 | "帮我检视这段 Kernel 代码是否符合规范" | Plugin: `ops-code-reviewer` |
+| 代码检视 | "帮我检视这段 Kernel 代码是否符合规范" | Skill: `ascendc-code-review` |
 
 > [!TIP]
 > 完整安装可运行 `install-helper status` 查看已安装插件，独立 Skill 安装可运行 `npx skills list` 查看已安装 Skills。

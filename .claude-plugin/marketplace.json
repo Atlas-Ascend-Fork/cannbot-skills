@@ -101,26 +101,6 @@
       ]
     },
     {
-      "name": "ops-code-reviewer-skills",
-      "description": "Ascend C 代码审查 Skills（2 个）。代码审查规范和 API 文档检索。",
-      "source": "./ops",
-      "strict": false,
-      "version": "1.1.0",
-      "author": {
-        "name": "CANNBot"
-      },
-      "keywords": [
-        "ascendc",
-        "skills",
-        "code-review"
-      ],
-      "category": "skills",
-      "skills": [
-        "./ascendc-code-review",
-        "./ascendc-docs-search"
-      ]
-    },
-    {
       "name": "torch-npugraph-ex-skills",
       "description": "PyTorch 昇腾 NPU npugraph_ex Skills（7 个）。覆盖图模式知识、代码模板、问题分诊、编译错误、运行时错误、性能诊断和自定义算子入图。",
       "source": "./graph",
@@ -430,9 +410,10 @@
     },
     {
       "name": "ops-code-reviewer",
-      "source": "./plugins-official/ops-code-reviewer",
-      "description": "Ascend C 算子代码审查 Team。含独立审查 Agent，支持 PR diff 审查和代码质量评估。",
-      "version": "1.1.0",
+      "source": "./ops",
+      "strict": false,
+      "description": "Ascend C 代码检视 Skill。支持文件检视、PR 检视和快速定向排查。",
+      "version": "1.2.0",
       "author": {
         "name": "CANNBot"
       },
@@ -440,9 +421,9 @@
         "ascendc",
         "code-review"
       ],
-      "category": "development",
-      "dependencies": [
-        "ops-code-reviewer-skills"
+      "category": "skills",
+      "skills": [
+        "./ascendc-code-review"
       ]
     },
     {

@@ -217,11 +217,10 @@ install-helper lang set en_US      # 切换为英文
 | 6 | PyPTO 算子开发 | pypto-op-orchestrator | pypto, pytorch |
 | 7 | TileLang 算子开发 | tilelang-op-orchestrator | tilelang |
 | 9 | torch.compile 图模式 | torch-compile | torch, compile, graph |
-| 10 | 代码检视 | ops-code-reviewer | code-review, reviewer, review |
 
 ## 适配范围
 
-- **当前仅适配官方插件**（`plugins-official/` 下 10 个插件，见上表）。社区插件（`plugins-community/`）迭代较快，暂不纳入 install-helper——`list`/`install` 不收录，社区插件请进入其目录按 quickstart.md 手动执行 `init.sh` 安装；待社区插件稳定后会在配置中恢复收录
+- **当前仅适配官方插件**（见上表）。社区插件（`plugins-community/`）迭代较快，暂不纳入 install-helper——`list`/`install` 不收录，社区插件请进入其目录按 quickstart.md 手动执行 `init.sh` 安装；待社区插件稳定后会在配置中恢复收录
 - **各插件支持的工具以其 `init.sh` 为准**（部分插件不支持全部工具，如 ops-direct-invoke 支持 dsh 但不支持 cursor/copilot）。install-helper 在执行安装脚本前会校验目标工具是否被插件适配，未适配时明确报错拦截，不会静默安装到默认目录
 
 ## 前置条件

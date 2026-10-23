@@ -20,7 +20,6 @@ cannbot-skills/
 │   ├── ops-registry-invoke/         # AscendC 算子注册调用开发
 │   ├── pypto-op-orchestrator/       # PyPTO 算子开发
 │   ├── catlass-op-generator/        # Catlass 算子直调开发
-│   ├── ops-code-reviewer/           # 代码检视
 │   ├── torch-compile/               # torch.compile 图模式
 │   ├── model-infer-optimize/        # NPU 推理端到端优化流程
 │   └── tilelang-op-orchestrator/    # TileLang 算子开发

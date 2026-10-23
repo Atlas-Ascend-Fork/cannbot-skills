@@ -158,13 +158,12 @@
 
 ## 3. Team 覆盖率
 
-### plugins-official/（10 Teams，共 39 个用例）
+### plugins-official/（9 Teams，共 36 个用例）
 
 | 名称 | 用例数 | 正向看护 | 负向看护 | 正确性看护 | 调用流程看护 | 资源消耗看护 |
 | --- | :--: | :--: | :--: | :--: | :--: | :--: |
 | catlass-op-generator | 0 |   |   |   |   |   |
 | model-infer-optimize | 7 | √ |   | √ |   | √ |
-| ops-code-reviewer | 3 | √ |   | √ |   | √ |
 | ops-direct-invoke | 0 |   |   |   |   |   |
 | ops-direct-invoke-flash | 9 | √ |   | √ |   | √ |
 | ops-registry-invoke | 13 | √ |   | √ | √ | √ |
