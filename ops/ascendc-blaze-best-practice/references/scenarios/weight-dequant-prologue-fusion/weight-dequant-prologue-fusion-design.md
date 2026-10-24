@@ -168,7 +168,7 @@ why_decision_is_blocked
 - B 从 L1 读取（非 GM），跳过 GM→L1 B 搬运的修改点和保留不变量；
 - L1 布局：lower half [B0|A0], upper half [B1|A1], bias at tail 64-byte aligned；
 - BiasType 一致性合同（GM/L1/BT/Tiling 四处一致）；
-- 分形轴对齐约束（transB=true: N%16==0; transB=false: K%16==0）；
+- 分形轴对齐约束（transB=true: N%16==0; transB=false: K%16==0）（当前参考路线的接受条件，适用范围见 Tiling 合同专题 §4）；
 - 使用官方 Scheduler（`MatmulSwatScheduler`）或 custom Block 的证据和授权范围。
 
 每个新增或替换的接线必须写入 `abi_crosswalk_delta`，并引用对应 `matmul_base_analysis.abi_bindings[]` 的 `kernel_abi_contract`/签名骨架和 `base_design_binding_ref`。
@@ -214,7 +214,7 @@ ratio、flag ID、bridge 等只能来自当前 witness；历史设备记录必�
 - UB 空间约束公式必须按当前 B dtype 参数化，不得硬编码 int8 系数；
 - Tiling Engine 的 GetTilingData 签名必须接受 weightElemBytes 和 dequantBElemBytes 参数；
 - DESIGN 必须冻结当前项目的 weightElemBytes 值（由 B dtype 决定）；
-- 分形轴对齐校验（transB=true: N%16==0; transB=false: K%16==0）；
+- 分形轴对齐校验（transB=true: N%16==0; transB=false: K%16==0）（当前参考路线的接受条件，适用范围见 Tiling 合同专题 §4）；
 - transB=true 时尾轮 N 方向不切分；
 - host Tiling 策略：复用 Asset Engine（逐字段兼容后）、固定合法值或独立计算。
 

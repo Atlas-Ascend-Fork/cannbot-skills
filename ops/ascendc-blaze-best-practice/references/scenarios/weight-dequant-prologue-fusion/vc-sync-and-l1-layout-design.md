@@ -79,6 +79,8 @@ DESIGN 必须确认 GM/L1/BT 三处 bias 类型一致，否则 `CopyGM2L1` 的�
 
 ## 6. 对齐约束合同
 
+适用前提：下表 transB 分形轴对齐约束是当前参考路线（Asset Engine 原样复用）的接受条件，依据为资产 `weight_quant_tiling.h` 的入口检查；任务的逻辑 K/N 合法域由需求合同冻结，Engine 内部 NZ/ZN 分形布局与 AIV 切分边界条件不得自动提升为任务接口条件。
+
 DESIGN 必须冻结分形轴对齐约束：
 
 | 条件 | 约束 | 原因 |

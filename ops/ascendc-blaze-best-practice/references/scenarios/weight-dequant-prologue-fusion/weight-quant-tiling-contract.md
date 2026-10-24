@@ -56,7 +56,12 @@ Tiling 入口必须自动校验分形轴对齐：
 - transB=false：`k % 16 == 0`
 - 违反时抛出 `std::runtime_error`
 
-PLAN 的 Tiling action 必须验证此校验逻辑在复制后的 Engine 中保留。若项目修改了 Engine，必须重新验证校验闭合。
+原样复用参考路线时，PLAN 的 Tiling action 必须验证此校验逻辑在复制后的 Engine 中保留。若项目修改了 Engine，必须重新验证校验闭合：经 DESIGN 授权完成非对齐适配时，需重新证明 Engine 内部对齐、有效长度与尾块处理的正确性，而非继续无条件拒绝任务合法的 K。
+
+按需求合同的合法域分支判定：
+
+- 需求全部落在对齐域 → 原样复用参考 Engine 并保留入口对齐检查；
+- 需求允许非对齐 `logical_k` → 不得将非对齐 K 改写为任务非法域，返回 DESIGN 走既有 custom 授权路线，或明确记录参考路线不能覆盖该需求。
 
 ## 5. Tiling 与 BlockMmad 空间一致性合同
 
