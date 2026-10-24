@@ -36,6 +36,8 @@ from pathlib import Path
 from itertools import product
 from collections import defaultdict
 import math
+import ast
+import operator as _operator
 
 try:
     from utils import (
@@ -71,6 +73,108 @@ except ImportError:
         get_broadcast_result,
         MAX_SHAPE_PRODUCT
     )
+
+
+
+class UnsafeExpressionError(ValueError):
+    """约束表达式含白名单外的语法结构，已拒绝求值（安全拦截，向上阻断）"""
+
+
+# AST 节点与运算符白名单：约束 expression 仅允许
+# 索引/切片/列表构造/四则与幂运算/一元运算/比较/布尔逻辑/ get_broadcast_result 调用
+_BIN_OPS = {
+    ast.Add: _operator.add, ast.Sub: _operator.sub, ast.Mult: _operator.mul,
+    ast.Div: _operator.truediv, ast.FloorDiv: _operator.floordiv,
+    ast.Mod: _operator.mod, ast.Pow: _operator.pow,
+}
+_UNARY_OPS = {
+    ast.UAdd: _operator.pos, ast.USub: _operator.neg, ast.Not: _operator.not_,
+}
+_CMP_OPS = {
+    ast.Eq: _operator.eq, ast.NotEq: _operator.ne, ast.Lt: _operator.lt,
+    ast.LtE: _operator.le, ast.Gt: _operator.gt, ast.GtE: _operator.ge,
+}
+_CALLABLE_NAMES = frozenset({'get_broadcast_result'})
+
+
+def _safe_eval_node(node, env):
+    if isinstance(node, ast.Expression):
+        return _safe_eval_node(node.body, env)
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, (int, float, bool, str)) or node.value is None:
+            return node.value
+        raise UnsafeExpressionError(f"不支持的常量类型: {type(node.value).__name__}")
+    if isinstance(node, ast.Name):
+        if node.id in env:
+            return env[node.id]
+        raise UnsafeExpressionError(f"未授权的名称引用: {node.id}")
+    if isinstance(node, ast.Subscript):
+        return _safe_eval_node(node.value, env)[_safe_eval_node(node.slice, env)]
+    if isinstance(node, ast.Slice):
+        return slice(
+            _safe_eval_node(node.lower, env) if node.lower else None,
+            _safe_eval_node(node.upper, env) if node.upper else None,
+            _safe_eval_node(node.step, env) if node.step else None,
+        )
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return [_safe_eval_node(elt, env) for elt in node.elts]
+    if isinstance(node, ast.BinOp):
+        op = _BIN_OPS.get(type(node.op))
+        if op is None:
+            raise UnsafeExpressionError(f"不支持的二元运算符: {type(node.op).__name__}")
+        return op(_safe_eval_node(node.left, env), _safe_eval_node(node.right, env))
+    if isinstance(node, ast.UnaryOp):
+        op = _UNARY_OPS.get(type(node.op))
+        if op is None:
+            raise UnsafeExpressionError(f"不支持的一元运算符: {type(node.op).__name__}")
+        return op(_safe_eval_node(node.operand, env))
+    if isinstance(node, ast.Compare):
+        left = _safe_eval_node(node.left, env)
+        for op_node, comparator in zip(node.ops, node.comparators):
+            op = _CMP_OPS.get(type(op_node))
+            if op is None:
+                raise UnsafeExpressionError(f"不支持的比较运算符: {type(op_node).__name__}")
+            right = _safe_eval_node(comparator, env)
+            if not op(left, right):
+                return False
+            left = right
+        return True
+    if isinstance(node, ast.BoolOp):
+        values = node.values
+        if isinstance(node.op, ast.And):
+            result = True
+            for value in values:
+                result = _safe_eval_node(value, env)
+                if not result:
+                    return result
+            return result
+        if isinstance(node.op, ast.Or):
+            result = False
+            for value in values:
+                result = _safe_eval_node(value, env)
+                if result:
+                    return result
+            return result
+        raise UnsafeExpressionError(f"不支持的布尔运算符: {type(node.op).__name__}")
+    if isinstance(node, ast.Call):
+        func = node.func
+        if not isinstance(func, ast.Name) or func.id not in _CALLABLE_NAMES:
+            raise UnsafeExpressionError("仅允许调用白名单函数 get_broadcast_result")
+        if node.keywords:
+            raise UnsafeExpressionError("函数调用不允许关键字参数")
+        fn = env.get(func.id)
+        if not callable(fn):
+            raise UnsafeExpressionError(f"函数不可用: {func.id}")
+        return fn(*[_safe_eval_node(arg, env) for arg in node.args])
+    raise UnsafeExpressionError(f"不支持的语法节点: {type(node).__name__}")
+
+
+def safe_eval_expression(expression, env):
+    """对约束表达式做 AST 白名单求值：
+    - 语法错误按普通求值失败处理（SyntaxError 原样抛出，由调用方软失败）；
+    - 命中白名单外结构抛 UnsafeExpressionError，调用方必须记录并阻断。"""
+    tree = ast.parse(expression, mode='eval')
+    return _safe_eval_node(tree, env)
 
 
 class FactorValueGenerator:
@@ -295,11 +399,17 @@ class FactorValueGenerator:
                 )
                 if result is not None:
                     return result
-                return eval(expression, {
+                return safe_eval_expression(expression, {
                     'sources': source_values,
                     'get_broadcast_result': lambda *shapes: get_broadcast_result(list(shapes)),
                 })
-            except:
+            except UnsafeExpressionError as exc:
+                # 安全拦截：记录并向上阻断，绝不静默吞掉
+                print(f"[security] 拒绝求解约束表达式 (target={target}): {exc}", file=sys.stderr)
+                raise
+            except Exception as exc:
+                # 合法表达式求值失败：保留软失败语义，但留痕
+                print(f"[warn] 约束表达式求值失败 (target={target}): {exc}", file=sys.stderr)
                 return None
         
         elif constraint_type == 'inferable_filter':
