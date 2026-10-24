@@ -143,12 +143,12 @@ class DependencyValidator:
         """Discover all top-level SKILL.md files in the repository.
 
         Only considers SKILL.md files that are direct children of recognized
-        skill root directories (ops/, graph/, model/, community/<category>/,
-        ops-lab/*/skills/).
+        skill root directories (ops/, graph/, model/, infra/, tools/,
+        community/<category>/, ops-lab/*/skills/).
         Skips nested SKILL.md files inside team directories or sub-skills.
         Also discovers skills that are renamed at install time via init.sh.
         """
-        skill_root_dirs = {"ops", "graph", "model", "infra"}
+        skill_root_dirs = {"ops", "graph", "model", "infra", "tools"}
 
         for root, dirs, files in os.walk(self.repo_root):
             dirs[:] = [d for d in dirs if d not in SKIP_DIRS and d != "operators"]
