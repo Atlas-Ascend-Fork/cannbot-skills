@@ -186,7 +186,7 @@ class TestOpencodeRunnerResult:
     def test_timeout_run(self, mock_run):
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="opencode", timeout=300)
 
-        runner = OpencodeRunner(timeout=300)
+        runner = OpencodeRunner(timeout=300, opencode_path=__file__)
         result = runner.run("test prompt")
 
         assert result.success is False
@@ -222,11 +222,11 @@ class TestOpencodeRunnerStream:
         ]
         mock_process.stderr = MagicMock()
         mock_process.stderr.read.return_value = ''
-        mock_process.poll.side_effect = [None, None, None, 0]
+        mock_process.poll.return_value = 0
         mock_process.returncode = 0
         mock_popen.return_value = mock_process
 
-        runner = OpencodeRunner()
+        runner = OpencodeRunner(opencode_path=__file__)
         chunks = list(runner.run_stream("test prompt"))
 
         assert len(chunks) >= 3
@@ -243,7 +243,7 @@ class TestOpencodeRunnerStream:
         mock_process.returncode = 1
         mock_popen.return_value = mock_process
 
-        runner = OpencodeRunner()
+        runner = OpencodeRunner(opencode_path=__file__)
         chunks = list(runner.run_stream("test prompt"))
 
         assert len(chunks) > 0
@@ -264,7 +264,7 @@ class TestOpencodeRunnerResume:
     @patch('subprocess.run')
     def test_resume_existing_session(self, mock_run):
         temp_file = tempfile.NamedTemporaryFile(suffix='.json', delete=False)
-        temp_file.write(b'{}')
+        temp_file.write(b'{"session_id": "ses_test"}')
         temp_file.close()
 
         mock_run.return_value = Mock(
@@ -301,7 +301,7 @@ class TestOpencodeRunnerCLI:
 
         try:
             with patch.object(OpencodeRunner, 'run_stream') as mock_stream:
-                mock_stream.return_value = iter([{"type": "complete", "data": "test"}])
+                mock_stream.return_value = iter([{"type": "complete", "data": "test", "returncode": 0}])
                 exit_code = cli_main()
                 assert exit_code == 0
                 mock_stream.assert_called_once()
