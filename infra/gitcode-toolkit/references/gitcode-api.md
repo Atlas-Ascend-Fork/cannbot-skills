@@ -428,6 +428,8 @@ curl 'https://api.gitcode.com/api/v5/repos/{owner}/{repo}/contents/{path}?ref={b
 | 422 | 参数验证失败 | 检查参数格式和有效性 |
 | 429 | 请求频率限制 | 按 `Retry-After`/reset 设置共享 cooldown 后重试；总计最多 3 次 attempt |
 
+`api_post` 与 `api_post_json` 仅对明确的 429 限流拒绝重试。连接异常、超时或 5xx 可能发生在写入完成之后，因此直接抛出错误；调用方应先只读回查实际结果，再决定是否重新提交。GET 等原有读取重试策略保持不变。
+
 ### 错误响应格式
 
 ```json

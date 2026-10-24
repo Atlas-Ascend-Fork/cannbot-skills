@@ -7,6 +7,9 @@
 - 【插件清理】删除 `plugins-official/ops-direct-invoke` 旧副本及注册、测试入口，统一指向 [cannbot 应用仓](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke)；保留公共 Skills 与 Flash 插件，同步安装说明与 ST 统计。
 
 ### 【2026-10-22】
+#### 缺陷修复 Bug Fixes
+- 【GitCode 工具】非幂等 POST 在连接异常、超时或服务端错误后直接返回失败，避免结果未知时重复写入；保留明确限流拒绝后的受控重试。
+
 #### 变更 Changes
 - 【插件清理】删除 `plugins-community/collaborative-agent-kernel-evolution`（cake）插件目录：该插件已迁移至 [cannbot](https://gitcode.com/cann/cannbot) 仓同名路径维护，安装方式不变（install-helper 自动指向 cannbot 仓）。同步移除市场注册 `cake` 条目、OAT.xml 的 Chart.js filteritem、`tests/unit/test-cake-absolute-paths.sh` 门禁及其在 run-tests.sh 的登记。
 - 【代码检视】下线 `ops-code-reviewer` 插件编排层，删除专属 Agent、hooks、安装脚本及插件评测；保留同名市场入口，仅提供 `ascendc-code-review` Skill，检视流程由 Skill 自身编排。

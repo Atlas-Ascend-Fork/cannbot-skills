@@ -158,14 +158,13 @@ class SharedRateLimiter:
     def acquire(self, url, token):
         """Wait outside the file lock, then reserve one real HTTP attempt."""
         while True:
+
             def reserve(state, now):
                 timestamps = state["timestamps"]
                 waits = [state["cooldown_until"] - now]
                 if timestamps and self.policy.burst == 1:
                     waits.append(
-                        timestamps[-1]
-                        + self.policy.window / self.policy.limit
-                        - now
+                        timestamps[-1] + self.policy.window / self.policy.limit - now
                     )
                 if len(timestamps) >= self.policy.limit:
                     waits.append(timestamps[0] + self.policy.window - now)
@@ -218,7 +217,10 @@ class SharedRateLimiter:
             payload = json.loads(state_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             payload = {}
-        if not isinstance(payload, dict) or payload.get("version") != self._STATE_VERSION:
+        if (
+            not isinstance(payload, dict)
+            or payload.get("version") != self._STATE_VERSION
+        ):
             payload = {}
         timestamps = []
         for value in payload.get("timestamps") or []:
@@ -490,6 +492,7 @@ def _request_with_retry(
     limiter=None,
     url="",
     token=None,
+    retry_ambiguous=True,
 ):
     """Execute one HTTP request with the shared bounded retry policy."""
     for attempt in range(3):
@@ -498,7 +501,7 @@ def _request_with_retry(
         try:
             response = request()
         except (requests.ConnectionError, requests.Timeout):
-            if not _retry_transport_failure(attempt, limiter):
+            if not retry_ambiguous or not _retry_transport_failure(attempt, limiter):
                 raise
             continue
 
@@ -509,6 +512,8 @@ def _request_with_retry(
             return response
 
         error = requests.HTTPError(safe_error_text(response), response=response)
+        if not retry_ambiguous and status != 429:
+            raise error
         if _retry_http_failure(error, attempt, limiter, url, token):
             continue
         raise error
@@ -547,9 +552,11 @@ def api_get(session, url, token=None, *, params=None, timeout=30):
 # HTTP POST (with retry)
 # --------------------------------------------------------------------------- #
 def api_post(session, url, token, *, data=None, timeout=30):
-    """POST with token in form-data + retry.
+    """POST with token in form-data and bounded rate-limit retry.
 
-    - 3 attempts. 429 honors server reset headers; 5xx uses linear backoff.
+    - Up to 3 attempts on explicit 429 rejection, honoring server reset headers.
+    - Transport failures and 5xx are raised without replaying the write;
+      callers must check whether the operation committed before retrying.
     - Non-retryable 4xx: returns the Response object (caller inspects body).
     - Success (2xx): returns the Response object.
 
@@ -566,6 +573,7 @@ def api_post(session, url, token, *, data=None, timeout=30):
         limiter=limiter,
         url=url,
         token=effective_token,
+        retry_ambiguous=False,
     )
 
 
@@ -588,6 +596,7 @@ def api_post_json(session, url, token, *, json_data=None, timeout=30):
         limiter=limiter,
         url=url,
         token=token,
+        retry_ambiguous=False,
     )
 
 
