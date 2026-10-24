@@ -31,7 +31,10 @@
 ### Linux / macOS
 
 ```bash
-curl -fsSL https://raw.gitcode.com/cann/cannbot-skills/raw/master/install.sh | bash
+# 先下载并校验，再执行（校验和对应 master 分支 install.sh，脚本更新时需同步更新此处）
+curl -fsSL -o cannbot-install.sh https://raw.gitcode.com/cann/cannbot-skills/raw/master/install.sh
+echo "0bfeb0adbc785049a8c1838cb85f4932f18f67e24ade35034f590ebcb70039f9  cannbot-install.sh" | sha256sum -c -
+bash cannbot-install.sh
 ```
 
 ### Windows
