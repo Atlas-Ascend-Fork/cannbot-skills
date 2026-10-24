@@ -1,0 +1,45 @@
+{
+  "skill_name": "catlass-cpp-knowledge",
+  "eval_mode": "text",
+  "evals": [
+    {
+      "id": 1,
+      "title": "设计阶段读取 SparseFlashMLA 家族知识",
+      "config": {"max_tokens": 20000, "eval_mode": "text"},
+      "prompt": "正在设计 sparse_flash_mla 算子，插件依赖已安装。请说明如何查询这个家族的 Operator 卡并读取完整正文；查询返回 draft 卡时应该如何处理？只需给出步骤和命令，不执行。",
+      "expected_output": "从本 Skill 目录执行 scripts/record_knowledge.py query --project-root <workspace> --type operators --family sparse_flash_mla --compact，再把返回的相对 path 原样传给 get --path。说明显式家族查询包括 stable 和 draft，保留并核对 status，draft 内容需要结合冻结 contract、固定源码和实际证据判断；不能只读取摘要。",
+      "files": [],
+      "expectations": [
+        {"type": "contains", "pattern": "--family sparse_flash_mla"},
+        {"type": "contains", "pattern": "--path"},
+        {"type": "contains", "pattern": "draft"}
+      ]
+    },
+    {
+      "id": 2,
+      "title": "通用算子查询 draft API",
+      "config": {"max_tokens": 20000, "eval_mode": "text"},
+      "prompt": "通用 CATLASS 算子设计要查 BlockMmad API，但默认查询没有找到 draft 卡。如何显式查询并读取？是否需要选择注意力家族？只给命令和说明，不执行。",
+      "expected_output": "按实际组件查询 apis，给出 scripts/record_knowledge.py query --project-root <workspace> --type apis --text BlockMmad --include-draft --compact，然后对返回 path 执行 get。通用算子不强行指定注意力 family；说明无家族过滤时默认只返回 stable。",
+      "files": [],
+      "expectations": [
+        {"type": "contains", "pattern": "--type apis"},
+        {"type": "contains", "pattern": "--include-draft"},
+        {"type": "contains", "pattern": "BlockMmad"}
+      ]
+    },
+    {
+      "id": 3,
+      "title": "区分 FlashAttention 前向与反向知识",
+      "config": {"max_tokens": 20000, "eval_mode": "text"},
+      "prompt": "已确认要设计 dense flash attention 前向，目标架构已由工程 contract 冻结。Operator 文件中同时有 flash_attention_ 和 flash_attention_grad_ 前缀。请说明：1）分别使用 flash_attention 和 flash_attention_grad 家族名查询的命令，最长前缀匹配如何避免混入反向卡；2）如何把查询返回的 path 传给 get --path 完整读取；3）如何通过 --arch 使用已冻结的目标架构筛选，并核对卡片的 platforms 和 status（stable/draft）。这是 text 问答，只给出命令模板和检查步骤，不实际执行 query/get，也不提供实际读取证据。",
+      "expected_output": "前向查询使用 --type operators --family flash_attention，反向查询使用 --family flash_attention_grad；脚本按最长家族前缀匹配，前向结果排除反向卡。说明将 query 返回的相对 path 原样传给 get --path，以完整正文而非摘要作为参考；使用 --arch <已冻结的目标架构> 筛选，并核对 platforms 与 status，draft 内容需结合冻结 contract、固定源码和实际证据判断，不跨家族推断设计结论。本用例只评估最终回复所说明的命令和检查步骤，不要求实际执行 query/get、产生工具调用或提交卡片读取日志；未执行命令不能作为失败理由。",
+      "files": [],
+      "expectations": [
+        {"type": "contains", "pattern": "--family flash_attention"},
+        {"type": "contains", "pattern": "--family flash_attention_grad"},
+        {"type": "contains", "pattern": "get"}
+      ]
+    }
+  ]
+}

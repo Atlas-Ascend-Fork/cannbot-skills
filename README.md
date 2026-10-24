@@ -77,7 +77,7 @@ npx skills add https://gitcode.com/cann/cannbot-skills.git --skill ascendc-env-c
 |------------|---------|---------|
 | **Ascend C 直调** | `<<<>>>` 直接调用核函数 | [ops-direct-invoke（cannbot）](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke) / [ops-direct-invoke-flash](plugins-official/ops-direct-invoke-flash/AGENTS.md) |
 | **Ascend C 注册调用** | ACLNN/GEIR 接入框架的标准算子 | [ops-registry-invoke](plugins-official/ops-registry-invoke/AGENTS.md) |
-| **Catlass** | Cube/Matmul 高阶模板拼装 pipeline | [catlass-op-generator](plugins-official/catlass-op-generator/AGENTS.md) |
+| **Catlass** | CATLASS C++ 算子五阶段工作流 | [六个 CATLASS C++ Skills](ops/catlass-cpp-interface/SKILL.md)（插件入口位于 [cannbot](https://gitcode.com/cann/cannbot/tree/master/plugins-official/catlass-op-generator)） |
 | **PyPTO** | 昇腾原生 Python Tile 算子编程 | [pypto-op-orchestrator](plugins-official/pypto-op-orchestrator/AGENTS.md) |
 | **TileLang** | 按本机芯片路由，Ascend910 与 Ascend950 工作流及技能独立 | [tilelang-op-orchestrator](plugins-official/tilelang-op-orchestrator/AGENTS.md) |
 | **Triton** | `triton_ascend` DSL 生成并优化算子 | triton-op-generator（已迁移至 [cannbot](https://gitcode.com/cann/cannbot) 仓 `plugins-official/triton-op-generator`） |

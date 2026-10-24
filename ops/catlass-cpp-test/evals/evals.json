@@ -1,0 +1,18 @@
+{
+  "eval_mode": "text",
+  "evals": [
+    {
+      "id": 4,
+      "title": "统一工作流与工程衔接",
+      "config": {
+        "max_tokens": 20000,
+        "eval_mode": "text"
+      },
+      "prompt": "线性 Attention 和普通 CATLASS 算子如何共用五阶段开发流程，并在设计阶段读取迁移后的知识？",
+      "expected_output": "回复应说明先按数学语义确认注意力家族，普通 CATLASS 算子使用 general；统一执行 interface、reference、design、implementation、validation。设计阶段通过 catlass-cpp-knowledge 查询 cannbot-knowledge 的 guides 和 Operator 卡，再按返回路径读取正文。",
+      "files": [],
+      "expectations": []
+    }
+  ],
+  "skill_name": "catlass-cpp-test"
+}

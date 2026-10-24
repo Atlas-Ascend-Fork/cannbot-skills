@@ -18,7 +18,6 @@ cannbot-skills/
 │   ├── ops-direct-invoke-flash/     # AscendC Kernel 直调开发（Flash 版）
 │   ├── ops-registry-invoke/         # AscendC 算子注册调用开发
 │   ├── pypto-op-orchestrator/       # PyPTO 算子开发
-│   ├── catlass-op-generator/        # Catlass 算子直调开发
 │   ├── torch-compile/               # torch.compile 图模式
 │   ├── model-infer-optimize/        # NPU 推理端到端优化流程
 │   └── tilelang-op-orchestrator/    # TileLang 算子开发
@@ -105,7 +104,7 @@ cannbot-skills/
 
 ### Catlass 算子开发
 
-`catlass-op-generator` 插件编排 Catlass 算子开发流程。Plugin 编排 `catlass-op-architect`、`catlass-op-generator`、`catlass-op-reviewer` 三个 Agent，分别负责需求分析与组件选型、模板拼装与框架代码生成、构建验证与 C1-C11 检视。Skills（`catlass-op-design`、`catlass-op-develop`、`catlass-op-perf-tune`）位于 `ops/` 目录，提供高阶模板拼装能力。详见插件目录下的 `AGENTS.md`。
+`catlass-op-generator` 工作流入口位于 [cannbot](https://gitcode.com/cann/cannbot/tree/master/plugins-official/catlass-op-generator)。它通过本仓 `ops/catlass-cpp-*` 的六个 Skills 执行接口、标杆、设计、开发和验证五阶段，并从 cannbot-knowledge 的 `knowledge/ops/catlass/` 读取知识。原有 `catlass-op-design`、`catlass-op-develop`、`catlass-op-perf-tune` 公共 Skills 继续作为独立资源保留。
 
 ### PyPTO 算子开发
 

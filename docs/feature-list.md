@@ -87,13 +87,9 @@
 | **catlass-op-develop** | 根据设计选型生成 CATLASS kernel 代码（模板拼装 + Device 调用 + host 侧框架） |
 | **catlass-op-perf-tune** | 调优 CATLASS kernel 性能（TileShape、DispatchPolicy、Swizzle、Kernel 类型） |
 
-### Agents
+### 五阶段工作流
 
-| Agent | 功能 |
-|-------|------|
-| **catlass-op-architect** | Catlass 算子架构设计专家，需求分析与组件选型 |
-| **catlass-op-generator** | Catlass 算子开发实现专家，模板拼装与框架代码生成 |
-| **catlass-op-reviewer** | Catlass 算子代码审查专家，构建验证与 C1-C11 检视 |
+[cannbot 中的 catlass-op-generator](https://gitcode.com/cann/cannbot/tree/master/plugins-official/catlass-op-generator) 使用本仓 `catlass-cpp-interface`、`catlass-cpp-reference`、`catlass-cpp-design`、`catlass-cpp-develop`、`catlass-cpp-test` 和横向知识查询 `catlass-cpp-knowledge`，覆盖通用 CATLASS 算子与注意力家族。
 
 ## PyPTO 算子开发
 

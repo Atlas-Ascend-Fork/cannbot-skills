@@ -59,8 +59,6 @@ plugins-official/ops-direct-invoke-flash/cann-samples/
 plugins-official/ops-registry-invoke/asc-devkit/
 plugins-official/ops-registry-invoke/ops-tensor/
 plugins-official/ops-registry-invoke/reference/
-plugins-official/catlass-op-generator/asc-devkit/
-plugins-official/catlass-op-generator/catlass/
 plugins-official/tilelang-op-orchestrator/tilelang-ascend/
 plugins-official/pypto-op-orchestrator/pypto/
 plugins-official/model-infer-optimize/cann-recipes-infer/
