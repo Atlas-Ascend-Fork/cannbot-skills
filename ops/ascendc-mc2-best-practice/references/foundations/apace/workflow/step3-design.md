@@ -2,7 +2,7 @@
 
 > **定位**：依据需求四要素与 Step 2 的核对事实，判定实现路线并产出定稿的 DESIGN 与 PLAN。本步骤只写文档：不复制文件、不编写实现、不执行构建、不上设备。
 >
-> 父级流程定义以 `plugins-official/ops-direct-invoke/AGENTS.md` 为准；本文件只补充 apace 场景的差异化要点，不重写父级规则。
+> 工作流已迁移至 [cannbot 仓的 `ops-direct-invoke`](https://gitcode.com/cann/cannbot/blob/master/plugins-official/ops-direct-invoke/README.md)，实际编排以新仓定义为准；本文件只补充 apace 场景的差异化要点，不重写父级规则。
 
 ## 1. 输入与输出
 

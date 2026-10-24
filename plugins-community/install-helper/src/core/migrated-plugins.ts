@@ -10,17 +10,22 @@
 
 import type { PluginEntry } from "../types/index.js";
 
-// Plugins removed from this repository and migrated to the cannbot repo
-// (gitcode.com/cann/cannbot). The managed @cannbot-plugin/cannbot installer
-// follows the cannbot git mainline when it installs, but its discovery
-// snapshot (dist/plugins) only refreshes on npm releases — a freshly
-// migrated plugin stays invisible to findPlugin until the next installer
-// release. These tombstone entries bridge that gap: discovery resolves them
-// as cannbot-source plugins and delegateInstall() skips its snapshot
-// precheck for them, letting the installer's mainline-following install
-// decide authoritatively (it fails with its own "plugin not found" for
-// plugins that truly do not exist upstream).
+// Plugins removed from this repository and migrated to the cannbot repo.
+// Tombstones preserve discovery and aliases, then delegate installation to
+// @cannbot-plugin/cannbot. Modern installers use their bundled snapshot;
+// these entries do not download source or provide missing plugin assets.
 export const MIGRATED_PLUGINS: PluginEntry[] = [
+  {
+    id: "ops-direct-invoke",
+    dir: "",
+    displayName: "AscendC Kernel 直调",
+    script: "cannbot",
+    aliases: ["ops-direct", "ascendc-direct", "direct", "kernel"],
+    skills: 40,
+    agents: 3,
+    description: "Ascend C 直调算子开发工作流；已迁移至 cannbot 仓，经托管安装器安装（仅 project 级）",
+    source: "cannbot",
+  },
   {
     id: "triton-op-generator",
     dir: "",

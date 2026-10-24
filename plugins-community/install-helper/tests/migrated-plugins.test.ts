@@ -11,16 +11,16 @@
 // Migrated-plugin tombstone coverage (issue #842): plugins removed from this
 // repo and migrated to the cannbot repo (e.g. triton-op-generator) must stay
 // resolvable by discovery (findPlugin/getAllPlugins/getPluginById resolve
-// them as cannbot-source), survive the delegated install's snapshot precheck
-// (the installer follows the cannbot git mainline even when its npm dist
-// snapshot predates the migration), and have their legacy install records
-// rerouted to the cannbot source by update.
+// them as cannbot-source), reach the delegated installer, and have their
+// legacy install records rerouted to the cannbot source by update. Modern
+// installers require the plugin in their published package snapshot.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdirSync, writeFileSync, existsSync, rmSync, readFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import type { PluginEntry } from "../src/types/index.js";
+import { createFakeInstaller } from "./helpers/fake-cannbot.js";
 
 let testDir: string;
 let sandboxHome: string;
@@ -256,6 +256,28 @@ describe("migrated plugins — discovery (findPlugin)", () => {
     expect(prefix?.source).toBe("cannbot");
   });
 
+  it("resolves direct-invoke and its historical aliases only from cannbot", async () => {
+    const { findPlugin, getAllPlugins, setCannbotPlugins } = await import("../src/core/registry.js");
+    const { isMigratedPlugin } = await import("../src/core/migrated-plugins.js");
+    setCannbotPlugins([]);
+
+    for (const name of ["ops-direct-invoke", "ops-direct", "ascendc-direct", "direct", "kernel"]) {
+      const plugin = findPlugin(name);
+      expect(plugin?.id).toBe("ops-direct-invoke");
+      expect(plugin?.source).toBe("cannbot");
+      expect(findPlugin(name, { source: "skills" })).toBeUndefined();
+    }
+    for (const name of ["ops-direct-invoke-flash", "flash", "kernel-flash", "ops-direct-invoke-fl"]) {
+      expect(findPlugin(name, { source: "skills" })?.id).toBe("ops-direct-invoke-flash");
+    }
+    expect(isMigratedPlugin("ops-direct-invoke")).toBe(true);
+    expect(getAllPlugins().filter((p) => p.id === "ops-direct-invoke")).toHaveLength(1);
+
+    setCannbotPlugins([cannbotEntry("ops-direct-invoke")]);
+    expect(findPlugin("ops-direct-invoke")?.version).toBe("9.9.9");
+    expect(getAllPlugins().filter((p) => p.id === "ops-direct-invoke")).toHaveLength(1);
+  });
+
   it("does not leak tombstones into the --source skills scope", async () => {
     const { findPlugin, setCannbotPlugins } = await import("../src/core/registry.js");
     setCannbotPlugins([]);
@@ -440,6 +462,56 @@ describe("migrated plugins — delegated install (snapshot precheck bypass)", ()
     const record = Object.values(recordFile.locations)[0] as Record<string, unknown>;
     expect(record.kind).toBe("delegated");
     expect(record.tool).toBe("opencode");
+  });
+
+  it("delegates direct-invoke to its package without accessing a local plugin copy", async () => {
+    const installerRoot = join(testDir, "direct-installer");
+    createFakeInstaller(installerRoot, "ops-direct-invoke", {
+      modern: true,
+      skills: ["ops-direct-invoke"],
+      agents: ["ops-direct-invoke-developer"],
+    });
+    process.env.CANNBOT_INSTALLER_PATH = installerRoot;
+    const target = join(testDir, "direct-project");
+    mkdirSync(target, { recursive: true });
+    const legacyRepo = join(testDir, "absent-skills-repo");
+    const { findPlugin } = await import("../src/core/registry.js");
+    const { installPluginRouted } = await import("../src/core/cannbot-delegate.js");
+    const plugin = findPlugin("direct")!;
+    const result = await installPluginRouted({
+      pluginId: plugin.id, plugin,
+      tool: "opencode", level: "project",
+      repoPath: legacyRepo, installPath: target,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.success).toBe(true);
+    expect(existsSync(legacyRepo)).toBe(false);
+    expect(existsSync(join(target, ".agents", "skills", "ops-direct-invoke", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(target, ".opencode", "agents", "ops-direct-invoke-developer.md"))).toBe(true);
+    expect(existsSync(join(target, ".opencode", "cannbot-plugin.json"))).toBe(true);
+  });
+
+  it.each([
+    ["opencode", "global"], ["qoder", "project"], ["cursor", "project"],
+    ["copilot", "project"], ["codearts", "project"],
+  ] as const)("rejects direct-invoke %s/%s instead of falling back to removed assets", async (tool, level) => {
+    const { findPlugin } = await import("../src/core/registry.js");
+    const { installPluginRouted, boundaryErrors } = await import("../src/core/cannbot-delegate.js");
+    const legacyRepo = join(testDir, "absent-skills-repo");
+    const target = join(testDir, "unmodified-project");
+    for (const source of [undefined, "cannbot"] as const) {
+      const plugin = findPlugin("kernel")!;
+      const result = await installPluginRouted({
+        pluginId: plugin.id, plugin, tool, level, source,
+        repoPath: legacyRepo, installPath: target,
+      });
+      expect(result.success).toBe(false);
+      expect(result.errors).toEqual(expect.arrayContaining(boundaryErrors(tool, level)));
+      expect(result.warnings).toEqual([]);
+      expect(existsSync(legacyRepo)).toBe(false);
+      expect(existsSync(target)).toBe(false);
+    }
   });
 
   it("still gates non-migrated plugins on the dist snapshot (regression guard)", async () => {

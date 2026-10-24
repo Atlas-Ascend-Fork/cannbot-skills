@@ -91,14 +91,6 @@ describe("installer tool guard", () => {
       expect(scriptSupportsTool(tritonInit, "opencode")).toBe(true);
     });
 
-    it("ops-direct-invoke init.sh declares qoder support", async () => {
-      const { scriptSupportsTool } = await import("../src/core/installer.js");
-      const repoRoot = join(__dirname, "..", "..", "..");
-      const initSh = join(repoRoot, "plugins-official", "ops-direct-invoke", "init.sh");
-      if (!existsSync(initSh)) return; // plugin layout changed — nothing to assert
-      expect(scriptSupportsTool(initSh, "qoder")).toBe(true);
-      expect(scriptSupportsTool(initSh, "opencode")).toBe(true);
-    });
   });
 });
 

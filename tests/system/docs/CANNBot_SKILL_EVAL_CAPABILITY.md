@@ -1,7 +1,7 @@
 # CANNBot Skills 测试能力
 
 > **主题**：CANNBot（cannbot-skills 仓库）Skill 测试体系的能力现状
-> **一句话结论**：已建成 **「静态规范 UT + AI 语义 ST + 端到端算子冒烟」三层质量看护体系**，当前 ST 覆盖 **102 个 Skill + 18 个 Team、841 个启用评测用例**，在 PR 合入门禁中自动运行；第三层冒烟看护（算子生成能力 Daily 看护）正在建设中。
+> **一句话结论**：已建成 **「静态规范 UT + AI 语义 ST + 端到端算子冒烟」三层质量看护体系**，2026-08-29 的 ST 历史基准为 **102 个 Skill + 18 个 Team、841 个启用评测用例**，在 PR 合入门禁中自动运行；第三层冒烟看护（算子生成能力 Daily 看护）正在建设中。
 
 ---
 
@@ -40,7 +40,7 @@ flowchart TD
     P --> F["探索：三层 SKILL 看护体系<br/>UT 结构静态看护 → ST 语义动态看护 → 冒烟端到端能力看护"]
 ```
 
-下面按这个框架展开：先看整体架构，再逐层介绍，最后给当前覆盖数据与下一步。
+下面按这个框架展开：先看整体架构，再逐层介绍，最后给历史覆盖基准与下一步。
 
 ---
 
@@ -102,9 +102,9 @@ flowchart TD
 
 **沙箱隔离**：每个用例在独立沙箱 `sandboxes/<skill>_eval_<id>/` 执行，仅透传最小环境变量（PATH/HOME/LLM 密钥），防不可信 prompt 泄露令牌。
 
-### 4.2 五维看护（当前覆盖）
+### 4.2 五维看护（2026-08-29 历史覆盖）
 
-| 维度                   | 测试目标                    | 判定标志（evals.json）               | 当前覆盖                                                                                         |
+| 维度                   | 测试目标                    | 判定标志（evals.json）               | 历史覆盖                                                                                         |
 | ---------------------- | --------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------ |
 | **正确性看护**   | AI 回复语义覆盖关键要点     | `expected_output` 非空             | ✅**101 Skill / 8 Team**（仅 runtime_migration 无启用用例）                                |
 | **资源消耗看护** | Token 消耗监控              | `config.max_tokens`                | ✅**101 Skill / 8 Team**                                                                   |
@@ -179,14 +179,16 @@ npu-smi info -t usages -i <device_id>
 ## 5. 第三层 冒烟 — 整体算子生成能力（建设中）
 
 - **定位**：三层看护的第三层，对接 cann-bench，看护「AI 生成算子代码 → 编译 → 精度 → 性能」端到端能力，是代码上库后的**长期防线**
-- **已具备**：① benchmark 批量评测框架（`tests/benchmark/run_eval.py`，提示词→多 Agent 生成→编译→评分→whl）；② cann_bench 模式已接入合入门禁（`gate_check.sh` 自动 clone cann-bench）；③ A5 已启用 `ops-direct-invoke`（mish）、`ops-direct-invoke-flash`（mish、sigmoid）3 个用例
+- **已具备**：① benchmark 批量评测框架（`tests/benchmark/run_eval.py`，提示词→多 Agent 生成→编译→评分→whl）；② cann_bench 模式已接入合入门禁（`gate_check.sh` 自动 clone cann-bench）；③ 历史 A5 记录包含 `ops-direct-invoke`（mish）、`ops-direct-invoke-flash`（mish、sigmoid）3 个用例；其中 `ops-direct-invoke` 旧插件已于 2026-10-23 迁出，现行入口见 [cannbot](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke)
 - **下一步**：补齐 Daily 周期调度 → 扩展算子覆盖面（level1~level3）→ 建立长期趋势报告与异常告警
 
 ---
 
-## 6. 当前覆盖数据
+## 6. 历史覆盖基准
 
-> 统计口径：**代码仓内所有符合结构要求的 Skill/Team**（Skill 含 `SKILL.md`；Team 含 `AGENTS.md` + `.claude-plugin/plugin.json`），与是否携带 evals **无关**——无 evals 的实体计 0 用例。用例数仅统计已启用（`config.disabled` 非 true）。数据源：`tests/system/docs/ST_COVERAGE_REPORT.md`（2026-08-29）。
+> 统计口径：**代码仓内所有符合结构要求的 Skill/Team**（Skill 含 `SKILL.md`；Team 含 `AGENTS.md` + `.claude-plugin/plugin.json`），与是否携带 evals **无关**——无 evals 的实体计 0 用例。用例数仅统计已启用（`config.disabled` 非 true）。数据源：2026-08-29 的 `ST_COVERAGE_REPORT.md` 历史快照。以下数字不代表当前仓库全量。
+
+> 2026-10-23 本次清理仅带来 `ops-direct-invoke` Team 减少 1、启用用例变化 0、公共 Skill 数不变；本次未重新统计完整覆盖数据。
 
 | 覆盖对象        |                                数量                                |
 | --------------- | :----------------------------------------------------------------: |
@@ -226,7 +228,7 @@ npu-smi info -t usages -i <device_id>
 
 ## 8. 总结与下一步
 
-**当前状态**：CANNBot 已建成「UT（静态规范硬门禁）+ ST（AI 语义动态评测，102 Skill + 18 Team / 841 用例，五维看护）」两大防线并在 CI 门禁中稳定运行；第三层冒烟看护框架与用例已就绪、正在补齐周期调度。
+**历史能力基准（2026-08-29）**：CANNBot 已建成「UT（静态规范硬门禁）+ ST（AI 语义动态评测，102 Skill + 18 Team / 841 用例，五维看护）」两大防线并在 CI 门禁中稳定运行；第三层冒烟看护框架与用例已就绪、正在补齐周期调度。
 
 **下一步：从「合入门禁」升级为「平台化趋势看护」**——将看护能力沉淀为持续基线，让质量防线从「拦截一次合入」走向「长期可观测、可对比、可追踪」：
 

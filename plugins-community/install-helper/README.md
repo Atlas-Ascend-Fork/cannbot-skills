@@ -119,13 +119,13 @@ install-helper uninstall ops-direct-invoke                 # 卸载
 
 **限制**：
 
-- 仅支持 project 级安装；支持工具：opencode / codex / claude / trae（cursor / copilot / codearts 会明确报错）
+- 仅支持 project 级安装；支持工具：opencode / codex / claude / trae（qoder / cursor / copilot / codearts 会明确报错）
 - 需要 Node.js 运行环境
 - 离线/调试：`CANNBOT_INSTALLER_PATH` 指定安装器包路径，`CANNBOT_INSTALLER_CHANNEL` 覆盖通道
 
-超出上述委托矩阵（qoder / cursor / copilot / codearts 工具或 global 级别）时，未显式指定 `--source cannbot` 的安装会自动回退到本仓冻结副本并提示原因；显式指定 `--source cannbot` 仍按报错处理，仅存于 cannbot 仓、无本地副本可回退的插件（如 triton-op-generator）则给出结构化错误。
+超出上述委托矩阵（qoder / cursor / copilot / codearts 工具或 global 级别）时，未显式指定 `--source cannbot` 且仍有本地副本的安装会自动回退到本仓冻结副本并提示原因；显式指定 `--source cannbot` 仍按报错处理，仅存于 cannbot 仓、无本地副本可回退的插件（如 ops-direct-invoke、triton-op-generator）则给出结构化错误。
 
-已迁移且本仓删除的插件（如 `triton-op-generator`）经内置迁移清单自动路由到 cannbot 仓安装：按 id / 历史别名（如 `triton`）/ 前缀均可解析，旧版安装记录也能被 `update` 继续管理，无需等待安装器 npm 发版收录。
+已迁移且本仓删除的插件（如 `triton-op-generator`）经内置迁移清单自动路由到 cannbot 仓安装：按 id / 历史别名（如 `triton`）/ 前缀均可解析，旧版安装记录也能按正式 ID 被 `update` 继续管理。迁移清单只保证名称可解析；实际安装仍要求托管安装器包包含该插件，并符合上述工具/级别限制。
 
 ### 更新
 
@@ -209,7 +209,7 @@ install-helper lang set en_US      # 切换为英文
 
 | # | 场景 | ID | 别名 |
 |---|------|----|------|
-| 1 | AscendC Kernel 直调 | ops-direct-invoke | ops-direct, ascendc-direct, direct, kernel |
+| 1 | AscendC Kernel 直调（已迁移至 cannbot） | ops-direct-invoke | ops-direct, ascendc-direct, direct, kernel |
 | 2 | AscendC Kernel 直调（快速版） | ops-direct-invoke-flash | flash, kernel-flash |
 | 3 | AscendC 算子注册调用 | ops-registry-invoke | ops-registry, ascendc-registry, registry |
 | 4 | Catlass 算子直调 | catlass-op-generator | catlass |
@@ -218,10 +218,12 @@ install-helper lang set en_US      # 切换为英文
 | 7 | TileLang 算子开发 | tilelang-op-orchestrator | tilelang |
 | 9 | torch.compile 图模式 | torch-compile | torch, compile, graph |
 
+`ops-direct-invoke` 的本地副本已移除，由 [cannbot 仓](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke) 的已发布安装包维护；`ops-direct`、`ascendc-direct`、`direct`、`kernel` 别名继续有效，`--source skills` 不再提供此插件。通过本 helper 安装仅支持 opencode / claude / trae / codex 的 project 级别。新仓也仅支持 project；旧版 global 安装及超出委托范围的客户端不再有本地副本回退，不承诺沿用旧版兼容性，请按新仓安装文档使用受支持的配置。
+
 ## 适配范围
 
-- **当前仅适配官方插件**（见上表）。社区插件（`plugins-community/`）迭代较快，暂不纳入 install-helper——`list`/`install` 不收录，社区插件请进入其目录按 quickstart.md 手动执行 `init.sh` 安装；待社区插件稳定后会在配置中恢复收录
-- **各插件支持的工具以其 `init.sh` 为准**（部分插件不支持全部工具，如 ops-direct-invoke 支持 dsh 但不支持 cursor/copilot）。install-helper 在执行安装脚本前会校验目标工具是否被插件适配，未适配时明确报错拦截，不会静默安装到默认目录
+- **当前适配本仓官方插件及已迁移至 cannbot 的插件**（见上表）。社区插件（`plugins-community/`）迭代较快，暂不纳入 install-helper——`list`/`install` 不收录，社区插件请进入其目录按 quickstart.md 手动执行 `init.sh` 安装；待社区插件稳定后会在配置中恢复收录
+- **本仓插件支持的工具以其 `init.sh` 为准**，已迁移插件还须符合上述委托范围。install-helper 在执行安装脚本前会校验目标工具是否被插件适配，未适配时明确报错拦截，不会静默安装到默认目录
 
 ## 前置条件
 

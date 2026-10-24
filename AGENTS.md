@@ -91,7 +91,6 @@ cannbot-skills/
 │   │   ├── init.sh           # 依赖安装脚本
 │   │   └── quickstart.md     # 快速入门
 │   ├── model-infer-optimize/
-│   ├── ops-direct-invoke/
 │   └── ...                   # 各官方 Plugin
 ├── plugins-community/        # 社区 Plugin（实验/非正式版）
 ├── tests/                    # 测试框架与用例
@@ -104,6 +103,8 @@ cannbot-skills/
 ├── OAT.xml                   # 开源审计
 └── README.md                 # 项目说明
 ```
+
+> Ascend C 直调插件 `ops-direct-invoke` 已从本仓迁出，入口与开发说明见 [cannbot 应用仓](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke)。
 
 ## Skills 分类
 

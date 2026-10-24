@@ -91,6 +91,154 @@ def _make_timeout_fake_requests(calls, fail_times, get_resp, success_info):
 
 
 # ══════════════════════════════════════════════════════════════════════
+#  显式工作流选择与安装失败隔离
+# ══════════════════════════════════════════════════════════════════════
+
+@pytest.fixture
+def workflow_sandbox(monkeypatch, tmp_path):
+    repo = tmp_path / "repo"
+    plugin = repo / "plugins-official" / "fixture-workflow"
+    plugin.mkdir(parents=True)
+    init = plugin / "init.sh"
+    init.write_text(
+        '#!/bin/sh\n'
+        'mkdir -p "$3/.$2/agents"\n'
+        'printf "%s" "$2" > "$3/selected-tool.txt"\n'
+        'if [ "$2" = claude ]; then config=CLAUDE.md; else config=AGENTS.md; fi\n'
+        'printf "# Fixture workflow\\n" > "$3/$config"\n')
+    task = tmp_path / "task"
+    task.mkdir()
+    (task / "desc.md").write_text("fixture operator")
+    example = tmp_path / "example"
+    example.mkdir()
+    (example / "CMakeLists.txt").write_text("fixture example")
+    monkeypatch.setattr(run_eval, "_SKILLS_FORK", str(repo))
+    monkeypatch.setattr(run_eval, "RESULTS_DIR", str(tmp_path / "results"))
+    monkeypatch.setattr(run_eval, "OPS_CACHE_DIR", str(tmp_path / "cache"))
+    return init, task, example
+
+
+class TestWorkflowInstallation:
+    @staticmethod
+    def test_cli_requires_explicit_workflow():
+        with pytest.raises(SystemExit) as exc:
+            run_eval._build_arg_parser().parse_args(["--all"])
+        assert exc.value.code == 2
+
+    @staticmethod
+    def test_missing_workflow_stops_before_setup(monkeypatch, workflow_sandbox):
+        monkeypatch.setattr(sys, "argv", ["run_eval.py", "--all", "--workflow", "missing"])
+        monkeypatch.setattr(run_eval, "prompt_for_model",
+                            lambda **kw: pytest.fail("工作流缺失时不应选择模型"))
+        monkeypatch.setattr(run_eval, "ensure_cann_bench",
+                            lambda **kw: pytest.fail("工作流缺失时不应下载评测仓"))
+        with pytest.raises(SystemExit) as exc:
+            run_eval.main()
+        assert exc.value.code == 2
+
+    @staticmethod
+    def test_missing_workflow_does_not_fall_back(workflow_sandbox):
+        _, task, example = workflow_sandbox
+        with pytest.raises(ValueError, match="missing"):
+            run_eval.prepare_isolated_work_dir(
+                "fixture", str(task), str(example), "run", workflow="missing")
+        assert not os.path.exists(run_eval.RESULTS_DIR)
+
+    @staticmethod
+    def test_install_failure_stops_before_copying_operator(workflow_sandbox):
+        init, task, example = workflow_sandbox
+        init.write_text('#!/bin/sh\necho "fixture installation failed" >&2\nexit 7\n')
+        with pytest.raises(RuntimeError, match="exit 7.*fixture installation failed"):
+            run_eval.prepare_isolated_work_dir(
+                "fixture", str(task), str(example), "run", workflow="fixture-workflow")
+        work = os.path.join(run_eval.RESULTS_DIR, ".workdir", "run", "fixture")
+        assert not os.path.exists(os.path.join(work, "operators"))
+        assert not os.path.exists(os.path.join(work, "example"))
+
+    @staticmethod
+    def test_second_operator_install_failure_closes_progress_and_serve(monkeypatch, workflow_sandbox):
+        from unittest.mock import Mock
+
+        init, task, example = workflow_sandbox
+        monkeypatch.setattr(sys, "argv", ["run_eval.py", "--all", "--workflow", "fixture-workflow",
+                                         "--model", "fixture/model", "--skip-isolation-check"])
+        monkeypatch.delenv("OPS_FILTER", raising=False)
+        monkeypatch.setattr(run_eval, "ensure_cann_bench", lambda **kw: str(task.parent))
+        monkeypatch.setattr(run_eval, "_load_ops", lambda *a: [{"op_name": "first"}, {"op_name": "second"}])
+        progress, serve, finalize = Mock(), Mock(), Mock()
+        monkeypatch.setattr(run_eval, "EvalProgress", lambda total: progress)
+        monkeypatch.setattr(run_eval, "_serve_mgr", serve)
+        monkeypatch.setattr(run_eval, "_finalize_run", finalize)
+        attempts = []
+
+        def attempt(op, ctx):
+            attempts.append(op["op_name"])
+            if op["op_name"] == "second":
+                init.write_text('#!/bin/sh\necho "second install failed" >&2\nexit 7\n')
+            run_eval.prepare_isolated_work_dir(
+                op["op_name"], str(task), str(example), ctx.run_id, workflow=ctx.workflow)
+            os.makedirs(os.path.join(run_eval.RESULTS_DIR, op["op_name"]), exist_ok=True)
+            return {"op_name": op["op_name"], "status": "success", "duration_s": 1}, True
+
+        monkeypatch.setattr(run_eval, "_attempt_op", attempt)
+        with pytest.raises(RuntimeError, match="second install failed"):
+            run_eval.main()
+        assert attempts == ["first", "second"]
+        progress.finish_op.assert_called_once_with("success", 1)
+        progress.close.assert_called_once()
+        serve.shutdown.assert_called_once()
+        finalize.assert_not_called()
+
+    @staticmethod
+    @pytest.mark.parametrize("harness,tool", [("opencode", "opencode"), ("claude", "claude"), ("kimi", "claude")])
+    def test_selected_workflow_keeps_harness_mapping_and_task_isolation(workflow_sandbox, harness, tool):
+        _, task, example = workflow_sandbox
+        work = run_eval.prepare_isolated_work_dir(
+            "fixture", str(task), str(example), "run", workflow="fixture-workflow", harness=harness)
+        assert open(os.path.join(work, "selected-tool.txt")).read() == tool
+        assert open(os.path.join(work, "operators", "fixture", "desc.md")).read() == "fixture operator"
+        assert os.path.isfile(os.path.join(work, "example", "CMakeLists.txt"))
+        if harness == "opencode":
+            agent = os.path.join(work, ".opencode", "agents", "cannbot.md")
+            assert os.path.realpath(agent) == os.path.join(work, "AGENTS.md")
+
+
+@pytest.mark.parametrize("arguments,op,timeout,status", [
+    ([], None, None, 2),
+    (["fixture-workflow"], "level1/exp", "3600", 0),
+    (["fixture-workflow", "level2/softmax", "90"], "level2/softmax", "90", 7),
+])
+def test_run_bench_forwards_explicit_workflow(monkeypatch, tmp_path, arguments, op, timeout, status):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    python = fake_bin / "python3"
+    python.write_text(
+        '#!/bin/sh\n'
+        'printf "%s\\n" "$@" > "$BENCH_TEST_ARGS"\n'
+        'printf "%s\\n" "$OPS_FILTER" "$OP_TIMEOUT" > "$BENCH_TEST_ENV"\n'
+        'exit "$BENCH_TEST_STATUS"\n')
+    python.chmod(0o755)
+    args_file = tmp_path / "arguments"
+    env_file = tmp_path / "environment"
+    monkeypatch.setenv("PATH", str(fake_bin) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("BENCH_TEST_ARGS", str(args_file))
+    monkeypatch.setenv("BENCH_TEST_ENV", str(env_file))
+    monkeypatch.setenv("BENCH_TEST_STATUS", str(status))
+    result = run_eval.subprocess.run(
+        ["bash", os.path.join(RUNNER_DIR, "run_bench.sh"), *arguments],
+        capture_output=True, text=True)
+    assert result.returncode == status
+    if not arguments:
+        assert "工作流目录名" in result.stderr
+        assert not args_file.exists()
+    else:
+        assert args_file.read_text().splitlines() == [
+            "-u", "runner/run_eval.py", "--workflow", "fixture-workflow",
+            "--all", "--skip-isolation-check"]
+        assert env_file.read_text().splitlines() == [op, timeout]
+
+
+# ══════════════════════════════════════════════════════════════════════
 #  超时解析: per-op > category > default > env
 # ══════════════════════════════════════════════════════════════════════
 

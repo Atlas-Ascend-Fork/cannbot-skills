@@ -20,7 +20,7 @@ CANNBot 是 [CANN](https://hiascend.com/software/cann) 社区的 Infra 智能体
 
 **面向用户**：CANN / 昇腾 NPU 各领域开发者（算子开发、图模式、模型推理、Runtime 等），同时欢迎社区开发者共建 Skills 和 Agents。
 
-> 📣 **迁移公告**：本仓 `plugins-official/` 与 `plugins-community/` 插件正逐步迁移至应用仓 [cannbot](https://gitcode.com/cann/cannbot) 统一维护。已迁移：官方 `ops-direct-invoke`、`ops-registry-invoke`、`model-infer-optimize`，社区 `collaborative-agent-kernel-evolution`、`tilelang2ascendc-ops-generator`。`ascendc-port-orchestrator`、`collaborative-agent-kernel-evolution` 的本仓副本已删除，其余已迁移插件在本仓冻结，一段时间后删除；安装方式不变，`install.sh` / `install-helper` 会自动指向 cannbot 仓最新内容。
+> 📣 **迁移公告**：本仓 `plugins-official/` 与 `plugins-community/` 插件正逐步迁移至应用仓 [cannbot](https://gitcode.com/cann/cannbot) 统一维护。已迁移：官方 `ops-direct-invoke`、`ops-registry-invoke`、`model-infer-optimize`，社区 `collaborative-agent-kernel-evolution`、`tilelang2ascendc-ops-generator`。`ops-direct-invoke`、`ascendc-port-orchestrator`、`collaborative-agent-kernel-evolution` 的本仓副本已删除，其余已迁移插件在本仓冻结，一段时间后删除；`install.sh` / `install-helper` 将已迁移插件交由 cannbot 的已发布安装包提供，支持的工具与安装级别以安装助手及应用仓说明为准。
 
 ## 🚀 快速开始
 
@@ -75,7 +75,7 @@ npx skills add https://gitcode.com/cann/cannbot-skills.git --skill ascendc-env-c
 
 | 领域 / 路径 | 适用场景 | 入口插件 |
 |------------|---------|---------|
-| **Ascend C 直调** | `<<<>>>` 直接调用核函数 | [ops-direct-invoke](plugins-official/ops-direct-invoke/AGENTS.md) / [ops-direct-invoke-flash](plugins-official/ops-direct-invoke-flash/AGENTS.md) |
+| **Ascend C 直调** | `<<<>>>` 直接调用核函数 | [ops-direct-invoke（cannbot）](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke) / [ops-direct-invoke-flash](plugins-official/ops-direct-invoke-flash/AGENTS.md) |
 | **Ascend C 注册调用** | ACLNN/GEIR 接入框架的标准算子 | [ops-registry-invoke](plugins-official/ops-registry-invoke/AGENTS.md) |
 | **Catlass** | Cube/Matmul 高阶模板拼装 pipeline | [catlass-op-generator](plugins-official/catlass-op-generator/AGENTS.md) |
 | **PyPTO** | 昇腾原生 Python Tile 算子编程 | [pypto-op-orchestrator](plugins-official/pypto-op-orchestrator/AGENTS.md) |
@@ -111,7 +111,7 @@ cannbot-skills/
 - **Agent**（角色执行层）— 承担方案设计、代码开发、代码检视等职责
 - **Skill**（知识能力层）— 提供领域知识与工程模板
 
-以 Ascend C 算子开发为例：
+以 Ascend C 算子开发为例（`ops-direct-invoke` 的当前编排与角色定义见 [cannbot 应用仓](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke)）：
 
 ```
 ╔═══════════════════════════════════════════════════════════════════════════════╗

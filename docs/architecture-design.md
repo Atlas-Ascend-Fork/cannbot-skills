@@ -15,7 +15,6 @@ cannbot-skills/
 ├── graph/                           # 图模式 Skills
 ├── runtime/                         # Runtime Skills
 ├── plugins-official/                # 官方应用 Plugins
-│   ├── ops-direct-invoke/           # AscendC Kernel 直调开发
 │   ├── ops-direct-invoke-flash/     # AscendC Kernel 直调开发（Flash 版）
 │   ├── ops-registry-invoke/         # AscendC 算子注册调用开发
 │   ├── pypto-op-orchestrator/       # PyPTO 算子开发
@@ -34,9 +33,11 @@ cannbot-skills/
 └── tests/                           # 自动化测试框架
 ```
 
+> `ops-direct-invoke` 已迁至 [cannbot 应用仓](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke)，不再位于本仓目录树中。
+
 ## 逻辑架构视图
 
-项目遵循三层架构：Plugin 编排 Agents，Agents 绑定 Skills。以下视图展示各层组件及其关联关系。
+项目遵循三层架构：Plugin 编排 Agents，Agents 绑定 Skills。以下视图展示各层的逻辑关联；已迁移插件的实际工作流与角色定义以 cannbot 应用仓为准。
 
 ### Ascend C 算子开发
 

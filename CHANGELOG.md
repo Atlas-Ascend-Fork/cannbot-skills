@@ -2,6 +2,10 @@
 
 > **记录规则**：单条不超过 **200 字**，按【领域】+ 问题 + 修复要点组织；技术细节、验证数据与发布过程放 PR 描述 / commit message，不写入日志。
 
+### 【2026-10-23】
+#### 变更 Changes
+- 【插件清理】删除 `plugins-official/ops-direct-invoke` 旧副本及注册、测试入口，统一指向 [cannbot 应用仓](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke)；保留公共 Skills 与 Flash 插件，同步安装说明与 ST 统计。
+
 ### 【2026-10-22】
 #### 变更 Changes
 - 【插件清理】删除 `plugins-community/collaborative-agent-kernel-evolution`（cake）插件目录：该插件已迁移至 [cannbot](https://gitcode.com/cann/cannbot) 仓同名路径维护，安装方式不变（install-helper 自动指向 cannbot 仓）。同步移除市场注册 `cake` 条目、OAT.xml 的 Chart.js filteritem、`tests/unit/test-cake-absolute-paths.sh` 门禁及其在 run-tests.sh 的登记。

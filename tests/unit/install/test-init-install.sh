@@ -140,11 +140,6 @@ for team_dir in $(get_all_plugin_dirs); do
         script_name=$(basename "$script")
         run_check "[$team_name] workflow script $script_name exists" test -f "$script"
     done
-    # ops-direct-invoke specific scripts (hardcoded standard for kernel ops plugin)
-    if [ "$team_name" = "ops-direct-invoke" ]; then
-        run_check "[$team_name] verify_environment.sh exists" test -f "$team_dir/workflows/scripts/verify_environment.sh"
-        run_check "[$team_name] init_operator_project.sh exists" test -f "$team_dir/workflows/scripts/init_operator_project.sh"
-    fi
 done
 
 # =============================================================================

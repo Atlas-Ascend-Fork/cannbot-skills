@@ -162,13 +162,13 @@ describe("install summary source scoping (display layer)", () => {
 
   it("printEnhancedSummary points --source skills docs at the legacy entry", async () => {
     const { setCannbotPlugins } = await import("../src/core/registry.js");
-    const cannbotPkgDir = join(testDir, "cannbot-pkg", "dist", "plugins", "ops-direct-invoke");
+    const cannbotPkgDir = join(testDir, "cannbot-pkg", "dist", "plugins", "torch-compile");
     mkdirSync(cannbotPkgDir, { recursive: true });
     setCannbotPlugins([
       {
-        id: "ops-direct-invoke",
+        id: "torch-compile",
         dir: cannbotPkgDir,
-        displayName: "ops-direct-invoke",
+        displayName: "torch-compile",
         script: "cannbot",
         aliases: [],
         skills: 0,
@@ -187,8 +187,8 @@ describe("install summary source scoping (display layer)", () => {
       printEnhancedSummary(
         [
           {
-            pluginId: "ops-direct-invoke",
-            displayName: "AscendC Kernel 直调",
+            pluginId: "torch-compile",
+            displayName: "torch.compile 图模式",
             success: true,
             skillsCount: 45,
             agentsCount: 6,
@@ -203,19 +203,19 @@ describe("install summary source scoping (display layer)", () => {
     }
 
     const output = logs.join("\n");
-    expect(output).toContain("plugins-official/ops-direct-invoke/quickstart.md");
+    expect(output).toContain("plugins-official/torch-compile/quickstart.md");
     expect(output).not.toContain(cannbotPkgDir);
   });
 
   it("printEnhancedSummary keeps cannbot-sourced docs pointing at the cannbot package", async () => {
     const { setCannbotPlugins } = await import("../src/core/registry.js");
-    const cannbotPkgDir = join(testDir, "cannbot-pkg", "dist", "plugins", "ops-direct-invoke");
+    const cannbotPkgDir = join(testDir, "cannbot-pkg", "dist", "plugins", "torch-compile");
     mkdirSync(cannbotPkgDir, { recursive: true });
     setCannbotPlugins([
       {
-        id: "ops-direct-invoke",
+        id: "torch-compile",
         dir: cannbotPkgDir,
-        displayName: "ops-direct-invoke",
+        displayName: "torch-compile",
         script: "cannbot",
         aliases: [],
         skills: 0,
@@ -234,8 +234,8 @@ describe("install summary source scoping (display layer)", () => {
       printEnhancedSummary(
         [
           {
-            pluginId: "ops-direct-invoke",
-            displayName: "ops-direct-invoke",
+            pluginId: "torch-compile",
+            displayName: "torch-compile",
             success: true,
             skillsCount: 31,
             agentsCount: 3,

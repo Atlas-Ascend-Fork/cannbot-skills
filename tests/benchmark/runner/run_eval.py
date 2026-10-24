@@ -20,10 +20,10 @@
   产出代码迁移到 cann-bench 格式 → 编译 .whl
 
 用法:
-  python runner/run_eval.py -c config/eval_config_mini.yaml
-  python runner/run_eval.py --all
-  python runner/run_eval.py -c config/eval_config_mini.yaml --model zhipuai-coding-plan/glm-5.2
-  OPS_FILTER="level1/exp" python runner/run_eval.py -c config/eval_config_mini.yaml
+  python runner/run_eval.py --workflow <本仓插件目录名> -c config/eval_config_mini.yaml
+  python runner/run_eval.py --workflow <本仓插件目录名> --all
+  python runner/run_eval.py --workflow <本仓插件目录名> -c config/eval_config_mini.yaml --model zhipuai-coding-plan/glm-5.2
+  OPS_FILTER="level1/exp" python runner/run_eval.py --workflow <本仓插件目录名> -c config/eval_config_mini.yaml
 """
 
 import argparse
@@ -63,7 +63,6 @@ DEFAULT_PROMPT_TEMPLATE = "prompts/op_dev_prompt.txt"
 # config 全量切到 direct 时漏改 --all 路径, 导致两种启动方式模板分裂;
 # 且此前所有成功交付均为 direct 扁平结构, aclnn 模板从未被验证过。
 DEFAULT_EXAMPLE = "cann-bench/examples/direct_launch_example"
-DEFAULT_WORKFLOW = "ops-direct-invoke"
 
 # ── harness ─────────────────────────────────────────────────────────────
 HARNESS_CHOICES = ["opencode", "claude", "kimi"]
@@ -344,8 +343,15 @@ _serve_mgr = ServeManager()
 # ── 工作流安装 ────────────────────────────────────────────────────────
 _SKILLS_FORK = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))))
-WORKFLOW_ROOT = os.path.join(_SKILLS_FORK, "plugins-official", "ops-direct-invoke")
-WORKFLOW_INIT = os.path.join(WORKFLOW_ROOT, "init.sh")
+
+
+def _workflow_init(workflow: str) -> str:
+    path = os.path.join(_SKILLS_FORK, "plugins-official", workflow, "init.sh")
+    if not workflow or workflow != os.path.basename(workflow) or not os.path.isfile(path):
+        raise ValueError(
+            f"本仓工作流不存在或缺少 init.sh: {workflow!r}；"
+            "请通过 --workflow 选择 plugins-official/ 下现存的本地插件")
+    return path
 
 
 def generate_run_id() -> str:
@@ -654,7 +660,7 @@ def build_prompt(template_path: str, op: dict,
 
 def prepare_isolated_work_dir(op_name: str, op_op_path_abs: str,
                                 example_path_abs: str, run_id: str,
-                                workflow: str = DEFAULT_WORKFLOW,
+                                workflow: str,
                                 harness: str = HARNESS_DEFAULT) -> str:
     """创建隔离工作目录并安装 CANNBot 工作流。
 
@@ -675,6 +681,7 @@ def prepare_isolated_work_dir(op_name: str, op_op_path_abs: str,
     _harness_tool = {"opencode": "opencode", "claude": "claude", "kimi": "claude"}
     init_tool = _harness_tool.get(harness, "opencode")
 
+    workflow_init = _workflow_init(workflow)
     op_slug = op_name.replace("/", "_")
     work_dir = os.path.join(RESULTS_DIR, ".workdir", run_id, op_slug)
 
@@ -683,24 +690,16 @@ def prepare_isolated_work_dir(op_name: str, op_op_path_abs: str,
     os.makedirs(work_dir, exist_ok=True)
 
     # 1) 运行 init.sh 安装 CANNBot workflow 到隔离目录
-    workflow_init = os.path.join(
-        _SKILLS_FORK, "plugins-official", workflow, "init.sh")
-    if not os.path.isfile(workflow_init):
-        print(f"  [WARN] workflow init.sh not found: {workflow_init}")
-        workflow_init = WORKFLOW_INIT  # fallback to default
-
-    if os.path.isfile(workflow_init):
-        print(f"  [INIT] 安装 CANNBot 工作流到 {work_dir} "
-              f"(harness={harness}, tool={init_tool}) ...")
-        result = subprocess.run(
-            ["bash", workflow_init, "project", init_tool, work_dir],
-            capture_output=True, text=True, timeout=120,
-        )
-        if result.returncode != 0:
-            print(f"  [WARN] init.sh 返回 {result.returncode}")
-            # 继续尝试 —— 可能部分安装仍然可用
-    else:
-        print(f"  [WARN] {workflow_init} 不存在, 跳过工作流安装")
+    print(f"  [INIT] 安装 CANNBot 工作流到 {work_dir} "
+          f"(harness={harness}, tool={init_tool}) ...")
+    result = subprocess.run(
+        ["bash", workflow_init, "project", init_tool, work_dir],
+        capture_output=True, text=True, timeout=120,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"工作流 {workflow!r} 安装失败 (exit {result.returncode}): "
+            f"{result.stderr.strip() or result.stdout.strip()}")
 
     # 2) 复制算子任务定义到 operators/{short_name}/
     op_short = op_short_name(op_name)
@@ -1212,8 +1211,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                         help="强制更新 cann-bench")
     parser.add_argument("--no-serve", action="store_true",
                         help="回退到 opencode run pipe 模式")
-    parser.add_argument("--workflow", default=DEFAULT_WORKFLOW,
-                        help=f"工作流名称 (plugins-official/ 下的目录, 默认: {DEFAULT_WORKFLOW})")
+    parser.add_argument("--workflow", required=True,
+                        help="显式选择 plugins-official/ 下带 init.sh 的本地工作流目录")
     parser.add_argument("--model",
                         help="评测模型, 格式 provider/model (如 zhipuai-coding-plan/glm-5.2); "
                              "不提供时交互问询; 用 opencode models 查看可用模型")
@@ -1293,7 +1292,7 @@ class _EvalCtx:
     model: str
     use_serve: bool
     keep_isolated: bool
-    workflow: str = DEFAULT_WORKFLOW
+    workflow: str
 
 
 def _attempt_op(op: dict, ctx: _EvalCtx) -> tuple[dict, bool]:
@@ -1340,8 +1339,6 @@ def _finalize_run(results: list[dict], ctx: _EvalCtx, workflow: str) -> int:
     workdir_root = os.path.join(RESULTS_DIR, ".workdir")
     if os.path.isdir(workdir_root) and not ctx.keep_isolated:
         shutil.rmtree(workdir_root, ignore_errors=True)
-    if ctx.harness == "opencode":
-        _serve_mgr.shutdown()
     summary_path = os.path.join(RESULTS_DIR, "summary.yaml")
     with open(summary_path, "w") as f:
         yaml.dump(results, f, allow_unicode=True, default_flow_style=False)
@@ -1364,6 +1361,10 @@ def main():
     args = parser.parse_args()
     if not args.config and not args.all:
         parser.error("请指定 -c/--config 或 --all")
+    try:
+        _workflow_init(args.workflow)
+    except ValueError as e:
+        parser.error(str(e))
 
     harness = args.harness
     config = None if args.all else load_config(args.config)
@@ -1414,17 +1415,21 @@ def main():
     icons = {"success": "OK", "failed": "FAIL",
              "timeout": "TIMEOUT", "error": "ERROR"}
     results = []
-    for i, op in enumerate(ops):
-        progress.start_op(i, op["op_name"])
-        result, delivery_ok = _attempt_op(op, ctx)
-        result["delivery_ok"] = delivery_ok
-        save_result(result, os.path.join(RESULTS_DIR, op["op_name"].replace("/", "_")))
-        results.append(result)
-        suffix = "" if delivery_ok else " (交付不完整: 缺 .whl)"
-        progress.write(f"  [{icons.get(result['status'], '?')}] "
-                       f"{result['duration_s']:.0f}s{suffix}")
-        progress.finish_op(result["status"], result["duration_s"])
-    progress.close()
+    try:
+        for i, op in enumerate(ops):
+            progress.start_op(i, op["op_name"])
+            result, delivery_ok = _attempt_op(op, ctx)
+            result["delivery_ok"] = delivery_ok
+            save_result(result, os.path.join(RESULTS_DIR, op["op_name"].replace("/", "_")))
+            results.append(result)
+            suffix = "" if delivery_ok else " (交付不完整: 缺 .whl)"
+            progress.write(f"  [{icons.get(result['status'], '?')}] "
+                           f"{result['duration_s']:.0f}s{suffix}")
+            progress.finish_op(result["status"], result["duration_s"])
+    finally:
+        progress.close()
+        if ctx.harness == "opencode":
+            _serve_mgr.shutdown()
 
     return _finalize_run(results, ctx, args.workflow)
 

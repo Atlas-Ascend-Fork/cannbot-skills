@@ -75,14 +75,15 @@ cannbot 仓插件在 `list` / `status` 中带 `[cannbot]` 徽标；仅支持 pro
 
 ### 手动执行安装脚本
 
-如果不使用 install-helper，也可以进入对应插件目录手动执行 `init.sh` 安装脚本。以安装 AscendC Kernel 直调插件到 OpenCode 为例：
+如果不使用 install-helper，也可以进入对应插件所在仓库手动执行 `init.sh`。`ops-direct-invoke` 已迁至 cannbot 仓，要求 Node.js >= 20；以安装到现有项目 `/path/to/project` 为例：
 
 ```bash
-cd plugins-official/ops-direct-invoke
-bash init.sh project opencode
+git clone --recurse-submodules https://gitcode.com/cann/cannbot.git
+cd cannbot
+bash plugins-official/ops-direct-invoke/init.sh project opencode /path/to/project
 ```
 
-命令中的 `opencode` 可替换为目标工具名，各插件支持的工具集不同（本例 ops-direct-invoke 支持 `opencode` / `claude` / `codex` / `dsh` / `trae`，可用 `bash init.sh --list-tools` 查询）。各插件的详细安装步骤见对应目录下的 `quickstart.md`，例如 [ops-direct-invoke 快速上手](../plugins-official/ops-direct-invoke/quickstart.md)。
+该插件当前仅支持 `project` 级安装，工具为 `opencode` / `claude` / `codex` / `dsh` / `trae`；可用 `bash plugins-official/ops-direct-invoke/init.sh --help` 查看参数。旧仓脚本的 `global`、`--override` 等参数不适用于此入口。详细步骤见 [ops-direct-invoke 安装与使用说明](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke)。
 
 ---
 
@@ -159,7 +160,7 @@ npx skills remove ascendc-tiling-design
 
 | 你想做什么 | 可以这样说 | 用到的能力 |
 |-----------|-----------|-----------|
-| 开发一个算子 | "帮我开发一个 Abs 算子，输入 float16，输出 float16" | Plugin: `ops-direct-invoke` |
+| 开发一个算子 | "帮我开发一个 Abs 算子，输入 float16，输出 float16" | Plugin: [ops-direct-invoke（cannbot）](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke) |
 | 调试精度问题 | "我的 Add 算子精度不达标，帮我排查一下" | Skill: `ascendc-precision-debug` |
 | 查阅 API 文档 | "aclnnAdd 接口的参数和返回值是什么" | Skill: `ascendc-docs-search` |
 | 检查开发环境 | "帮我检查一下当前的 CANN 开发环境" | Skill: `ascendc-env-check` |
@@ -184,4 +185,4 @@ npx skills remove ascendc-tiling-design
 | 网络问题 | 配置 GitCode SSH Key 或设置代理 |
 | CANN 环境未配置 | 仅影响代码编译/运行类 Skills，知识检索类不受影响 |
 
-更多故障排查详见各插件的 `quickstart.md`（如 [ops-direct-invoke/quickstart.md](../plugins-official/ops-direct-invoke/quickstart.md)）。
+更多故障排查详见对应插件文档；已迁移的直调插件见 [cannbot 中的 ops-direct-invoke](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke)。

@@ -512,7 +512,7 @@ team_dirs:                  # Team 扫描目录
   - "plugins-community"
 
 team_whitelist:             # Team 白名单：仅这些 team 触发评测
-  - "ops-direct-invoke"
+  - "catlass-op-generator"
 ```
 
 > **注意**：`skill_whitelist` 非空时仅列出的 skill 会被评测。如果要新增 skill 的白名单支持，需要同时添加到此列表。Team 的白名单机制同理。

@@ -1,6 +1,8 @@
 # ST 测试覆盖率报告
 
-当前 ST 框架覆盖 **112 个 Skill + 17 个 Team**，共 **913 个评测用例**（仅统计已启用用例，截止 2026-10-23）。
+历史统计基准（截至 2026-10-23）：**112 个 Skill + 17 个 Team**，共 **913 个评测用例**（仅统计已启用用例）。以下表格保留该次统计结果，不代表当前仓库全量。
+
+> **2026-10-23 迁出增量**：本次删除 `ops-direct-invoke` 旧副本，Team 减少 1；该副本没有 `evals/evals.json`，启用用例变化为 0，公共 Skill 数不变。本次未重新生成全量报告，不能将历史基准直接视为最新总数。
 
 > **统计口径**：统计代码仓内所有符合结构要求的 Skill（`skill_dirs` 下含 `SKILL.md`）与 Team（`team_dirs` 下含 `AGENTS.md` + `.claude-plugin/plugin.json`），与是否携带 `evals/evals.json` 无关——无 evals 的实体用例数计 0。
 
@@ -171,7 +173,7 @@
 | --- | :--: | :--: | :--: | :--: | :--: | :--: |
 | catlass-op-generator | 0 |   |   |   |   |   |
 | model-infer-optimize | 7 | √ |   | √ |   | √ |
-| ops-direct-invoke | 0 |   |   |   |   |   |
+| [ops-direct-invoke（2026-10-23 已迁出）](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke) | 0 |   |   |   |   |   |
 | ops-direct-invoke-flash | 9 | √ |   | √ |   | √ |
 | ops-registry-invoke | 13 | √ |   | √ | √ | √ |
 | pypto-op-orchestrator | 3 | √ |   | √ |   | √ |

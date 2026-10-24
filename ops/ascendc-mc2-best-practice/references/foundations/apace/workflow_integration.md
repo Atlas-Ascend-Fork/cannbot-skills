@@ -1,8 +1,8 @@
 # CANNBot Step 1→7 在 apace MC2 场景下的工作流映射
 
-本文档把父级 `plugins-official/ops-direct-invoke/AGENTS.md` 的 7 步流程具体化到 apace 通算融合算子场景。CANNBot 主控和 Architect/Developer/Reviewer 三类 Subagent 在每个 Step 进入前都应先读对应小节，明确"本阶段在 apace 场景下要做什么、门禁是什么"。
+本文档保留旧版 `ops-direct-invoke` 七步流程在 apace 通算融合算子场景中的映射。CANNBot 主控和 Architect/Developer/Reviewer 三类 Subagent 在每个 Step 进入前都应先读对应小节，明确"本阶段在 apace 场景下要做什么、门禁是什么"。
 
-> 父级流程定义以 `plugins-official/ops-direct-invoke/AGENTS.md` 为准；本文件只补充 apace 场景的差异化要点，不重写父级规则。
+> 工作流已迁移至 [cannbot 仓的 `ops-direct-invoke`](https://gitcode.com/cann/cannbot/blob/master/plugins-official/ops-direct-invoke/README.md)；以下 Step 编号为历史场景映射，实际执行以新仓工作流定义为准。本文件只补充 apace 场景的差异化要点，不重写父级规则。
 >
 > **与 skill 四步模型的对应**：plugin Step 1 ≈ skill Step 1；plugin Step 2/2.5 ≈ skill Step 2+3；plugin Step 3-7 ≈ skill Step 4。**plugin 场景下以本文档为主要消费文档**；通用开发方法论（五阶段流程 + D1-D6 决策点 + 跨阶段纪律）见 [`operator-design/dev-methodology.md`](operator-design/dev-methodology.md)，路线模型、R1-R21 红线（[`review-checklist.md`](review-checklist.md)）与场景注册表（[`scenarios/`](scenarios/)）为两边共用的合同。
 

@@ -50,6 +50,7 @@ describe("registry", () => {
     const plugin = findPlugin("ops-direct-invoke");
     expect(plugin).toBeDefined();
     expect(plugin!.id).toBe("ops-direct-invoke");
+    expect(plugin!.source).toBe("cannbot");
   });
 
   it("findPlugin finds by alias", async () => {

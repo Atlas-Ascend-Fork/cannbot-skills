@@ -2,7 +2,7 @@
 
 > **定位**：建立算子工程骨架、校验 CANN 内置 apace 事实源与环境、登记只读参考点。Step 1 只做环境验证与目录创建；不核对接口事实、不判定路线、不创建算子实现文件。
 >
-> 父级流程定义以 `plugins-official/ops-direct-invoke/AGENTS.md` 为准；本文件只补充 apace 场景的差异化要点，不重写父级规则。plugin 场景下本步骤对应 plugin Step 1（环境检查），7 步门禁细则以 [`../workflow_integration.md`](../workflow_integration.md) 为准。
+> 工作流已迁移至 [cannbot 仓的 `ops-direct-invoke`](https://gitcode.com/cann/cannbot/blob/master/plugins-official/ops-direct-invoke/README.md)，实际编排以新仓定义为准；本文件只补充 apace 场景的差异化要点，不重写父级规则。plugin 场景下本步骤对应 plugin Step 1（环境检查），7 步门禁细则以 [`../workflow_integration.md`](../workflow_integration.md) 为准。
 
 ## 1. 环境检查（门禁）
 

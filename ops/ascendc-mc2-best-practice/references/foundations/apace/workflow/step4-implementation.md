@@ -2,7 +2,7 @@
 
 > **定位**：仅在完整四步流程中执行本算子的 DESIGN/PLAN：按已定稿的合同实现，持续更新 PLAN 并追加执行记录；不改设计、不换路线、不改接口/ABI、不扩大支持域。
 >
-> 父级流程定义以 `plugins-official/ops-direct-invoke/AGENTS.md` 为准。**开发/审查/修复/验收/汇报各阶段的 apace 场景要点与门禁，以 [`../workflow_integration.md`](../workflow_integration.md) Step 3-7 为唯一事实源**（双写已消除，防止漂移）；实现层问题按 [`../troubleshooting/failure-navigation.md`](../troubleshooting/failure-navigation.md) 定位修复。
+> 工作流已迁移至 [cannbot 仓的 `ops-direct-invoke`](https://gitcode.com/cann/cannbot/blob/master/plugins-official/ops-direct-invoke/README.md)，实际编排以新仓定义为准。**开发/审查/修复/验收/汇报各阶段的 apace 场景要点与门禁，以 [`../workflow_integration.md`](../workflow_integration.md) Step 3-7 为唯一事实源**（双写已消除，防止漂移）；实现层问题按 [`../troubleshooting/failure-navigation.md`](../troubleshooting/failure-navigation.md) 定位修复。
 
 ## 阶段映射（模型参考）
 

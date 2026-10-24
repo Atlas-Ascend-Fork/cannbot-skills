@@ -33,32 +33,41 @@ tests/benchmark/
 
 ## 快速开始
 
+每次评测必须通过 `--workflow` 显式选择本仓 `plugins-official/` 下仍提供 `init.sh` 的工作流；安装入口缺失或安装失败时立即停止。选择的工作流应与评测任务和参考工程匹配。
+
+旧 `ops-direct-invoke` 已迁至 [cannbot](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke)。本评测器仍使用本地 `init.sh` 和 `AGENTS.md` 主 Agent 的安装契约，不会自动切换到新仓工作流或其他插件。新仓正式版的运行方式见其维护文档。
+
 ```bash
+# 替换为本仓实际存在、适合本次评测的插件目录名
+BENCH_WORKFLOW="选择的本仓插件目录名"
 # 全量评测 (自动扫描 cann-bench 所有算子)
-python tests/benchmark/runner/run_eval.py --all
+python tests/benchmark/runner/run_eval.py --workflow "$BENCH_WORKFLOW" --all
 
 # Mini子集评测 (16个核心算子)
-python tests/benchmark/runner/run_eval.py -c tests/benchmark/config/eval_config_mini.yaml
+python tests/benchmark/runner/run_eval.py --workflow "$BENCH_WORKFLOW" -c tests/benchmark/config/eval_config_mini.yaml
 
 # 只评测单个算子
-OPS_FILTER="level2/softmax" python tests/benchmark/runner/run_eval.py -c tests/benchmark/config/eval_config_mini.yaml
-OPS_FILTER="level1/exp" python tests/benchmark/runner/run_eval.py --all
+OPS_FILTER="level2/softmax" python tests/benchmark/runner/run_eval.py --workflow "$BENCH_WORKFLOW" -c tests/benchmark/config/eval_config_mini.yaml
+OPS_FILTER="level1/exp" python tests/benchmark/runner/run_eval.py --workflow "$BENCH_WORKFLOW" --all
 
 # 指定评测模型 (格式 provider/model, 用 opencode models 查看可用模型; 不提供时交互问询)
-python tests/benchmark/runner/run_eval.py -c tests/benchmark/config/eval_config_mini.yaml \
+python tests/benchmark/runner/run_eval.py --workflow "$BENCH_WORKFLOW" -c tests/benchmark/config/eval_config_mini.yaml \
     --model zhipuai-coding-plan/glm-5.2
 
 # 模型白名单: config allowed_models 生效, 白名单外的 --model/问询输入会被拒绝
 # --all 模式或需覆盖 config 白名单时用 --allowed-models (逗号分隔)
-python tests/benchmark/runner/run_eval.py --all \
+python tests/benchmark/runner/run_eval.py --workflow "$BENCH_WORKFLOW" --all \
     --allowed-models kimi-for-coding/k3,zhipuai-coding-plan/glm-5.2 \
     --model kimi-for-coding/k3
 
 # 使用指定分支的 cann-bench
-python tests/benchmark/runner/run_eval.py --all --cann-bench-branch dev
+python tests/benchmark/runner/run_eval.py --workflow "$BENCH_WORKFLOW" --all --cann-bench-branch dev
 
 # 强制更新 cann-bench
-python tests/benchmark/runner/run_eval.py --all --update-cann-bench
+python tests/benchmark/runner/run_eval.py --workflow "$BENCH_WORKFLOW" --all --update-cann-bench
+
+# 单算子封装：第一个参数同样必须显式指定工作流，后两项默认为 level1/exp 和 3600 秒
+bash tests/benchmark/runner/run_bench.sh "$BENCH_WORKFLOW" level1/exp 3600
 ```
 
 ## 超时与重试
@@ -66,15 +75,15 @@ python tests/benchmark/runner/run_eval.py --all --update-cann-bench
 ```bash
 # 超时优先级: op.timeout > config category_timeouts[category]
 #   > config default_timeout > OP_TIMEOUT 环境变量 (默认 21600s)
-OP_TIMEOUT=7200 python tests/benchmark/runner/run_eval.py -c ...
+OP_TIMEOUT=7200 python tests/benchmark/runner/run_eval.py --workflow "$BENCH_WORKFLOW" -c ...
 
 # 连接层重试: SERVE_RETRY 次 (默认 3), 覆盖连接错误与超时
-SERVE_RETRY=3 python tests/benchmark/runner/run_eval.py -c ...
+SERVE_RETRY=3 python tests/benchmark/runner/run_eval.py --workflow "$BENCH_WORKFLOW" -c ...
 
 # 算子级重跑: 状态非 success 或交付不完整 (缺 .whl) 时整算子重跑,
 # OP_RETRY 为每算子最大尝试次数 (默认 1 = 不重跑);
 # 重跑会恢复上次持久化的算子产物 (含 dist/*.whl), agent 在此基础上继续
-OP_RETRY=2 python tests/benchmark/runner/run_eval.py -c ...
+OP_RETRY=2 python tests/benchmark/runner/run_eval.py --workflow "$BENCH_WORKFLOW" -c ...
 
 # 注意: 单算子最坏墙钟 = OP_RETRY × SERVE_RETRY × 算子超时
 # (每次 serve 尝试都可能用满超时, 如 OP_RETRY=2/SERVE_RETRY=3/超时7h → 42h),

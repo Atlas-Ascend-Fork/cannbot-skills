@@ -1463,7 +1463,7 @@ analyze_cost_breakdown() {
 VERSION_STATE_DIR="$TESTS_DIR/.version-state"
 
 # Get team plugin.json path
-# Usage: get_team_plugin_json "ops-direct-invoke"
+# Usage: get_team_plugin_json "torch-compile"
 # Returns: full path to plugin.json
 get_team_plugin_json() {
     local team_name="$1"
@@ -1597,7 +1597,7 @@ get_teams_list() {
 }
 
 # Resolve team skill & agent file paths from marketplace.json + plugin.json
-# Usage: resolve_team_file_paths "ops-direct-invoke"
+# Usage: resolve_team_file_paths "torch-compile"
 # Returns: relative paths (from SKILLS_DIR), one per line
 resolve_team_file_paths() {
     local team_name="$1"
@@ -1644,7 +1644,7 @@ PYEOF
 }
 
 # Detect whether a team's dependency files changed against a base ref
-# Usage: detect_team_changes "ops-direct-invoke" "origin/master"
+# Usage: detect_team_changes "torch-compile" "origin/master"
 # Returns: "changed" if any dependency file changed, empty otherwise
 detect_team_changes() {
     local team_name="$1"
@@ -1668,7 +1668,7 @@ detect_team_changes() {
 }
 
 # Bump version in a team's plugin.json
-# Usage: bump_plugin_json "ops-direct-invoke" "1.1.11"
+# Usage: bump_plugin_json "torch-compile" "1.1.11"
 # Returns: 0 on success, 1 on failure
 bump_plugin_json() {
     local team_name="$1"
@@ -1700,7 +1700,7 @@ PYEOF
 }
 
 # Bump version in marketplace.json for a given team
-# Usage: bump_marketplace_json "ops-direct-invoke" "1.1.11"
+# Usage: bump_marketplace_json "torch-compile" "1.1.11"
 # Returns: 0 on success, 1 on failure
 bump_marketplace_json() {
     local team_name="$1"

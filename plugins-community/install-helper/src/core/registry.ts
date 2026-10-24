@@ -108,6 +108,9 @@ export function findPlugin(
 ): PluginEntry | undefined {
   const normalized = query.toLowerCase().trim();
   const wantCannbot = options?.source !== "skills";
+  const tombstone = MIGRATED_PLUGINS.find(
+    (p) => p.id === normalized || p.id === query.trim() || p.aliases.some((a) => a === normalized)
+  );
 
   // cannbot-source plugins win for same-name ids (migration policy: the new
   // generation in the cannbot repo is authoritative; the legacy version can
@@ -126,9 +129,6 @@ export function findPlugin(
     // Migrated tombstones: exact/alias resolve before any prefix matching so
     // the historical alias (e.g. "triton") is not captured by a prefix match
     // on a different cannbot plugin (e.g. triton-auto-evolve).
-    const tombstone = MIGRATED_PLUGINS.find(
-      (p) => p.id === normalized || p.id === query.trim() || p.aliases.some((a) => a === normalized)
-    );
     if (tombstone) return tombstone;
   }
 
@@ -141,6 +141,10 @@ export function findPlugin(
     p.aliases.some((a) => a === normalized)
   );
   if (aliasMatch) return aliasMatch;
+
+  // A removed plugin must not resolve to a different local plugin by prefix
+  // (e.g. ops-direct-invoke -> ops-direct-invoke-flash during fallback).
+  if (!wantCannbot && tombstone) return undefined;
 
   if (wantCannbot) {
     const cannbotPrefixes = CANNBOT_PLUGINS.filter((p) => p.id.startsWith(normalized));
