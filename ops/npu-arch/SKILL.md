@@ -14,10 +14,11 @@ description: Ascend NPU 架构知识查询技能。通过芯片型号映射、�
 | **__NPU_ARCH__** | Device 侧编译宏，四位数值，用于条件编译 |
 | **archXX** | 算子仓目录简写，取 DAV 编号前两位（如 DAV_3510 → arch35） |
 | **__DAV_C310__** | 构建系统内部宏，等价于 `NpuArch::DAV_3510` / `arch35` / `__NPU_ARCH__=3510`，不可按数值推断 |
+| **arch-token** | 编译器代际入口（`--cce-aicore-arch=<token>`，如 dav-m300） |
 
 ## 完整映射表
 
-完整产品系列 / SocVersion / NpuArch / 芯片型号映射见 [`npu-hardware-params.md` §0 产品映射表](references/npu-hardware-params.md#0-产品映射表)。
+完整产品系列 / SocVersion / NpuArch / `__NPU_ARCH__` / 编译 arch-token / 芯片型号的逐芯片映射见 [`npu-hardware-params.md` §0 产品映射表](references/npu-hardware-params.md#0-产品映射表)。
 
 ## 获取当前架构
 

@@ -12,17 +12,17 @@
 
 按 NpuArch 列出 Ascend NPU 全代际的产品系列、SocVersion 与具体芯片型号。**本表为 SKILL.md 与 `npu-arch-guide.md` 共用的真源，需要修改芯片清单时仅在此处更新。**
 
-| 产品系列 | SocVersion | NpuArch | __NPU_ARCH__ | 芯片型号 |
-|---------|-----------|---------|:---:|---------|
-| Atlas 训练系列 | ASCEND910 | DAV_1001 | 1001 | Ascend910 |
-| Atlas 推理系列 | ASCEND310P | DAV_2002 | 2002 | Ascend310P1, Ascend310P3, Ascend310P5, Ascend310P7 |
-| Atlas A2 训练/推理 | ASCEND910B | DAV_2201 | 2201 | Ascend910B1~B4, Ascend910B2C |
-| Atlas A3 训练/推理 | ASCEND910B | DAV_2201 | 2201 | Ascend910_93 |
-| Atlas 200I/500 A2 推理 | ASCEND310B | DAV_3002 | 3002 | Ascend310B1~B4 |
-| Atlas A5 训练 | ASCEND950 | DAV_3510 | 3510 | Ascend950DT (Decode) |
-| Atlas A5 推理 | ASCEND950 | DAV_3510 | 3510 | Ascend950PR (Prefill) |
-| Mate80、Pura90等系列 | Kirin9030 | DAV_3113 | 3113 | Kirin9030 |
-| MatePad Edge、MateBookPro等系列 | KirinX90 | DAV_3003 | 3003 | KirinX90 |
+| 产品系列 | SocVersion | NpuArch | __NPU_ARCH__ | 编译arch-token | 芯片型号 |
+|---------|-----------|---------|:---:|:---:|---------|
+| Atlas 训练系列 | ASCEND910 | DAV_1001 | 1001 | dav-c100 | Ascend910 |
+| Atlas 推理系列 | ASCEND310P | DAV_2002 | 2002 | dav-m200 | Ascend310P1, Ascend310P3, Ascend310P5, Ascend310P7 |
+| Atlas A2 训练/推理 | ASCEND910B | DAV_2201 | 2201 | dav-c220 | Ascend910B1~B4, Ascend910B2C |
+| Atlas A3 训练/推理 | ASCEND910B | DAV_2201 | 2201 | dav-c220 | Ascend910_93 |
+| Atlas 200I/500 A2 推理 | ASCEND310B | DAV_3002 | 3002 | dav-m300 | Ascend310B1~B4 |
+| Atlas A5 训练 | ASCEND950 | DAV_3510 | 3510 | dav-c310 | Ascend950DT (Decode) |
+| Atlas A5 推理 | ASCEND950 | DAV_3510 | 3510 | dav-c310 | Ascend950PR (Prefill) |
+| Mate80、Pura90等系列 | Kirin9030 | DAV_3113 | 3113 | dav-l311 | Kirin9030 |
+| MatePad Edge、MateBookPro等系列 | KirinX90 | DAV_3003 | 3003 | dav-l300 | KirinX90 |
 
 > **一对多关系**：一个 NpuArch 可对应多个 SocVersion / 芯片型号。例如 `DAV_2201` 对应 Ascend910B1~B4、Ascend910B2C、Ascend910_93。
 >
