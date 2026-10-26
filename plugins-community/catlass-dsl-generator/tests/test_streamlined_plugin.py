@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 
 def load(path):
@@ -21,9 +21,7 @@ def load(path):
 
 
 def test_expected_public_skills_exist():
-    public = sorted(
-        path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md")
-    )
+    public = sorted(path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md"))
     assert public == [
         "catlass-dsl-bench",
         "catlass-dsl-design",
@@ -67,8 +65,12 @@ def test_codex_marketplace_installs_plugin_from_repository_root():
 def test_develop_uses_state_as_its_only_machine_authority():
     develop = ROOT / "skills/catlass-dsl-develop"
     design = ROOT / "skills/catlass-dsl-design"
-    develop_source = (ROOT / "skills/catlass-dsl-develop/scripts/develop_state.py").read_text(encoding="utf-8")
-    develop_skill = (ROOT / "skills/catlass-dsl-develop/SKILL.md").read_text(encoding="utf-8")
+    develop_source = (
+        ROOT / "skills/catlass-dsl-develop/scripts/develop_state.py"
+    ).read_text(encoding="utf-8")
+    develop_skill = (ROOT / "skills/catlass-dsl-develop/SKILL.md").read_text(
+        encoding="utf-8"
+    )
     for text in (develop_source, develop_skill):
         assert "worktree" not in text.lower()
         assert "candidate_worktree_parent" not in text
@@ -79,28 +81,33 @@ def test_develop_uses_state_as_its_only_machine_authority():
     assert not (develop / "templates/development-state.json").exists()
     assert "--contract" not in develop_source
     assert "--contract" not in develop_skill
-    for git_identity in ("current_head", "git_common_dir", "verify_repository", "git rev-parse"):
+    for git_identity in (
+        "current_head",
+        "git_common_dir",
+        "verify_repository",
+        "git rev-parse",
+    ):
         assert git_identity not in develop_source
     state_template = (develop / "templates/state.json").read_text(encoding="utf-8")
     assert "git_common_dir" not in state_template
     assert "repository_root" in state_template
     for required in (
         "📋 Resolved Plan",
-        "Record immediately",
+        "Milestone submission",
         "ITERATIONS.md",
         "traces/iter-NNN-<stage>",
         "kernel.py",
         "Workload Speedups",
         "kernel_details.csv",
         "step_trace_time.csv",
-        "catlass.dsl.workflow.v3",
+        "catlass.dsl.workflow.v4",
     ):
         assert required in develop_skill
     for forbidden in ("state/state.json", "stages/NNN", "artifacts/commands"):
         assert forbidden not in develop_skill
     assert (develop / "scripts/develop_state.py").is_file()
-    assert (develop / "templates/task-breakdown-result.json").is_file()
-    assert not (design / "templates/design.md").exists()
+    assert not (develop / "templates/task-breakdown-result.json").exists()
+    assert "design.md" not in {path.name for path in (design / "templates").iterdir()}
     assert not (develop / "templates/design.md").exists()
     assert not (ROOT / "skills/catlass-dsl").exists()
 
@@ -178,40 +185,12 @@ def test_benchmark_skill_documents_suite_interfaces():
         assert expected in skill
 
 
-def test_agent_workflows_require_one_runtime_catlass_kernel():
-    design = (ROOT / "skills/catlass-dsl-design/SKILL.md").read_text(encoding="utf-8")
-    develop = (ROOT / "skills/catlass-dsl-develop/SKILL.md").read_text(encoding="utf-8")
-    optimize = (ROOT / "skills/catlass-dsl-optimize/SKILL.md").read_text(encoding="utf-8")
-    assert "只 launch 一个" in design
-    assert "anti_hack.status=passed" in develop
-    assert "multi-launch" in optimize
-    assert "GM 临时张量" in design + develop
-
-
-def test_agent_workflows_require_self_contained_kernels():
-    skill_names = (
-        "catlass-dsl-design",
-        "catlass-dsl-develop",
-        "catlass-dsl-bench",
-        "catlass-dsl-optimize",
-    )
-    skills = {
-        name: (ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
-        for name in skill_names
-    }
-    for text in skills.values():
-        assert "自包含" in text
-        assert "模块级" in text
-        assert "closure" in text
-        assert "global" in text
-    assert "形式参数" in skills["catlass-dsl-design"]
-    assert "自由名字" in skills["catlass-dsl-develop"]
-    assert "结构审查失败" in skills["catlass-dsl-bench"]
-    assert "不得把结构" in skills["catlass-dsl-optimize"]
-    assert "违规源码作为 baseline" in skills["catlass-dsl-optimize"]
-    for text in skills.values():
-        assert "只能声明一个 `@tla.kernel`" in text or "只声明一个 `@tla.kernel`" in text
-        assert "不得为编译期变体声明独立" in text
+def test_agent_workflows_explain_performance_default_and_strict_opt_in():
+    for name in ("catlass-dsl-design", "catlass-dsl-develop", "catlass-dsl-optimize"):
+        text = (ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+        assert "performance" in text
+        assert "single_kernel" in text
+        assert "默认" in text and "anti-hack" in text
 
 
 def test_optimize_owns_controller_and_machine_input_templates():
@@ -223,9 +202,7 @@ def test_optimize_owns_controller_and_machine_input_templates():
 
 
 def test_optimize_skill_documents_agent_first_iteration_protocol():
-    skill = (ROOT / "skills/catlass-dsl-optimize/SKILL.md").read_text(
-        encoding="utf-8"
-    )
+    skill = (ROOT / "skills/catlass-dsl-optimize/SKILL.md").read_text(encoding="utf-8")
     for required in (
         "📋 Resolved Plan",
         "profile → hypothesis → modify → correctness → benchmark → record",
@@ -265,8 +242,11 @@ def test_workflow_skills_keep_domain_rules_in_knowledge():
     workflows = [
         (ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
         for name in (
-            "catlass-dsl-design", "catlass-dsl-develop",
-            "catlass-dsl-optimize", "catlass-dsl-knowledge", "catlass-dsl-bench",
+            "catlass-dsl-design",
+            "catlass-dsl-develop",
+            "catlass-dsl-optimize",
+            "catlass-dsl-knowledge",
+            "catlass-dsl-bench",
         )
     ]
     template = (ROOT / "skills/catlass-dsl-design/templates/DESIGN.md").read_text(
@@ -275,9 +255,16 @@ def test_workflow_skills_keep_domain_rules_in_knowledge():
     # Workflows route knowledge without prescribing one operator family.
     for text in [*workflows, template]:
         for rule in (
-            "linear-attention", "Linear Attention", "KDA", "R01-R21",
-            "mixed-cube-vector-kda.md", "group_size=2/4", "packed solve",
-            "共享 RHS", "双 AIV", "矩阵逆",
+            "linear-attention",
+            "Linear Attention",
+            "KDA",
+            "R01-R21",
+            "mixed-cube-vector-kda.md",
+            "group_size=2/4",
+            "packed solve",
+            "共享 RHS",
+            "双 AIV",
+            "矩阵逆",
         ):
             assert rule not in text
 

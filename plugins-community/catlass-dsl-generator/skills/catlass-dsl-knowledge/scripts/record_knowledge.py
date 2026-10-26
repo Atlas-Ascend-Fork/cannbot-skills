@@ -1,4 +1,14 @@
 #!/usr/bin/env python3
+# ----------------------------------------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# ----------------------------------------------------------------------------------------------------------
+
 """Initialize an OKF bundle and append evidence-backed learned concepts."""
 
 import argparse
@@ -27,6 +37,29 @@ OKF_VERSION = "0.2"
 SAFE_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 SUPPORTED_ARCHES = {"c310"}
+
+# 架构别名：用户/agent 常用芯片型号或代际名描述目标，统一归一到 c310。
+# 例如编译参数是 --npu-arch 3510，而知识条目的 arch 标签是 c310，两者必须命中同一批条目。
+ARCH_ALIASES = {
+    "c310": "c310",
+    "3510": "c310",
+    "arch3510": "c310",
+    "npu3510": "c310",
+    "950": "c310",
+    "ascend950": "c310",
+    "ascend950pr": "c310",
+    "a5": "c310",
+}
+
+
+def normalize_arch(value):
+    """把架构写法归一化到知识条目的标签体系；无法识别时原样返回。"""
+    if value is None:
+        return None
+    key = str(value).strip().lower().replace("-", "").replace("_", "").replace(" ", "")
+    return ARCH_ALIASES.get(key, value)
+
+
 PROVEN_STATUSES = {"有效", "无效", "条件有效"}
 EVIDENCE_KINDS = {"test", "profiling"}
 REQUIRED_FIELDS = {
@@ -52,7 +85,9 @@ MEASUREMENT_FIELDS = {"status", "summary", "reason"}
 PROFILING_FIELDS = {"status", "observation", "reason"}
 PLUGIN_KNOWLEDGE = (Path(__file__).resolve().parents[3] / "knowledge").resolve()
 PROJECT_KNOWLEDGE = Path(".catlass-dsl") / "knowledge"
-TEMPLATE = (Path(__file__).resolve().parents[1] / "templates" / "learned-entry.md").resolve()
+TEMPLATE = (
+    Path(__file__).resolve().parents[1] / "templates" / "learned-entry.md"
+).resolve()
 OKF_STATUSES = {"draft", "stable", "deprecated"}
 ACTOR = re.compile(
     r"^(?:human:[A-Za-z0-9._-]+|process:[A-Za-z0-9._-]+|"
@@ -63,7 +98,12 @@ MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 QUERY_VOCABULARY = "query-vocabulary.yaml"
 QUERY_VOCABULARY_VERSION = "1"
 KNOWLEDGE_CATEGORIES = {
-    "dsl", "operator", "debug", "profiler", "optimization", "learned",
+    "dsl",
+    "operator",
+    "debug",
+    "profiler",
+    "optimization",
+    "learned",
 }
 QUERY_FIELD_WEIGHTS = {
     "title": 12,
@@ -114,7 +154,9 @@ def _validate_measurement(field, value, statuses):
         return ["{} 必须包含 status、summary 和 reason".format(field)]
     if value.get("status") not in statuses:
         return ["{} status 非法".format(field)]
-    if not isinstance(value.get("summary"), str) or not isinstance(value.get("reason"), str):
+    if not isinstance(value.get("summary"), str) or not isinstance(
+        value.get("reason"), str
+    ):
         return ["{} summary/reason 必须是字符串".format(field)]
     if value["status"] == "not_run" and not value["reason"].strip():
         return ["{} 为 not_run 时必须记录 reason".format(field)]
@@ -140,7 +182,9 @@ def validate_entry(entry, project_root):
     if (
         not isinstance(arches, list)
         or not arches
-        or any(not isinstance(arch, str) or arch not in SUPPORTED_ARCHES for arch in arches)
+        or any(
+            not isinstance(arch, str) or arch not in SUPPORTED_ARCHES for arch in arches
+        )
         or len(set(arches)) != len(arches)
     ):
         errors.append("arch 必须是只包含 c310 字符串的非空列表")
@@ -149,31 +193,64 @@ def validate_entry(entry, project_root):
     if (
         not isinstance(versions, dict)
         or set(versions) != {"catlass", "cann"}
-        or any(not isinstance(versions.get(key), str) or not versions[key].strip() for key in versions)
+        or any(
+            not isinstance(versions.get(key), str) or not versions[key].strip()
+            for key in versions
+        )
     ):
         errors.append("versions 必须记录 CATLASS DSL 和 CANN 版本条件")
 
     applicability = entry.get("applicability")
-    if not isinstance(applicability, dict) or set(applicability) != APPLICABILITY_FIELDS:
-        errors.append("applicability 必须包含 shape、dtype、layout 和 repository_integration")
-    elif any(not isinstance(applicability[key], str) or not applicability[key].strip() for key in APPLICABILITY_FIELDS):
+    if (
+        not isinstance(applicability, dict)
+        or set(applicability) != APPLICABILITY_FIELDS
+    ):
+        errors.append(
+            "applicability 必须包含 shape、dtype、layout 和 repository_integration"
+        )
+    elif any(
+        not isinstance(applicability[key], str) or not applicability[key].strip()
+        for key in APPLICABILITY_FIELDS
+    ):
         errors.append("applicability 字段必须是非空字符串")
 
     for field in ("hypothesis", "actual_change", "result"):
         if not isinstance(entry.get(field), str) or not entry[field].strip():
             errors.append("{} 必须是非空字符串".format(field))
 
-    errors.extend(_validate_measurement("correctness_before", entry.get("correctness_before"), {"passed", "failed", "not_run"}))
-    errors.extend(_validate_measurement("correctness_after", entry.get("correctness_after"), {"passed", "failed", "not_run"}))
-    errors.extend(_validate_measurement("performance_before", entry.get("performance_before"), {"passed", "not_run"}))
-    errors.extend(_validate_measurement("performance_after", entry.get("performance_after"), {"passed", "not_run"}))
+    errors.extend(
+        _validate_measurement(
+            "correctness_before",
+            entry.get("correctness_before"),
+            {"passed", "failed", "not_run"},
+        )
+    )
+    errors.extend(
+        _validate_measurement(
+            "correctness_after",
+            entry.get("correctness_after"),
+            {"passed", "failed", "not_run"},
+        )
+    )
+    errors.extend(
+        _validate_measurement(
+            "performance_before", entry.get("performance_before"), {"passed", "not_run"}
+        )
+    )
+    errors.extend(
+        _validate_measurement(
+            "performance_after", entry.get("performance_after"), {"passed", "not_run"}
+        )
+    )
 
     profiling = entry.get("profiling_observation")
     if not isinstance(profiling, dict) or set(profiling) != PROFILING_FIELDS:
         errors.append("profiling_observation 必须包含 status、observation 和 reason")
     elif profiling.get("status") not in {"passed", "not_run"}:
         errors.append("profiling_observation status 非法")
-    elif not isinstance(profiling.get("observation"), str) or not isinstance(profiling.get("reason"), str):
+    elif not isinstance(profiling.get("observation"), str) or not isinstance(
+        profiling.get("reason"), str
+    ):
         errors.append("profiling_observation observation/reason 必须是字符串")
     elif profiling["status"] == "passed" and not profiling["observation"].strip():
         errors.append("profiling_observation passed 时必须记录 observation")
@@ -182,7 +259,10 @@ def validate_entry(entry, project_root):
 
     if entry.get("status") not in PROVEN_STATUSES:
         errors.append("status 只能是有效、无效或条件有效")
-    if isinstance(entry.get("correctness_after"), dict) and entry["correctness_after"].get("status") != "passed":
+    if (
+        isinstance(entry.get("correctness_after"), dict)
+        and entry["correctness_after"].get("status") != "passed"
+    ):
         errors.append("correctness_after 必须为 passed")
 
     evidence = entry.get("evidence")
@@ -203,7 +283,9 @@ def validate_entry(entry, project_root):
                 candidate = project / relative
                 _reject_symlink_chain(candidate, project)
                 if not candidate.is_file():
-                    errors.append("evidence 必须指向项目内普通文件：{}".format(relative))
+                    errors.append(
+                        "evidence 必须指向项目内普通文件：{}".format(relative)
+                    )
             except ValueError as exc:
                 errors.append(str(exc))
 
@@ -213,7 +295,9 @@ def validate_entry(entry, project_root):
         if "profiling" in evidence_kinds and profiling.get("status") != "passed":
             errors.append("profiling evidence 与 profiling_observation 状态不一致")
 
-    if not isinstance(entry.get("kernel_sha256"), str) or not SHA256.fullmatch(entry["kernel_sha256"]):
+    if not isinstance(entry.get("kernel_sha256"), str) or not SHA256.fullmatch(
+        entry["kernel_sha256"]
+    ):
         errors.append("kernel_sha256 必须是 64 位小写 SHA-256")
     return list(dict.fromkeys(errors))
 
@@ -266,7 +350,9 @@ def _yaml(value):
 
 
 def _measurement(value):
-    return "{}; {}; {}".format(value["status"], value["summary"], value["reason"]).strip("; ")
+    return "{}; {}; {}".format(
+        value["status"], value["summary"], value["reason"]
+    ).strip("; ")
 
 
 def _render(entry, date_value):
@@ -274,7 +360,9 @@ def _render(entry, date_value):
     sources = []
     evidence_links = []
     for number, item in enumerate(entry["evidence"], 1):
-        resource = "project-evidence:{}?kernel-sha256={}".format(item["path"], entry["kernel_sha256"])
+        resource = "project-evidence:{}?kernel-sha256={}".format(
+            item["path"], entry["kernel_sha256"]
+        )
         sources.append(
             {
                 "id": "evidence-{}".format(number),
@@ -286,11 +374,27 @@ def _render(entry, date_value):
         evidence_links.append("- [{}](../../../{})".format(item["kind"], item["path"]))
 
     replacements = {
-        "{{title_json}}": _yaml("{}: {}".format(entry["operator_family"], entry["topic"])),
+        "{{title_json}}": _yaml(
+            "{}: {}".format(entry["operator_family"], entry["topic"])
+        ),
         "{{description_json}}": _yaml(entry["result"]),
-        "{{tags_json}}": _yaml(["catlass-dsl", "learned", entry["operator_family"], entry["status"]]),
-        "{{generated_json}}": _yaml({"by": "process:catlass-dsl-knowledge", "at": "{}T00:00:00Z".format(date_value)}),
-        "{{verified_json}}": _yaml([{"by": "process:catlass-dsl-evidence-gate", "at": "{}T00:00:00Z".format(date_value)}]),
+        "{{tags_json}}": _yaml(
+            ["catlass-dsl", "learned", entry["operator_family"], entry["status"]]
+        ),
+        "{{generated_json}}": _yaml(
+            {
+                "by": "process:catlass-dsl-knowledge",
+                "at": "{}T00:00:00Z".format(date_value),
+            }
+        ),
+        "{{verified_json}}": _yaml(
+            [
+                {
+                    "by": "process:catlass-dsl-evidence-gate",
+                    "at": "{}T00:00:00Z".format(date_value),
+                }
+            ]
+        ),
         "{{sources_json}}": _yaml(sources),
         "{{operator_family_json}}": _yaml(entry["operator_family"]),
         "{{topic_json}}": _yaml(entry["topic"]),
@@ -338,9 +442,10 @@ def _frontmatter_value(text, key):
     if end < 0:
         raise ValueError("OKF concept frontmatter 未闭合")
     prefix = "{}:".format(key)
+    prefix_length = len(prefix)
     for line in text[4:end].splitlines():
         if line.startswith(prefix):
-            raw = line[len(prefix):].strip()
+            raw = line[prefix_length:].strip()
             try:
                 return json.loads(raw)
             except json.JSONDecodeError:
@@ -360,7 +465,8 @@ def _frontmatter(text, path="<concept>"):
         raise ValueError("{} frontmatter YAML 非法：{}".format(path, exc)) from exc
     if not isinstance(value, dict):
         raise ValueError("{} frontmatter 必须是 mapping".format(path))
-    return value, text[end + 5:]
+    body_start = end + 5
+    return value, text[body_start:]
 
 
 def _json_safe(value):
@@ -424,9 +530,13 @@ def _validate_index_links(root):
                 continue
             candidate = (index.parent / target).resolve()
             if not _is_within(candidate, root):
-                errors.append("{} 索引链接越出 bundle：{}".format(index.relative_to(root), target))
+                errors.append(
+                    "{} 索引链接越出 bundle：{}".format(index.relative_to(root), target)
+                )
             elif not candidate.exists():
-                errors.append("{} 索引链接不存在：{}".format(index.relative_to(root), target))
+                errors.append(
+                    "{} 索引链接不存在：{}".format(index.relative_to(root), target)
+                )
             elif candidate.is_dir():
                 errors.append(
                     "{} 子目录链接必须显式指向 index.md：{}".format(
@@ -439,8 +549,7 @@ def _validate_index_links(root):
 def _normalized_words(value):
     """Return deterministic Unicode words for identifiers and natural-language text."""
     return tuple(
-        word for word in re.sub(r"[_\W]+", " ", str(value).casefold()).split()
-        if word
+        word for word in re.sub(r"[_\W]+", " ", str(value).casefold()).split() if word
     )
 
 
@@ -453,7 +562,8 @@ def _load_query_vocabulary(root):
     except yaml.YAMLError as exc:
         raise ValueError("{} YAML 非法：{}".format(QUERY_VOCABULARY, exc)) from exc
     if not isinstance(vocabulary, dict) or set(vocabulary) != {
-        "schema_version", "operator_families"
+        "schema_version",
+        "operator_families",
     }:
         raise ValueError("{} 字段集合非法".format(QUERY_VOCABULARY))
     if vocabulary["schema_version"] != QUERY_VOCABULARY_VERSION:
@@ -489,7 +599,9 @@ def _query_aliases(vocabulary, known_families=None):
             if not key:
                 raise ValueError("查询词表别名规范化后不能为空")
             if key in local:
-                raise ValueError("查询词表 {} 存在重复别名：{}".format(canonical, value))
+                raise ValueError(
+                    "查询词表 {} 存在重复别名：{}".format(canonical, value)
+                )
             local.add(key)
             if key in aliases and aliases[key] != canonical:
                 raise ValueError(
@@ -511,7 +623,8 @@ def _normalize_query(value, aliases):
     while index < len(words):
         matched = None
         for length in alias_lengths:
-            key = tuple(words[index:index + length])
+            stop = index + length
+            key = tuple(words[index:stop])
             if len(key) == length and key in aliases:
                 matched = (length, aliases[key])
                 break
@@ -544,7 +657,8 @@ def _score_concept(relative, metadata, body, terms, normalized_text):
     learned_family = metadata.get("operator_family")
     family_values = list(families) + ([learned_family] if learned_family else [])
     source_titles = [
-        source.get("title", "") for source in metadata.get("sources", [])
+        source.get("title", "")
+        for source in metadata.get("sources", [])
         if isinstance(source, dict)
     ]
     raw_fields = {
@@ -595,12 +709,14 @@ def _body_snippets(body, terms, line_offset=0, limit=QUERY_SNIPPET_LIMIT):
         if not matched:
             continue
         if len(text) > QUERY_SNIPPET_CHARS:
-            text = text[:QUERY_SNIPPET_CHARS - 1].rstrip() + "…"
-        snippets.append({
-            "line": line_number + line_offset,
-            "text": text,
-            "matched_terms": matched,
-        })
+            text = text[: QUERY_SNIPPET_CHARS - 1].rstrip() + "…"
+        snippets.append(
+            {
+                "line": line_number + line_offset,
+                "text": text,
+                "matched_terms": matched,
+            }
+        )
         if len(snippets) == limit:
             break
     return snippets
@@ -612,8 +728,9 @@ def get_concept(knowledge_root, concept_path):
     validate_bundle(root)
     relative = _safe_relative_path(concept_path, "path")
     project_prefix = PROJECT_KNOWLEDGE.parts
-    if relative.parts[:len(project_prefix)] == project_prefix:
-        relative = Path(*relative.parts[len(project_prefix):])
+    prefix_length = len(project_prefix)
+    if relative.parts[:prefix_length] == project_prefix:
+        relative = Path(*relative.parts[prefix_length:])
     if (
         not relative.parts
         or relative.suffix != ".md"
@@ -647,11 +764,13 @@ def _query_suggestions(text, operator_family, aliases):
             if canonical in seen:
                 continue
             seen.add(canonical)
-            suggestions.append({
-                "term": match,
-                "normalized_operator_family": canonical,
-                "filters": {"operator_family": canonical},
-            })
+            suggestions.append(
+                {
+                    "term": match,
+                    "normalized_operator_family": canonical,
+                    "filters": {"operator_family": canonical},
+                }
+            )
     return suggestions[:3]
 
 
@@ -671,7 +790,15 @@ def validate_bundle(knowledge_root):
     concepts = []
     errors = []
     known_families = set()
-    required = {"type", "title", "description", "tags", "status", "generated", "sources"}
+    required = {
+        "type",
+        "title",
+        "description",
+        "tags",
+        "status",
+        "generated",
+        "sources",
+    }
     for path in sorted(root.rglob("*.md")):
         relative = path.relative_to(root)
         if path.name in {"index.md", "log.md"}:
@@ -693,11 +820,16 @@ def validate_bundle(knowledge_root):
             if (
                 not isinstance(metadata["tags"], list)
                 or not metadata["tags"]
-                or any(not isinstance(tag, str) or not tag.strip() for tag in metadata["tags"])
+                or any(
+                    not isinstance(tag, str) or not tag.strip()
+                    for tag in metadata["tags"]
+                )
             ):
                 raise ValueError("{} tags 必须是非空字符串列表".format(relative))
             if metadata["status"] not in OKF_STATUSES:
-                raise ValueError("{} status 必须是 draft、stable 或 deprecated".format(relative))
+                raise ValueError(
+                    "{} status 必须是 draft、stable 或 deprecated".format(relative)
+                )
             _validate_action(metadata["generated"], "{} generated".format(relative))
             verified = metadata.get("verified")
             if not isinstance(verified, list) or not verified:
@@ -712,24 +844,40 @@ def validate_bundle(knowledge_root):
                 label = "{} sources[{}]".format(relative, index)
                 if not isinstance(source, dict) or "resource" not in source:
                     raise ValueError("{} 必须是包含 resource 的 mapping".format(label))
-                _validate_source_resource(source["resource"], "{}.resource".format(label))
+                _validate_source_resource(
+                    source["resource"], "{}.resource".format(label)
+                )
                 source_id = source.get("id")
                 if source_id is not None:
-                    if not isinstance(source_id, str) or not SOURCE_ID.fullmatch(source_id):
+                    if not isinstance(source_id, str) or not SOURCE_ID.fullmatch(
+                        source_id
+                    ):
                         raise ValueError("{} id 非法".format(label))
                     if source_id in source_ids:
-                        raise ValueError("{} source id 重复：{}".format(relative, source_id))
+                        raise ValueError(
+                            "{} source id 重复：{}".format(relative, source_id)
+                        )
                     source_ids.add(source_id)
             if relative.parts[0] in {
-                "dsl", "operator", "debug", "profiler", "optimization"
+                "dsl",
+                "operator",
+                "debug",
+                "profiler",
+                "optimization",
             }:
                 if not source_ids:
-                    raise ValueError("{} 静态 concept 必须声明 source id".format(relative))
+                    raise ValueError(
+                        "{} 静态 concept 必须声明 source id".format(relative)
+                    )
                 for source_id in source_ids:
                     if "[^{}]".format(source_id) not in body:
-                        raise ValueError("{} 未引用 source id {}".format(relative, source_id))
+                        raise ValueError(
+                            "{} 未引用 source id {}".format(relative, source_id)
+                        )
                     if "[^{}]:".format(source_id) not in body:
-                        raise ValueError("{} 缺少 source footnote {}".format(relative, source_id))
+                        raise ValueError(
+                            "{} 缺少 source footnote {}".format(relative, source_id)
+                        )
             families = metadata.get("operator_families", [])
             if isinstance(families, list):
                 known_families.update(
@@ -752,8 +900,15 @@ def validate_bundle(knowledge_root):
 
 
 def query_bundle_report(
-    knowledge_root, concept_type=None, tags=None, status=None,
-    operator_family=None, arch=None, text=None, limit=None, compact=False,
+    knowledge_root,
+    concept_type=None,
+    tags=None,
+    status=None,
+    operator_family=None,
+    arch=None,
+    text=None,
+    limit=None,
+    compact=False,
     category=None,
 ):
     root = Path(knowledge_root).resolve()
@@ -785,19 +940,27 @@ def query_bundle_report(
             continue
         raw = path.read_text(encoding="utf-8")
         metadata, body = _frontmatter(raw, str(relative))
-        body_line_offset = raw[:len(raw) - len(body)].count("\n")
+        body_line_offset = raw[: len(raw) - len(body)].count("\n")
         if concept_type and metadata.get("type") != concept_type:
             continue
-        if status and metadata.get("status") != status and metadata.get("result_status") != status:
+        if (
+            status
+            and metadata.get("status") != status
+            and metadata.get("result_status") != status
+        ):
             continue
         if required_tags and not required_tags.issubset(set(metadata.get("tags", []))):
             continue
         families = metadata.get("operator_families", [])
         learned_family = metadata.get("operator_family")
-        if normalized_family and normalized_family not in families and normalized_family != learned_family:
+        if (
+            normalized_family
+            and normalized_family not in families
+            and normalized_family != learned_family
+        ):
             continue
         arches = metadata.get("arch", [])
-        if arch and arch not in arches:
+        if arch and normalize_arch(arch) not in arches:
             continue
         score, matched_fields, matched_terms, phrase_match = _score_concept(
             relative, metadata, body, terms, normalized_text
@@ -814,42 +977,47 @@ def query_bundle_report(
             "body_snippets": _body_snippets(body, terms, line_offset=body_line_offset),
         }
         if not compact:
-            result.update({
-                "tags": metadata["tags"],
-                "verified": _json_safe(metadata.get("verified", [])),
-                "sources": _json_safe(metadata["sources"]),
-            })
-        candidates.append(
-            {"result": result, "phrase_match": phrase_match}
-        )
+            result.update(
+                {
+                    "tags": metadata["tags"],
+                    "verified": _json_safe(metadata.get("verified", [])),
+                    "sources": _json_safe(metadata["sources"]),
+                }
+            )
+        candidates.append({"result": result, "phrase_match": phrase_match})
 
     if not terms:
         selected = candidates
         match_mode = "exact"
     else:
         selected = [
-            item for item in candidates
+            item
+            for item in candidates
             if len(item["result"]["matched_terms"]) == len(terms)
         ]
         if selected:
             match_mode = (
-                "exact" if any(item["phrase_match"] for item in selected)
+                "exact"
+                if any(item["phrase_match"] for item in selected)
                 else "all_terms"
             )
         else:
             minimum = max(1, int(math.ceil(len(terms) / 2.0)))
             selected = [
-                item for item in candidates
+                item
+                for item in candidates
                 if len(item["result"]["matched_terms"]) >= minimum
             ]
             match_mode = "relaxed"
 
     results = [item["result"] for item in selected]
-    results.sort(key=lambda item: (
-        -item["score"],
-        QUERY_STATUS_ORDER.get(item["status"], len(QUERY_STATUS_ORDER)),
-        item["path"],
-    ))
+    results.sort(
+        key=lambda item: (
+            -item["score"],
+            QUERY_STATUS_ORDER.get(item["status"], len(QUERY_STATUS_ORDER)),
+            item["path"],
+        )
+    )
     total_count = len(results)
     if limit is not None:
         if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
@@ -870,8 +1038,15 @@ def query_bundle_report(
 
 
 def query_bundle(
-    knowledge_root, concept_type=None, tags=None, status=None,
-    operator_family=None, arch=None, text=None, limit=None, compact=False,
+    knowledge_root,
+    concept_type=None,
+    tags=None,
+    status=None,
+    operator_family=None,
+    arch=None,
+    text=None,
+    limit=None,
+    compact=False,
     category=None,
 ):
     return query_bundle_report(
@@ -910,7 +1085,9 @@ def _regenerate_learned_index(learned):
     else:
         lines.append("No project-verified concepts have been recorded.")
     content = "\n".join(lines) + "\n"
-    descriptor, temporary = tempfile.mkstemp(prefix=".index.", suffix=".md", dir=str(learned))
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=".index.", suffix=".md", dir=str(learned)
+    )
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             handle.write(content)
@@ -924,9 +1101,8 @@ def _regenerate_learned_index(learned):
 
 def _require_initialized_project(project):
     root_index = project / PROJECT_KNOWLEDGE / "index.md"
-    if (
-        not root_index.is_file()
-        or 'okf_version: "0.2"' not in root_index.read_text(encoding="utf-8")
+    if not root_index.is_file() or 'okf_version: "0.2"' not in root_index.read_text(
+        encoding="utf-8"
     ):
         raise ValueError(
             "目标项目 .catlass-dsl/knowledge 不是已初始化的 OKF v0.2 bundle"
@@ -938,8 +1114,12 @@ def _prepare_record(entry, project, date_value):
     if errors:
         raise ValueError("; ".join(errors))
     entry = dict(entry)
-    filename = "{}-{}-{}.md".format(date_value, entry["operator_family"], entry["topic"])
-    if not SAFE_SLUG.fullmatch(entry["operator_family"]) or not SAFE_SLUG.fullmatch(entry["topic"]):
+    filename = "{}-{}-{}.md".format(
+        date_value, entry["operator_family"], entry["topic"]
+    )
+    if not SAFE_SLUG.fullmatch(entry["operator_family"]) or not SAFE_SLUG.fullmatch(
+        entry["topic"]
+    ):
         raise ValueError("learned 文件名 slug 非法")
     return filename, _render(entry, date_value)
 
@@ -1085,11 +1265,13 @@ def build_parser():
     query_parser = subparsers.add_parser("query")
     query_parser.add_argument("--project-root", required=True)
     query_parser.add_argument(
-        "--category", choices=sorted(KNOWLEDGE_CATEGORIES),
+        "--category",
+        choices=sorted(KNOWLEDGE_CATEGORIES),
         help="knowledge directory category; independent from OKF frontmatter type",
     )
     query_parser.add_argument(
-        "--type", help="exact OKF frontmatter type, for example CATLASS DSL Optimization Guide",
+        "--type",
+        help="exact OKF frontmatter type, for example CATLASS DSL Optimization Guide",
     )
     query_parser.add_argument("--tag", action="append", default=[])
     query_parser.add_argument("--status")
@@ -1098,13 +1280,15 @@ def build_parser():
     query_parser.add_argument("--text")
     query_parser.add_argument("--limit", type=_positive_int, default=20)
     query_parser.add_argument(
-        "--compact", action="store_true",
+        "--compact",
+        action="store_true",
         help="omit full tags/verification/source metadata; use get for a selected concept",
     )
     get_parser = subparsers.add_parser("get")
     get_parser.add_argument("--project-root", required=True)
     get_parser.add_argument(
-        "--path", required=True,
+        "--path",
+        required=True,
         help="path returned by query, relative to the project or knowledge bundle",
     )
     validate_parser = subparsers.add_parser("validate")

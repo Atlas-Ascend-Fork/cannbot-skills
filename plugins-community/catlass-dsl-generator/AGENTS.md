@@ -19,12 +19,26 @@ skills:
 
 CATLASS DSL 是以 Python 语法编写的昇腾算子 DSL（`catlass.tla`），不是 C++ 算子库。
 
+## 本地 API 与样例参考
+
+- design/develop 前检查当前 Python 环境是否已安装 `ascend-catlass-dsl`，已安装时优先
+  使用该版本的源码和配套样例核实 API 用法。
+- 本地未安装该包时，先复用已有 CATLASS 源码；没有可用源码时，从
+  [CANN CATLASS 仓库](https://gitcode.com/cann/catlass.git) 拉取到工作区：
+
+  ```bash
+  git clone https://gitcode.com/cann/catlass.git .catlass-dsl/references/catlass
+  ```
+
+- 优先查阅 `python/tla_dsl` 下的 Python DSL API 实现和相关 `.py` 样例，并记录源码路径
+  和 commit。源码用于 API 使用与样例参考，编译、运行和上板验证继续遵循各阶段环境门禁。
+
 ## Skills（位于 __CANNBOT_SKILLS_ROOT__/）
 
 | Skill | 用途 |
 |-------|------|
 | `catlass-dsl-design` | 生成算子规格、Torch 精度标杆、DESIGN.md，等待用户批准 |
-| `catlass-dsl-develop` | 按已批准的 DESIGN.md 开发 solution.py，状态机驱动、可断点续跑 |
+| `catlass-dsl-develop` | 按已批准设计一次生成完整代码，再调试验证，状态机可恢复 |
 | `catlass-dsl-bench` | 独立正确性校验与性能测量 |
 | `catlass-dsl-optimize` | 已通过算子的性能优化 |
 | `catlass-dsl-knowledge` | 查询/记录 OKF 知识（内置 bundle 在 __CANNBOT_KNOWLEDGE_ROOT__/） |
@@ -44,7 +58,7 @@ python3 __CANNBOT_SKILLS_ROOT__/catlass-dsl-bench/scripts/bench.py \
 
 ```
 1. design   产出 DESIGN.md / reference.py / definition.json / workload.jsonl，等用户明确批准
-2. develop  仅在用户批准 DESIGN.md 后启动；产物在 workspace/<op>/
+2. develop  批准后一次生成全部代码与 solution.json，再 focused_test/debug、review 和测试
 3. bench    正确性 + 性能门禁
 ```
 
@@ -55,3 +69,24 @@ python3 __CANNBOT_SKILLS_ROOT__/catlass-dsl-bench/scripts/bench.py \
 ## 语言
 
 始终使用中文与用户交流。
+
+## 融合与生成策略
+
+- design 默认以整体性能最大化选择融合范围，允许多个 DSL kernel 和 GM 中间张量。
+- 默认关闭全部 anti-hack；只有用户明确要求单个融合 kernel 时启用严格校验。
+- develop 不做任务拆分：implement 一次完整生成，随后验证；失败先查知识库，再增量修改。
+- 生成阶段不要求本地 NPU；缺少验证环境时保留代码和待验证阶段，环境就绪后重试。
+- 不负责远程连接、文件同步或上板平台实现。
+- 调试验收默认尝试证据复用：全量 focused_test 不重复全测；optimize 最终验收可移交给
+  develop，再完成评审。缺少执行报告、当前环境快照或摘要不一致时继续原验证流程。
+
+## 执行超时与故障定位
+
+- 单次算子执行超过 **60 秒**，判定为超时或不可用，必须立即停止对应执行。
+  计时范围为单个 case 的完整 `run` 调用至设备同步完成，包含其中全部 kernel；
+  此规则适用于正确性测试、warmup、性能采样和 profiling。
+- 执行前设置 60 秒超时保护或可中止的监控。触发后暂停后续 case、采样、优化轮次及
+  最终验收，不得持续等待、盲目重试或使用该次执行生成有效性能结论及可复用验收证据。
+- 保存触发用例、输入规格、设备信息、源码摘要、耗时和日志，记录超时失败；若设备或
+  运行环境不可用则记录 `blocked` 及原因。先按错误、API 和算子族查询知识库并读取采用
+  条目，定位同步阻塞、循环、访存或运行环境等问题，完成修复或恢复后再重试验证。

@@ -36,9 +36,7 @@ def write_suite(
     tolerance=None,
 ):
     reference = (
-        "import torch\n\n"
-        "def run(x, y, alpha):\n"
-        "    return torch.add(x, y) * alpha\n"
+        "import torch\n\ndef run(x, y, alpha):\n    return torch.add(x, y) * alpha\n"
     )
     definition = root / "definition.json"
     definition.write_text(
@@ -52,9 +50,7 @@ def write_suite(
                     "y": {"shape": ["N"], "dtype": "float32"},
                     "alpha": {"shape": None, "dtype": "float32"},
                 },
-                "outputs": {
-                    "output": {"shape": ["N"], "dtype": "float32"}
-                },
+                "outputs": {"output": {"shape": ["N"], "dtype": "float32"}},
                 "reference": reference,
             }
         ),
@@ -101,9 +97,7 @@ def write_suite(
                     "entry_point": "solution.py::run",
                     "destination_passing_style": dps,
                 },
-                "sources": [
-                    {"path": "solution.py", "content": solution_body}
-                ],
+                "sources": [{"path": "solution.py", "content": solution_body}],
             }
         ),
         encoding="utf-8",
@@ -135,14 +129,15 @@ def test_suite_runs_all_workloads_and_analyzes_timing(tmp_path):
     )
 
     assert result["status"] == "passed"
-    assert result["schema_version"] == 3
+    assert result["schema_version"] == 4
     assert result["correctness"] == {"status": "passed", "passed": 2, "total": 2}
     assert result["performance"]["candidate"]["mean_ms"] > 0
     assert result["performance"]["candidate"]["std_ms"] >= 0
     source = json.loads(solution.read_text())["sources"][0]["content"]
-    assert result["solution"]["source_sha256"] == hashlib.sha256(
-        source.encode("utf-8")
-    ).hexdigest()
+    assert (
+        result["solution"]["source_sha256"]
+        == hashlib.sha256(source.encode("utf-8")).hexdigest()
+    )
     assert len(result["performance"]["candidate"]["workload_mean_ms"]) == 2
     assert all(
         len(item["performance"]["candidate"]["trials"]) == 3
@@ -150,19 +145,16 @@ def test_suite_runs_all_workloads_and_analyzes_timing(tmp_path):
     )
     assert Path(result["artifacts"]["result_json"]).is_file()
     assert Path(result["artifacts"]["sources"]).is_dir()
-    assert result["anti_hack"]["status"] == "not_applicable"
+    assert result["anti_hack"]["status"] == "disabled"
     assert all(
-        item["anti_hack"]["status"] == "not_applicable"
-        for item in result["workloads"]
+        item["anti_hack"]["status"] == "disabled" for item in result["workloads"]
     )
 
 
 def test_benchmark_defaults_to_one_warmup_and_two_trials(tmp_path):
     solution, workload, definition = write_suite(tmp_path)
 
-    result = bench.run_suite(
-        solution, workload, definition, tmp_path / "output"
-    )
+    result = bench.run_suite(solution, workload, definition, tmp_path / "output")
 
     assert result["environment"]["warmup"] == 1
     assert result["environment"]["trials"] == 2
@@ -284,13 +276,10 @@ def test_source_audit_tracks_tensor_into_helper():
     )
     audit = _audit_solution(body)
     assert audit["status"] == "failed"
-    assert any(
-        item["operation"] == "Tensor.sin"
-        for item in audit["source_violations"]
-    )
+    assert any(item["operation"] == "Tensor.sin" for item in audit["source_violations"])
 
 
-def test_source_audit_allows_multiple_declared_dispatch_targets():
+def test_strict_source_audit_rejects_multiple_declared_dispatch_targets():
     body = (
         "import catlass as tla\n\n"
         "@tla.kernel\n"
@@ -303,8 +292,89 @@ def test_source_audit_allows_multiple_declared_dispatch_targets():
         "    return launch(x)\n"
     )
     audit = _audit_solution(body)
-    assert audit["status"] == "passed"
+    assert audit["status"] == "failed"
     assert audit["declared_kernel_names"] == ["bf16_kernel", "fp16_kernel"]
+    assert audit["reason"] == "multiple_catlass_kernels"
+
+
+def test_default_npu_runs_complete_two_kernel_pipeline_without_any_audit(
+    tmp_path, monkeypatch
+):
+    # CPU stand-in for DSL execution; NPU configuration/profiling alone is mocked.
+    solution, workload, definition = write_suite(
+        tmp_path,
+        solution_body=(
+            "class TLA:\n"
+            "    kernel = staticmethod(lambda fn: fn)\n"
+            "tla = TLA()\n"
+            "@tla.kernel\n"
+            "def stage_a(x, y):\n    return x + y\n"
+            "@tla.kernel\n"
+            "def stage_b(intermediate, alpha):\n    return intermediate * alpha\n"
+            "def run(x, y, alpha):\n    return stage_b(stage_a(x, y), alpha)\n"
+        ),
+    )
+    original_generate = bench.generate_inputs
+    monkeypatch.setattr(bench, "configure_device", lambda device, torch: lambda: None)
+    monkeypatch.setattr(bench, "_device_name", lambda device, torch: "fake-npu")
+    monkeypatch.setattr(
+        bench,
+        "generate_inputs",
+        lambda d, w, r, device, seed, root: original_generate(
+            d, w, r, "cpu", seed, root
+        ),
+    )
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("default mode must not execute any anti-hack audit")
+
+    monkeypatch.setattr(bench, "audit_solution_sources", forbidden)
+    monkeypatch.setattr(bench, "parse_profile_anti_hack", forbidden)
+    calls = []
+
+    def profile(
+        function, inputs, warmup, trials, sync, trace_dir, declared_kernel_names=None
+    ):
+        assert declared_kernel_names is None
+        calls.append((warmup, trials))
+        for _ in range(1 + warmup + trials):
+            function(*inputs)
+        trace_dir = Path(trace_dir)
+        trace_dir.mkdir(parents=True)
+        (trace_dir / "kernel_details.csv").write_text(
+            "Name,Duration(us)\nstage_a,100\nstage_b,200\n", encoding="utf-8"
+        )
+        return {
+            "mean_ms": 0.3,
+            "std_ms": 0.0,
+            "trials": [0.3] * trials,
+            "trace_dir": str(trace_dir),
+            "measurement_source": "fake-profiler",
+        }
+
+    monkeypatch.setattr(bench, "measure_npu", profile)
+    result = bench.run_suite(
+        solution,
+        workload,
+        definition,
+        tmp_path / "output",
+        device="npu:0",
+        reference_profile_cache=tmp_path / "cache",
+    )
+    assert result["status"] == "passed"
+    assert result["anti_hack"]["status"] == "disabled"
+    assert all(
+        item["anti_hack"]["status"] == "disabled" for item in result["workloads"]
+    )
+    assert result["performance"]["candidate"]["mean_ms"] == 0.3
+    assert calls and all(call == (1, 2) for call in calls)
+    assert not list((tmp_path / "output").rglob("anti_hack_manifest.json"))
+    assert (
+        bench.parse_profile_kernel_mean_ms(
+            tmp_path / "output/profiling/case-0000/candidate", 1
+        )[0]
+        == 0.3
+    )
 
 
 def _write_kernel_details(root, names):
@@ -364,7 +434,9 @@ def test_profile_anti_hack_rejects_unverifiable_launches(
 ):
     _write_kernel_details(tmp_path, names)
     with pytest.raises(bench.BenchError) as raised:
-        bench.parse_profile_anti_hack(tmp_path, trials=2, declared_kernel_names=declared)
+        bench.parse_profile_anti_hack(
+            tmp_path, trials=2, declared_kernel_names=declared
+        )
     assert raised.value.category == "hack"
     assert raised.value.details["reason"] == reason
 
@@ -382,8 +454,7 @@ def test_profile_anti_hack_rejects_vendor_kernel_spoofing_declared_name(tmp_path
     trace = tmp_path / "worker" / "ASCEND_PROFILER_OUTPUT"
     trace.mkdir(parents=True)
     (trace / "kernel_details.csv").write_text(
-        "Name,Type,OP State,Duration(us)\n"
-        "fused_kernel,MatMulV3,dynamic,10.0\n",
+        "Name,Type,OP State,Duration(us)\nfused_kernel,MatMulV3,dynamic,10.0\n",
         encoding="utf-8",
     )
     with pytest.raises(bench.BenchError) as raised:
@@ -490,6 +561,7 @@ def test_npu_reference_profile_is_reused_across_run_directories(tmp_path, monkey
         definition,
         tmp_path / "develop-run",
         device="npu:0",
+        anti_hack="single-fused",
         warmup=0,
         trials=1,
         reference_profile_cache=cache,
@@ -500,6 +572,7 @@ def test_npu_reference_profile_is_reused_across_run_directories(tmp_path, monkey
         definition,
         tmp_path / "optimize-run",
         device="npu:0",
+        anti_hack="single-fused",
         warmup=0,
         trials=1,
         reference_profile_cache=cache,
@@ -524,6 +597,7 @@ def test_npu_source_hack_fails_before_profiling(tmp_path, monkeypatch):
         definition,
         tmp_path / "output",
         device="npu:0",
+        anti_hack="single-fused",
         warmup=0,
         trials=1,
     )
@@ -636,6 +710,7 @@ def test_dynamic_anti_hack_failure_discards_performance(tmp_path, monkeypatch):
         definition,
         tmp_path / "output",
         device="npu:0",
+        anti_hack="single-fused",
         warmup=0,
         trials=2,
         reference_profile_cache=tmp_path / "reference-cache",
@@ -644,7 +719,9 @@ def test_dynamic_anti_hack_failure_discards_performance(tmp_path, monkeypatch):
     assert result["anti_hack"]["status"] == "failed"
     assert result["anti_hack"]["reason"] == "launch_count_mismatch"
     assert result["performance"]["status"] == "not_run"
-    assert all(item["performance"]["status"] == "not_run" for item in result["workloads"])
+    assert all(
+        item["performance"]["status"] == "not_run" for item in result["workloads"]
+    )
     assert result["workloads"][0]["anti_hack"]["status"] == "passed"
     assert result["workloads"][1]["error"]["category"] == "hack"
 
@@ -661,8 +738,7 @@ def test_incorrect_solution_has_no_performance_claim(tmp_path):
     assert result["status"] == "failed"
     assert result["performance"]["status"] == "not_run"
     assert all(
-        item["performance"]["status"] == "not_run"
-        for item in result["workloads"]
+        item["performance"]["status"] == "not_run" for item in result["workloads"]
     )
 
 
@@ -700,8 +776,7 @@ def test_destination_passing_solution(tmp_path):
         tmp_path,
         dps=True,
         solution_body=(
-            "def run(x, y, alpha, output):\n"
-            "    output.copy_((x + y) * alpha)\n"
+            "def run(x, y, alpha, output):\n    output.copy_((x + y) * alpha)\n"
         ),
     )
     result = bench.run_suite(

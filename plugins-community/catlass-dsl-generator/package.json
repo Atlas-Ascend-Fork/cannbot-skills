@@ -1,6 +1,6 @@
 {
   "name": "catlass-dsl-generator",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "CATLASS DSL 开发与知识工作流。",
   "type": "module",
   "main": ".opencode/plugins/catlass-dsl.js",

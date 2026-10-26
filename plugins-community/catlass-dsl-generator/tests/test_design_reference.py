@@ -42,9 +42,7 @@ def write_inputs(root, *, invalid_output=False, mismatched_source=False):
                     "x": {"shape": ["N"], "dtype": "float32"},
                     "bias": {"shape": None, "dtype": "float32"},
                 },
-                "outputs": {
-                    "output": {"shape": ["N"], "dtype": "float32"}
-                },
+                "outputs": {"output": {"shape": ["N"], "dtype": "float32"}},
                 "reference": source + ("# drift\n" if mismatched_source else ""),
             }
         ),
@@ -79,15 +77,16 @@ def test_reference_validator_runs_definition_workloads(tmp_path):
     result = module.validate_reference(reference, definition, workload)
 
     assert result["status"] == "passed"
-    assert result["reference_sha256"] == hashlib.sha256(
-        reference.read_bytes()
-    ).hexdigest()
-    assert result["definition_sha256"] == hashlib.sha256(
-        definition.read_bytes()
-    ).hexdigest()
-    assert result["workload_sha256"] == hashlib.sha256(
-        workload.read_bytes()
-    ).hexdigest()
+    assert (
+        result["reference_sha256"] == hashlib.sha256(reference.read_bytes()).hexdigest()
+    )
+    assert (
+        result["definition_sha256"]
+        == hashlib.sha256(definition.read_bytes()).hexdigest()
+    )
+    assert (
+        result["workload_sha256"] == hashlib.sha256(workload.read_bytes()).hexdigest()
+    )
     assert result["cases"][0]["case_id"] == "correctness-main"
     assert result["cases"][0]["outputs"] == [
         {"path": "$", "shape": [2], "dtype": "float32", "device": "cpu"}
@@ -98,11 +97,15 @@ def test_reference_validator_normalizes_result_into_state(tmp_path):
     module = load_module()
     reference, definition, workload = write_inputs(tmp_path)
     state_path = tmp_path / "state.json"
-    state_path.write_text(json.dumps({
-        "schema": "catlass.dsl.workflow.v3",
-        "config": {"approval": {"config_digest": "old"}},
-        "config_digest": "old",
-    }))
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema": "catlass.dsl.workflow.v4",
+                "config": {"approval": {"config_digest": "old"}},
+                "config_digest": "old",
+            }
+        )
+    )
 
     result = module.validate_reference(reference, definition, workload)
     module.update_state(state_path, result)
@@ -117,9 +120,7 @@ def test_reference_validator_normalizes_result_into_state(tmp_path):
 
 def test_reference_validator_rejects_source_drift_and_invalid_output(tmp_path):
     module = load_module()
-    reference, definition, workload = write_inputs(
-        tmp_path, mismatched_source=True
-    )
+    reference, definition, workload = write_inputs(tmp_path, mismatched_source=True)
     with pytest.raises(module.ReferenceError, match="逐字一致"):
         module.validate_reference(reference, definition, workload)
 
@@ -138,7 +139,9 @@ def test_reference_validator_rejects_opaque_case_axis(tmp_path):
     workload_data["axes"]["CASE"] = 0
     workload.write_text(json.dumps(workload_data) + "\n", encoding="utf-8")
 
-    with pytest.raises(module.ReferenceError, match="完整配置必须保存在 workload.jsonl"):
+    with pytest.raises(
+        module.ReferenceError, match="完整配置必须保存在 workload.jsonl"
+    ):
         module.validate_reference(reference, definition, workload)
 
 

@@ -1,19 +1,19 @@
 ---
 name: catlass-dsl-optimize
-description: Iteratively optimize, speed up, benchmark, and profile one existing CATLASS DSL kernel on Ascend NPU with correctness gates, compact traces, noise-aware best selection, and resumable state. Use for CATLASS DSL performance optimization, repeated kernel tuning, profiler-guided latency reduction, or requests to make an existing operator faster.
+description: Iteratively optimize, speed up, benchmark, and profile one existing CATLASS DSL operator source file on Ascend NPU with correctness gates, compact traces, noise-aware best selection, and resumable state. Use for CATLASS DSL performance optimization, repeated kernel tuning, profiler-guided latency reduction, or requests to make an existing operator faster.
 ---
 
 # CATLASS DSL 算子优化
 
 驱动 profile → hypothesis → modify → correctness → benchmark → record 闭环，直到达到性能
-目标或满足停止条件。直接修改当前 workspace 中唯一 kernel；用
+目标或满足停止条件。直接修改当前 workspace 中主实现文件；用
 `optimize_state.py` 维护状态、恢复 best、执行噪声门禁和清理产物。
 
 ## First action
 
 先浏览工作区和用户提示，识别：
 
-- workspace 与唯一 kernel；
+- workspace 与主实现文件；
 - `solution.json`、`definition.json`、`workload.jsonl`；
 - correctness 与 benchmark argv；
 - NPU device、性能指标、目标、迭代上限和 stall threshold；
@@ -41,13 +41,12 @@ description: Iteratively optimize, speed up, benchmark, and profile one existing
 
 1. 查询 `catlass-dsl-knowledge` 中的 operator 与 optimization 证据，读取已有
    `ITERATIONS.md`，避免重复已证伪方向。
-2. 确认优化对象是一个现有、无符号链接的 kernel。融合入口每次调用必须只 launch 一个
-   `@tla.kernel`；禁止拆成多个 executor，也禁止用 Torch 计算 API 实现。
-   同时枚举 decorated kernel 的自由名字：除 `tla` API 命名空间和 Python 内建符号外
-   必须为空。若 kernel 依赖模块级 tile/shape/dtype/params/开关、可变全局状态或 closure，
-   先重构为函数内局部值或显式 ABI/tensor metadata，并重新通过 correctness；不得把结构
-   违规源码作为 baseline。同一 solution 只能声明一个 `@tla.kernel`，现有 shape/dtype/layout
-   独立 dispatch kernel 必须合并到同一 kernel 后才能优化。
+2. 确认优化对象是一个现有、无符号链接的主实现文件，允许包含多个 DSL kernel。
+   继承 design/develop 的 `fusion.mode`：默认 performance，`--anti-hack off`，允许多个
+   executor、GM 中间张量和变体分派；仅用户明确要求单融合时设置 `fusion.mode=single_kernel` 并使用 `--anti-hack single-fused`。
+   严格模式只声明一个 `@tla.kernel`，每次只 launch 一个，且不得为编译期变体声明独立
+   kernel。普通评审检查各 kernel 自包含，不使用模块级可变配置、closure 或 `global`
+   改写语义。严格模式额外枚举自由名字，不得把结构违规源码作为 baseline。
 3. 运行全部 correctness 命令，再用已解析 argv 生成 baseline。要求 benchmark 的
    `solution.source_sha256` 与 kernel SHA-256 一致。
 4. 初始化 controller；它保存 baseline、生成 `ITERATIONS.md` 并返回 `next_action`。
@@ -59,6 +58,10 @@ description: Iteratively optimize, speed up, benchmark, and profile one existing
 1. **Analyze.** 从保留的 `kernel_details.csv`、`step_trace_time.csv` 和历史指标识别当前
    瓶颈。不要盲目调参；先形成可用于查询的 operator family、瓶颈类型、相关 DSL API、
    shape/dtype/layout 和架构关键词。
+
+   若 fresh profile 中 `mac` 或 `mte2` 单项达到墙钟的 0.7 以上，本轮轴按
+   `dsl/pattern-gemm-optimization-ladder` 的阶梯顺序选取（波次量化 → L1 双缓冲 →
+   L0 双侧双缓冲），不要在同一阶段反复微调参数。
 2. **Query knowledge.** 每轮都调用 `catlass-dsl-knowledge query`，至少查询
    `optimization`，并按 operator family、`c310`、瓶颈关键词和相关 tag 缩小范围；需要
    代码模式时再查询 `operator` 或 `dsl`。只读取命中的 concept，不扫描整个知识库：
@@ -80,16 +83,14 @@ description: Iteratively optimize, speed up, benchmark, and profile one existing
    hypothesis、单一 `axis_id`、`expected_effect` 和 `falsification_condition`。调用
    `begin-round`，确保 `Expected:` 在 benchmark 前写入 `ITERATIONS.md`；controller 会先
    恢复当前 best kernel。
-4. **Modify.** 只修改唯一 kernel。不得修改 reference、workload、solution 语义、容差、
-   benchmark 或计时边界。任何多 stage/multi-launch 或 Torch/vendor 算子替代方向直接
-   判为无效 proposal，不进入性能比较。tile、dtype、shape、params 和编译期开关只能是
-   kernel 内局部值或显式配置；不得新增模块级依赖、closure capture，也不得让 wrapper
-   通过 `global`、模块属性或可变容器改变 kernel 语义。不得为编译期变体声明独立 kernel，
-   也不得为优化候选新增 `@tla.kernel`；所有 workload 必须继续复用同一 decorated kernel。
+4. **Modify.** 只修改主实现文件，修改后同步更新 `solution.json` 的源码包，不改变
+   reference、workload、容差或计时边界。默认允许 multi-launch、融合范围及显式 dispatch
+   调整，以完整 `run` 的性能为准；严格模式禁止多 kernel、多 launch 或独立变体。
+   计算主体继续采用 CATLASS Python DSL，配置使用函数局部值、显式参数或 metadata。
 5. **Correctness.** 运行全部 required correctness commands。失败时立即停止本轮，不得
    benchmark。
 6. **Benchmark.** 正确后使用同一 device、输入、环境和采样配置测量。默认 warmup 1 次、
-   采集 2 次；必须得到 `anti_hack.status=passed`，否则本轮失败且不能更新 best。不得为了
+   采集 2 次；默认记录 `anti_hack.status=disabled`；严格模式必须得到 `anti_hack.status=passed`，否则本轮失败且不能更新 best。不得为了
    得到更好数字临时改变配置。
 7. **Record immediately.** benchmark 返回后，下一项动作必须是从
    [round result template](templates/round-result.json) 创建 submission 并调用
@@ -115,7 +116,7 @@ required_improvement = max(
 - 复用项目级 Torch reference profile cache；候选变化时只重新采集 candidate。
 - 不改变 correctness oracle、workload、tolerance、reference 或已确认的 benchmark 语义来
   缩短时间。
-- profiler 原始目录中必须用 `anti_hack_manifest.json` 和逐 iteration CSV 完成单 launch
+- 仅严格模式在 profiler 原始目录中用 `anti_hack_manifest.json` 和逐 iteration CSV 完成单 launch
   校验；压缩审计目录只保留每个 candidate workload 的合并 `kernel_details.csv`，并可选
   保留 `step_trace_time.csv`，不保存 `anti_hack/` 或 manifest。
 - 把完整 correctness、同配置 benchmark 和 fresh profiling 留给 final verdict；快速信号
@@ -184,10 +185,12 @@ optimize run 中。
 # 1. baseline
 python3 skills/catlass-dsl-optimize/scripts/optimize_state.py initialize \
   --state <run>/state.json --repository-root <workspace> --kernel <kernel.py> \
+  --solution <solution.json> \
+  --verification-context <optional-develop-verification-context.json> \
   --run-id <operator>-YYYYMMDD-HHMMSS --expected-revision 0 \
   --metric-path performance.candidate.mean_ms --direction lower --threshold <target> \
   --max-iterations <count> --stall-threshold <count> \
-  --min-improvement-fraction <fraction> --profiling-required <yes|no> \
+  --min-improvement-fraction <fraction> --profiling-required <yes|no> --anti-hack <off|single-fused> \
   --required-command <command-id> \
   --baseline-result <run>/baseline/benchmark/result.json \
   --correctness-evidence <command-id>=<evidence-path>
@@ -212,7 +215,7 @@ python3 skills/catlass-dsl-optimize/scripts/optimize_state.py status \
   --state <run>/state.json
 ```
 
-初始化会把 workspace、唯一 kernel、性能策略和 required command IDs 固化进
+初始化会把 workspace、主实现文件、性能策略和 required command IDs 固化进
 `state.json`；后续命令只读取 state。`state.json` 是机器权威；`ITERATIONS.md` 是唯一人类
 阅读入口。不得创建 Git branch、commit 或 worktree，也不得自动 merge 或 push。
 
@@ -244,7 +247,7 @@ worktrees、完整 profiler trace、编译缓存或重复源码树。
 ## Gotchas
 
 - 追求真实 latency 降低，不做 reward hacking；不得跳过计算、返回未初始化输出或规避计时。
-- 不得把融合计算拆成多个 kernel launch，也不得直接调用 Torch/Tensor/vendor 现有算子。
+- 默认按性能选择融合范围；严格单融合模式禁止拆分 launch。实现仍使用 CATLASS Python DSL。
 - 不得为了调参方便把 tile、dtype、shape、params 或开关移到模块级，也不得用可变全局
   状态或 closure 生成隐式编译期特化。
 - 异常大幅提升先核对 correctness、kernel hash、workload 和 profiler CSV，再下结论。
@@ -257,3 +260,21 @@ worktrees、完整 profiler trace、编译缓存或重复源码树。
 - [round-result.json](templates/round-result.json) — correctness/benchmark 后立即提交本轮。
 - [final-result.json](templates/final-result.json) — final verdict、剩余瓶颈和下一步。
 - [ITERATIONS.md](templates/ITERATIONS.md) — Summary、Expected、dead ends 与 session synthesis。
+
+anti-hack 策略固化到 optimization policy 并参与配置摘要；baseline、每轮和 final 复测
+必须一致。默认模式不执行任何源码或 profile anti-hack 审查，不要求 manifest；正确性、
+有限正数时延、逐 workload profiling 和 best 恢复保持有效。只接受
+`catlass.dsl.optimization.v5`，旧 run 需重新创建设计配置。
+
+`--solution` 默认主实现同目录的 `solution.json`。控制器仅允许该派生包更新主实现的
+源码 content，冻结其余元数据；恢复 best 时同步源码包，其他路径仍禁止修改。
+
+## Final acceptance handoff
+
+从 develop 调用时，初始化传入其导出的可选 `--verification-context`。finalize 的
+command_results.evidence 应指向测试执行器产生的逐 case JSON 报告，格式见
+[证据复用协议](../catlass-dsl-develop/references/verification-reuse.md)。完整通过时生成
+final/result.json.acceptance 并保留 final/acceptance/ 中的报告、完整 benchmark 和 CSV；
+严格模式额外保留移交复核所需的 manifest 和逐 iteration 审计 CSV。
+develop 校验该最终结果后只补 final_review，源码和条件不变则直接 finish。
+缺少上下文或结构化执行证据时不生成 acceptance，记录原因并保留原有验收流程。

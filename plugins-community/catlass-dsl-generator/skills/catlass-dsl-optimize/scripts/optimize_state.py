@@ -16,6 +16,7 @@ import csv
 import datetime
 import fcntl
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -27,7 +28,15 @@ import tempfile
 from pathlib import Path
 
 
-SCHEMA = "catlass.dsl.optimization.v4"
+_verification_spec = importlib.util.spec_from_file_location(
+    "catlass_verification",
+    Path(__file__).resolve().parents[2] / "catlass-dsl-bench/scripts/verification.py",
+)
+verification_tools = importlib.util.module_from_spec(_verification_spec)
+_verification_spec.loader.exec_module(verification_tools)
+
+
+SCHEMA = "catlass.dsl.optimization.v5"
 SAFE_ID = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 RUN_ID = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*-(?P<timestamp>\d{8}-\d{6})$")
 MAX_EVIDENCE_BYTES = 64 * 1024 * 1024
@@ -48,7 +57,7 @@ def _validate_anti_hack(value, label, single_observed=False):
     observed = value.get("observed_kernel_names")
     if (
         not isinstance(declared, list)
-        or not declared
+        or len(declared) != 1
         or any(not isinstance(item, str) or not item for item in declared)
         or len(set(declared)) != len(declared)
     ):
@@ -94,13 +103,14 @@ def _profile_kernel_evidence(trace_root, anti_hack, label):
                     or (row.get("Type") or "").strip() != name
                     or (row.get("OP State") or "").strip() not in {"", "N/A"}
                 ):
-                    raise OptimizeError("{} kernel_details 非 CATLASS 证据".format(label))
+                    raise OptimizeError(
+                        "{} kernel_details 非 CATLASS 证据".format(label)
+                    )
                 names.append(name)
     except OSError as exc:
         raise OptimizeError("{} kernel_details 不可读".format(label)) from exc
-    if (
-        len(names) != anti_hack["profiled_iterations"]
-        or set(names) != set(anti_hack["observed_kernel_names"])
+    if len(names) != anti_hack["profiled_iterations"] or set(names) != set(
+        anti_hack["observed_kernel_names"]
     ):
         raise OptimizeError("{} kernel_details 与 anti_hack 不一致".format(label))
     manifest_path = trace_root / "anti_hack_manifest.json"
@@ -128,9 +138,15 @@ def _profile_kernel_evidence(trace_root, anti_hack, label):
         relative = entry.get("kernel_details")
         if not isinstance(relative, str) or not relative:
             raise OptimizeError("{} iteration kernel_details 非法".format(label))
-        expected_relative = Path("anti_hack") / "iteration-{:04d}".format(expected) / "kernel_details.csv"
+        expected_relative = (
+            Path("anti_hack")
+            / "iteration-{:04d}".format(expected)
+            / "kernel_details.csv"
+        )
         if Path(relative) != expected_relative:
-            raise OptimizeError("{} iteration kernel_details 路径非 canonical".format(label))
+            raise OptimizeError(
+                "{} iteration kernel_details 路径非 canonical".format(label)
+            )
         unresolved = trace_root / relative
         relative_parts = Path(relative).parts
         if any(
@@ -188,7 +204,9 @@ def _load_json(path):
     if path.stat().st_size > MAX_EVIDENCE_BYTES:
         raise OptimizeError("JSON 超过大小上限：{}".format(path))
     try:
-        return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_duplicates_rejected)
+        return json.loads(
+            path.read_text(encoding="utf-8"), object_pairs_hook=_duplicates_rejected
+        )
     except (UnicodeError, json.JSONDecodeError) as exc:
         raise OptimizeError("JSON 非法：{}".format(path)) from exc
 
@@ -220,7 +238,9 @@ def _atomic_json(path, value, exclusive=False):
     path = Path(path)
     if exclusive and path.exists():
         raise OptimizeError("state 已存在")
-    content = (json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode()
+    content = (
+        json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+    ).encode()
     _atomic_bytes(path, content)
 
 
@@ -253,8 +273,18 @@ def _validate_run_id(value):
         raise OptimizeError("run_id 时间戳不是有效的 UTC 日期时间") from exc
 
 
-def _policy(metric_path, direction, threshold, max_iterations, stall_threshold,
-            min_improvement_fraction, profiling_required):
+def _policy(
+    metric_path,
+    direction,
+    threshold,
+    max_iterations,
+    stall_threshold,
+    min_improvement_fraction,
+    profiling_required,
+    anti_hack="off",
+):
+    if anti_hack not in {"off", "single-fused"}:
+        raise OptimizeError("anti_hack 必须为 off 或 single-fused")
     if not isinstance(metric_path, str) or not SAFE_ID.fullmatch(metric_path):
         raise OptimizeError("metric_path 必须是安全的点分字段路径")
     if direction not in {"lower", "higher"}:
@@ -272,17 +302,33 @@ def _policy(metric_path, direction, threshold, max_iterations, stall_threshold,
     if profiling_required not in {True, False, "yes", "no"}:
         raise OptimizeError("profiling_required 必须为 yes 或 no")
     return {
-        "metric_path": metric_path, "direction": direction, "threshold": threshold,
-        "max_iterations": int(max_iterations), "stall_threshold": int(stall_threshold),
+        "metric_path": metric_path,
+        "direction": direction,
+        "threshold": threshold,
+        "max_iterations": int(max_iterations),
+        "stall_threshold": int(stall_threshold),
         "min_improvement_fraction": minimum,
         "profiling_required": profiling_required in {True, "yes"},
+        "anti_hack": anti_hack,
     }
 
 
 def _config_digest(state):
-    keys = ("run_id", "repository_root", "evidence_root", "kernel", "policy", "required_commands")
+    keys = (
+        "run_id",
+        "repository_root",
+        "evidence_root",
+        "kernel",
+        "solution",
+        "policy",
+        "required_commands",
+    )
     value = {key: state.get(key) for key in keys}
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    if "verification_context" in state:
+        value["verification_context"] = state["verification_context"]
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
 def _validate_config(state):
@@ -298,7 +344,12 @@ def _working_tree_state(repository):
     """Fingerprint dirty paths outside generated optimization evidence."""
     completed = subprocess.run(
         [
-            "git", "-C", str(repository), "status", "--porcelain=v1", "-z",
+            "git",
+            "-C",
+            str(repository),
+            "status",
+            "--porcelain=v1",
+            "-z",
             "--untracked-files=all",
         ],
         stdout=subprocess.PIPE,
@@ -306,7 +357,9 @@ def _working_tree_state(repository):
         check=False,
     )
     if completed.returncode:
-        raise OptimizeError(completed.stderr.decode(errors="replace").strip() or "无法检查工作区修改")
+        raise OptimizeError(
+            completed.stderr.decode(errors="replace").strip() or "无法检查工作区修改"
+        )
     records = completed.stdout.split(b"\0")
     state = {}
     index = 0
@@ -329,7 +382,9 @@ def _working_tree_state(repository):
         resolved = Path(repository) / path
         state[path] = {
             "status": status,
-            "sha256": _sha256(resolved) if resolved.is_file() and not resolved.is_symlink() else None,
+            "sha256": _sha256(resolved)
+            if resolved.is_file() and not resolved.is_symlink()
+            else None,
         }
     return state
 
@@ -341,8 +396,50 @@ def _verify_only_kernel_changed(state, active):
     kernel = state["kernel"]["relative_path"]
     paths = set(before) | set(after)
     changed = {path for path in paths if before.get(path) != after.get(path)}
-    if changed - {kernel}:
-        raise OptimizeError("候选修改越出唯一 kernel path：{}".format(sorted(changed - {kernel})))
+    allowed = {kernel}
+    if state.get("solution"):
+        allowed.add(state["solution"]["relative_path"])
+        _validate_solution_package(state)
+    if changed - allowed:
+        raise OptimizeError(
+            "候选修改越出唯一 kernel path：{}".format(sorted(changed - allowed))
+        )
+
+
+def _solution_metadata(package):
+    metadata = json.loads(json.dumps(package))
+    sources = metadata.get("sources", [])
+    invalid_sources = (
+        not isinstance(sources, list)
+        or len(sources) != 1
+        or not isinstance(sources[0], dict)
+        or "content" not in sources[0]
+    )
+    if invalid_sources:
+        raise OptimizeError("solution 必须包含唯一主实现源码")
+    sources[0].pop("content")
+    return metadata
+
+
+def _validate_solution_package(state):
+    descriptor = state["solution"]
+    package = _load_json(descriptor["path"])
+    if _solution_metadata(package) != descriptor["metadata"]:
+        raise OptimizeError("solution 只能更新派生源码，不得修改配置语义")
+    source = Path(state["kernel"]["path"]).read_bytes().decode("utf-8")
+    if package["sources"][0]["content"] != source:
+        raise OptimizeError("solution 源码与当前 kernel 不一致")
+
+
+def _sync_solution(state):
+    if state.get("solution"):
+        package = _load_json(state["solution"]["path"])
+        if _solution_metadata(package) != state["solution"]["metadata"]:
+            raise OptimizeError("solution 配置语义已变化")
+        package["sources"][0]["content"] = (
+            Path(state["kernel"]["path"]).read_bytes().decode("utf-8")
+        )
+        _atomic_json(state["solution"]["path"], package)
 
 
 def _approved_file(path, evidence_root, label, owner=None):
@@ -382,25 +479,31 @@ def _json_path(value, dotted):
     return current
 
 
-def _benchmark_point(path, policy, evidence_root, kernel_sha256, baseline=None, owner=None):
+def _benchmark_point(
+    path, policy, evidence_root, kernel_sha256, baseline=None, owner=None
+):
     resolved = _approved_file(path, evidence_root, "benchmark result", owner)
     value = _load_json(resolved)
-    if value.get("status") != "passed" or value.get("correctness", {}).get("status") != "passed":
+    if (
+        value.get("status") != "passed"
+        or value.get("correctness", {}).get("status") != "passed"
+    ):
         raise OptimizeError("benchmark 或其 correctness 未通过")
     environment = value.get("environment")
     if not isinstance(environment, dict):
         raise OptimizeError("benchmark environment 非法")
     device = environment.get("device", "")
-    if isinstance(device, str) and device.split(":", 1)[0] == "npu":
+    if (
+        policy["anti_hack"] == "single-fused"
+        and isinstance(device, str)
+        and device.split(":", 1)[0] == "npu"
+    ):
         _validate_anti_hack(value.get("anti_hack"), "NPU benchmark")
         workloads = value.get("workloads")
         if (
             not isinstance(workloads, list)
             or not workloads
-            or any(
-                not isinstance(item, dict)
-                for item in workloads
-            )
+            or any(not isinstance(item, dict) for item in workloads)
         ):
             raise OptimizeError("NPU benchmark workloads 非法")
         for index, item in enumerate(workloads):
@@ -412,15 +515,24 @@ def _benchmark_point(path, policy, evidence_root, kernel_sha256, baseline=None, 
     source_sha = value.get("solution", {}).get("source_sha256")
     if source_sha != kernel_sha256:
         raise OptimizeError("benchmark solution source 与候选 kernel SHA-256 不一致")
-    if policy["profiling_required"] and value.get("profiling", {}).get("status") != "passed":
+    if (
+        policy["profiling_required"]
+        and value.get("profiling", {}).get("status") != "passed"
+    ):
         raise OptimizeError("当前优化配置要求 profiling passed")
     candidate = value.get("performance", {}).get("candidate")
     if not isinstance(candidate, dict):
         raise OptimizeError("benchmark 缺少 candidate performance")
     mean, std = candidate.get("mean_ms"), candidate.get("std_ms")
     if (
-        isinstance(mean, bool) or not isinstance(mean, (int, float)) or not math.isfinite(float(mean)) or float(mean) <= 0
-        or isinstance(std, bool) or not isinstance(std, (int, float)) or not math.isfinite(float(std)) or float(std) < 0
+        isinstance(mean, bool)
+        or not isinstance(mean, (int, float))
+        or not math.isfinite(float(mean))
+        or float(mean) <= 0
+        or isinstance(std, bool)
+        or not isinstance(std, (int, float))
+        or not math.isfinite(float(std))
+        or float(std) < 0
     ):
         raise OptimizeError("benchmark mean_ms/std_ms 非法")
     config = Path(environment.get("config", ""))
@@ -433,7 +545,18 @@ def _benchmark_point(path, policy, evidence_root, kernel_sha256, baseline=None, 
         "std_ms": float(std),
         "benchmark_sha256": _sha256(resolved),
         "config": {"path": str(config.resolve()), "sha256": _sha256(config)},
-        "environment": {key: environment.get(key) for key in ("device", "arch", "catlass", "cann", "warmup", "trials")},
+        "environment": {
+            key: environment.get(key)
+            for key in (
+                "device",
+                "arch",
+                "catlass",
+                "cann",
+                "warmup",
+                "trials",
+                "anti_hack",
+            )
+        },
         "anti_hack": value.get("anti_hack"),
         "source": value,
     }
@@ -452,16 +575,19 @@ def _compact_point(point):
     return {key: value for key, value in point.items() if key != "source"}
 
 
-def _compact_profiles(benchmark, destination, required):
+def _compact_profiles(benchmark, destination, required, anti_hack="off"):
     destination = Path(destination)
     records = []
     found = 0
     workloads = benchmark.get("workloads", [])
     device = benchmark.get("environment", {}).get("device", "")
     anti_hack_required = (
-        isinstance(device, str) and device.split(":", 1)[0] == "npu"
+        anti_hack == "single-fused"
+        and isinstance(device, str)
+        and device.split(":", 1)[0] == "npu"
     )
     for index, workload in enumerate(workloads):
+        count_before = found
         timing = workload.get("performance", {}).get("candidate", {})
         trace = timing.get("trace_dir")
         case_record = {"case": index, "uuid": workload.get("uuid")}
@@ -487,6 +613,8 @@ def _compact_profiles(benchmark, destination, required):
             for name in PROFILE_FILES:
                 case_record[name] = None
         records.append(case_record)
+        if required and found == count_before:
+            raise OptimizeError("profiling 未生成当前 workload 的 CSV")
         if anti_hack_required:
             if not trace:
                 raise OptimizeError(
@@ -503,11 +631,11 @@ def _compact_profiles(benchmark, destination, required):
     if anti_hack_required and any(
         not item.get("kernel_details.csv") for item in records
     ):
-        raise OptimizeError(
-            "NPU anti-hack 要求每个 workload 保留 kernel_details.csv"
-        )
+        raise OptimizeError("NPU anti-hack 要求每个 workload 保留 kernel_details.csv")
     if required and found == 0:
-        raise OptimizeError("profiling 未生成 kernel_details.csv 或 step_trace_time.csv")
+        raise OptimizeError(
+            "profiling 未生成 kernel_details.csv 或 step_trace_time.csv"
+        )
     return records
 
 
@@ -537,10 +665,20 @@ def _command_evidence(values, state, evidence_root, owner):
     records = {}
     for command_id in sorted(values):
         item = values[command_id]
-        if not isinstance(item, dict) or set(item) != {"status", "evidence"} or item["status"] != "passed":
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"status", "evidence"}
+            or item["status"] != "passed"
+        ):
             raise OptimizeError("required command 未通过：{}".format(command_id))
-        path = _approved_file(item["evidence"], evidence_root, "command evidence", owner)
-        records[command_id] = {"status": "passed", "sha256": _sha256(path), "size": path.stat().st_size}
+        path = _approved_file(
+            item["evidence"], evidence_root, "command evidence", owner
+        )
+        records[command_id] = {
+            "status": "passed",
+            "sha256": _sha256(path),
+            "size": path.stat().st_size,
+        }
     return records
 
 
@@ -554,9 +692,14 @@ def _baseline_evidence(values, state, evidence_root, owner):
             raise OptimizeError("baseline correctness command_id 重复")
         supplied[command_id] = path
     if set(supplied) != _required_correctness_ids(state):
-        raise OptimizeError("baseline correctness evidence 必须恰好覆盖 required commands")
+        raise OptimizeError(
+            "baseline correctness evidence 必须恰好覆盖 required commands"
+        )
     return _command_evidence(
-        {key: {"status": "passed", "evidence": value} for key, value in supplied.items()},
+        {
+            key: {"status": "passed", "evidence": value}
+            for key, value in supplied.items()
+        },
         state,
         evidence_root,
         owner,
@@ -564,18 +707,46 @@ def _baseline_evidence(values, state, evidence_root, owner):
 
 
 def _target_met(point, policy):
-    return point["metric_value"] <= policy["threshold"] if policy["direction"] == "lower" else point["metric_value"] >= policy["threshold"]
+    return (
+        point["metric_value"] <= policy["threshold"]
+        if policy["direction"] == "lower"
+        else point["metric_value"] >= policy["threshold"]
+    )
 
 
 def _improvement(candidate, best, policy):
     best_value = best["metric_value"]
-    fraction = ((best_value - candidate["metric_value"]) / best_value if policy["direction"] == "lower" else (candidate["metric_value"] - best_value) / best_value)
-    required = max(policy["min_improvement_fraction"], best["std_ms"] / best["mean_ms"], candidate["std_ms"] / candidate["mean_ms"])
+    fraction = (
+        (best_value - candidate["metric_value"]) / best_value
+        if policy["direction"] == "lower"
+        else (candidate["metric_value"] - best_value) / best_value
+    )
+    required = max(
+        policy["min_improvement_fraction"],
+        best["std_ms"] / best["mean_ms"],
+        candidate["std_ms"] / candidate["mean_ms"],
+    )
     return fraction, required
 
 
 def _state_view(state):
-    keys = ("status", "run_id", "config_digest", "revision", "kernel", "baseline", "best_correct", "active_round", "finalization", "iterations", "stall_count", "reprofile_required", "target_met", "evidence", "next_action")
+    keys = (
+        "status",
+        "run_id",
+        "config_digest",
+        "revision",
+        "kernel",
+        "baseline",
+        "best_correct",
+        "active_round",
+        "finalization",
+        "iterations",
+        "stall_count",
+        "reprofile_required",
+        "target_met",
+        "evidence",
+        "next_action",
+    )
     view = {key: state.get(key) for key in keys}
     best = state.get("best_correct") or {}
     kernel = state.get("kernel") or {}
@@ -607,40 +778,71 @@ def _iterations_markdown(state):
             continue
         lines.append(
             "| {} | {} | {:.4f}x | {} | {}: {} |".format(
-                item["round"], _md(item["axis_id"]), benchmark["speedup_vs_baseline"],
+                item["round"],
+                _md(item["axis_id"]),
+                benchmark["speedup_vs_baseline"],
                 "yes" if item["correctness_status"] == "passed" else "no",
-                _md(item["decision"]), _md(item["reason"]),
+                _md(item["decision"]),
+                _md(item["reason"]),
             )
         )
     lines.extend(["", "## Notes", ""])
     for item in state.get("iterations", []):
         proposal = item.get("proposal", {})
-        lines.append("- Iter {} Expected: {} {} Falsified when: {}".format(
-            item["round"], _md(proposal.get("hypothesis")), _md(proposal.get("expected_effect")), _md(proposal.get("falsification_condition"))
-        ))
+        lines.append(
+            "- Iter {} Expected: {} {} Falsified when: {}".format(
+                item["round"],
+                _md(proposal.get("hypothesis")),
+                _md(proposal.get("expected_effect")),
+                _md(proposal.get("falsification_condition")),
+            )
+        )
     active = state.get("active_round")
     if active:
         proposal = active["proposal"]
-        lines.append("- Iter {} Expected: {} {} Falsified when: {}".format(
-            active["round"], _md(proposal["hypothesis"]), _md(proposal["expected_effect"]), _md(proposal["falsification_condition"])
-        ))
+        lines.append(
+            "- Iter {} Expected: {} {} Falsified when: {}".format(
+                active["round"],
+                _md(proposal["hypothesis"]),
+                _md(proposal["expected_effect"]),
+                _md(proposal["falsification_condition"]),
+            )
+        )
     final = state.get("finalization") or {}
     verification = final.get("verification")
     if verification:
-        accepted = [item["axis_id"] for item in state["iterations"] if item["decision"] == "accepted"]
-        rejected = [item["axis_id"] for item in state["iterations"] if item["decision"] != "accepted"]
+        accepted = [
+            item["axis_id"]
+            for item in state["iterations"]
+            if item["decision"] == "accepted"
+        ]
+        rejected = [
+            item["axis_id"]
+            for item in state["iterations"]
+            if item["decision"] != "accepted"
+        ]
         benchmark = verification["benchmark"]
-        lines.extend([
-            "",
-            "### Session synthesis",
-            "",
-            "- Final kernel SHA-256: `{}`".format(state["best_correct"]["kernel_sha256"]),
-            "- Baseline/final mean: {} ms → {} ms ({:.4f}x).".format(state["baseline"]["mean_ms"], benchmark["mean_ms"], benchmark["speedup_vs_baseline"]),
-            "- Effective directions: {}.".format(", ".join(accepted) or "none"),
-            "- Dead ends to skip: {}.".format(", ".join(rejected) or "none"),
-            "- Remaining bottlenecks: {}".format(_md(verification["remaining_bottlenecks"])),
-            "- Next session: {}".format(_md(verification["next_steps"])),
-        ])
+        lines.extend(
+            [
+                "",
+                "### Session synthesis",
+                "",
+                "- Final kernel SHA-256: `{}`".format(
+                    state["best_correct"]["kernel_sha256"]
+                ),
+                "- Baseline/final mean: {} ms → {} ms ({:.4f}x).".format(
+                    state["baseline"]["mean_ms"],
+                    benchmark["mean_ms"],
+                    benchmark["speedup_vs_baseline"],
+                ),
+                "- Effective directions: {}.".format(", ".join(accepted) or "none"),
+                "- Dead ends to skip: {}.".format(", ".join(rejected) or "none"),
+                "- Remaining bottlenecks: {}".format(
+                    _md(verification["remaining_bottlenecks"])
+                ),
+                "- Next session: {}".format(_md(verification["next_steps"])),
+            ]
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -661,7 +863,9 @@ class LockedState:
         fcntl.flock(self.lock, fcntl.LOCK_EX)
         state = _load_json(self.path)
         if state.get("schema") != SCHEMA:
-            raise OptimizeError("state schema 非法")
+            raise OptimizeError(
+                "state schema 非法；请重新创建设计配置，不自动迁移旧 run"
+            )
         _validate_config(state)
         if state.get("revision") != self.expected_revision:
             raise OptimizeError("stale expected revision")
@@ -680,24 +884,50 @@ def _save(state_path, state):
     return _state_view(state)
 
 
-def initialize(state_path, run_id, repository_root, kernel_path, baseline_path, evidence,
-               expected_revision, metric_path="performance.candidate.mean_ms", direction="lower",
-               threshold=1.0, max_iterations=30, stall_threshold=3,
-               min_improvement_fraction=0.0, profiling_required="no",
-               required_commands=("full-test",)):
+def initialize(
+    state_path,
+    run_id,
+    repository_root,
+    kernel_path,
+    baseline_path,
+    evidence,
+    expected_revision,
+    metric_path="performance.candidate.mean_ms",
+    direction="lower",
+    threshold=1.0,
+    max_iterations=30,
+    stall_threshold=3,
+    min_improvement_fraction=0.0,
+    profiling_required="no",
+    required_commands=("full-test",),
+    anti_hack="off",
+    solution_path=None,
+    verification_context=None,
+):
     if expected_revision != 0:
         raise OptimizeError("initialize expected_revision 必须为 0")
     _validate_run_id(run_id)
     repository_root = Path(repository_root).resolve()
     if repository_root.is_symlink() or not repository_root.is_dir():
         raise OptimizeError("repository_root 必须是无符号链接的目录")
-    completed = subprocess.run(["git", "-C", str(repository_root), "rev-parse", "--show-toplevel"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, text=True)
-    if completed.returncode or Path(completed.stdout.strip()).resolve() != repository_root:
+    completed = subprocess.run(
+        ["git", "-C", str(repository_root), "rev-parse", "--show-toplevel"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        text=True,
+    )
+    if (
+        completed.returncode
+        or Path(completed.stdout.strip()).resolve() != repository_root
+    ):
         raise OptimizeError("repository_root 必须是 Git 工作区根目录")
     evidence_root = Path(state_path).resolve().parent
     expected_root = repository_root / ".catlass-dsl/optimize-runs" / run_id
     if evidence_root != expected_root or evidence_root.name != run_id:
-        raise OptimizeError("evidence_directory 必须为 .catlass-dsl/optimize-runs/<run-id>")
+        raise OptimizeError(
+            "evidence_directory 必须为 .catlass-dsl/optimize-runs/<run-id>"
+        )
     state_path = Path(state_path).resolve()
     if state_path != evidence_root / "state.json":
         raise OptimizeError("state 必须位于 run 根目录的 state.json")
@@ -706,40 +936,118 @@ def initialize(state_path, run_id, repository_root, kernel_path, baseline_path, 
     _reject_symlink_chain(evidence_root, repository_root)
     evidence_root.mkdir(parents=True, exist_ok=True)
     kernel_path = Path(kernel_path)
-    kernel_path = (repository_root / kernel_path).resolve() if not kernel_path.is_absolute() else kernel_path.resolve()
+    kernel_path = (
+        (repository_root / kernel_path).resolve()
+        if not kernel_path.is_absolute()
+        else kernel_path.resolve()
+    )
     if not _is_within(kernel_path, repository_root):
         raise OptimizeError("kernel path 越出 repository_root")
     _reject_symlink_chain(kernel_path, repository_root)
     if kernel_path.is_symlink() or not kernel_path.is_file():
         raise OptimizeError("kernel 必须是无符号链接的普通文件")
     kernel_relative = str(kernel_path.relative_to(repository_root))
+    package_path = (
+        Path(solution_path) if solution_path else kernel_path.with_name("solution.json")
+    )
+    if not package_path.is_absolute():
+        package_path = repository_root / package_path
+    solution_descriptor = None
+    if solution_path or package_path.exists():
+        _reject_symlink_chain(package_path, repository_root)
+        if not _is_within(package_path, repository_root):
+            raise OptimizeError("solution path 越出 repository_root")
+        package = _load_json(package_path)
+        resolved_path = package_path.resolve()
+        solution_descriptor = {
+            "path": str(resolved_path),
+            "relative_path": str(resolved_path.relative_to(repository_root)),
+            "metadata": _solution_metadata(package),
+        }
+        _validate_solution_package(
+            {"solution": solution_descriptor, "kernel": {"path": str(kernel_path)}}
+        )
     commands = list(required_commands)
-    if not commands or len(commands) != len(set(commands)) or not all(isinstance(item, str) and SAFE_ID.fullmatch(item) for item in commands):
+    if (
+        not commands
+        or len(commands) != len(set(commands))
+        or not all(
+            isinstance(item, str) and SAFE_ID.fullmatch(item) for item in commands
+        )
+    ):
         raise OptimizeError("required_commands 必须是非空、不重复的安全 command ID")
-    policy = _policy(metric_path, direction, threshold, max_iterations, stall_threshold, min_improvement_fraction, profiling_required)
+    policy = _policy(
+        metric_path,
+        direction,
+        threshold,
+        max_iterations,
+        stall_threshold,
+        min_improvement_fraction,
+        profiling_required,
+        anti_hack,
+    )
     kernel_sha = _sha256(kernel_path)
     baseline_dir = evidence_root / "baseline"
     seed = {"required_commands": commands}
     records = _baseline_evidence(evidence, seed, evidence_root, baseline_dir)
-    point = _benchmark_point(baseline_path, policy, evidence_root, kernel_sha, owner=baseline_dir)
+    point = _benchmark_point(
+        baseline_path, policy, evidence_root, kernel_sha, owner=baseline_dir
+    )
+    context = None
+    if verification_context is not None:
+        context = _load_json(verification_context)
+        try:
+            verification_tools.validate_context(context, repository_root)
+            if set(commands) != {
+                row["command_id"] for row in context["required_cases"]
+            }:
+                raise ValueError("optimization required commands 与批准验证范围不一致")
+            if context["environment"]["anti_hack"] != anti_hack:
+                raise ValueError("optimization anti-hack 与验证上下文不一致")
+            verification_tools.validate_benchmark(point["source"], context, kernel_sha)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise OptimizeError(str(exc)) from exc
     point = _compact_point(point)
     baseline_kernel = baseline_dir / "kernel.py"
     _atomic_bytes(baseline_kernel, kernel_path.read_bytes())
-    point.update({"kernel_snapshot": str(baseline_kernel), "trace_id": "baseline", "correctness_evidence": records})
+    point.update(
+        {
+            "kernel_snapshot": str(baseline_kernel),
+            "trace_id": "baseline",
+            "correctness_evidence": records,
+        }
+    )
     _atomic_json(baseline_dir / "result.json", point)
     _prune_directory(baseline_dir, [baseline_kernel, baseline_dir / "result.json"])
     state = {
-        "schema": SCHEMA, "status": "running", "revision": 0, "run_id": run_id,
-        "repository_root": str(repository_root), "evidence_root": str(evidence_root),
+        "schema": SCHEMA,
+        "status": "running",
+        "revision": 0,
+        "run_id": run_id,
+        "repository_root": str(repository_root),
+        "evidence_root": str(evidence_root),
         "kernel": {"path": str(kernel_path), "relative_path": kernel_relative},
+        "solution": solution_descriptor,
         "required_commands": commands,
-        "policy": policy, "baseline": point, "best_correct": dict(point),
-        "active_round": None, "iterations": [], "stall_count": 0,
-        "reprofile_required": False, "reprofile_used": False, "post_reprofile_round": False,
-        "target_met": _target_met(point, policy), "finalization": None,
-        "evidence": [], "next_action": "begin_finalization" if _target_met(point, policy) else "begin_round",
+        "policy": policy,
+        "baseline": point,
+        "best_correct": dict(point),
+        "active_round": None,
+        "iterations": [],
+        "stall_count": 0,
+        "reprofile_required": False,
+        "reprofile_used": False,
+        "post_reprofile_round": False,
+        "target_met": _target_met(point, policy),
+        "finalization": None,
+        "evidence": [],
+        "next_action": "begin_finalization"
+        if _target_met(point, policy)
+        else "begin_round",
         "iterations_path": str(evidence_root / "ITERATIONS.md"),
     }
+    if context is not None:
+        state["verification_context"] = context
     state["config_digest"] = _config_digest(state)
     _write_iterations(state)
     _atomic_json(state_path, state, exclusive=True)
@@ -748,15 +1056,26 @@ def initialize(state_path, run_id, repository_root, kernel_path, baseline_path, 
 
 def _load_proposal(path, evidence_root, state):
     proposal = _load_json(path)
-    required = {"hypothesis", "axis_id", "expected_effect", "falsification_condition", "knowledge_sources", "profile_evidence"}
+    required = {
+        "hypothesis",
+        "axis_id",
+        "expected_effect",
+        "falsification_condition",
+        "knowledge_sources",
+        "profile_evidence",
+    }
     if set(proposal) != required:
         raise OptimizeError("proposal 字段集合非法")
     for key in ("hypothesis", "expected_effect", "falsification_condition"):
         if not isinstance(proposal[key], str) or not proposal[key].strip():
             raise OptimizeError("proposal {} 不能为空".format(key))
-    if not isinstance(proposal["axis_id"], str) or not SAFE_ID.fullmatch(proposal["axis_id"]):
+    if not isinstance(proposal["axis_id"], str) or not SAFE_ID.fullmatch(
+        proposal["axis_id"]
+    ):
         raise OptimizeError("axis_id 非法")
-    if not isinstance(proposal["knowledge_sources"], list) or not all(isinstance(item, str) and item for item in proposal["knowledge_sources"]):
+    if not isinstance(proposal["knowledge_sources"], list) or not all(
+        isinstance(item, str) and item for item in proposal["knowledge_sources"]
+    ):
         raise OptimizeError("knowledge_sources 必须是字符串列表")
     if not isinstance(proposal["profile_evidence"], list):
         raise OptimizeError("profile_evidence 必须是列表")
@@ -778,7 +1097,10 @@ def _repository_root_from_state(state):
 def begin_round(state_path, expected_revision, proposal_path):
     with LockedState(state_path, expected_revision) as state:
         evidence_root = _evidence_root_from_state(state)
-        if state["active_round"] is not None or state["next_action"] not in {"begin_round", "reprofile"}:
+        if state["active_round"] is not None or state["next_action"] not in {
+            "begin_round",
+            "reprofile",
+        }:
             raise OptimizeError("当前状态不能开始 round")
         proposal = _load_proposal(proposal_path, evidence_root, state)
         profiles = proposal["profile_evidence"]
@@ -788,7 +1110,10 @@ def begin_round(state_path, expected_revision, proposal_path):
             known = {item["sha256"] for item in state["evidence"]}
             if any(item["sha256"] in known for item in profiles):
                 raise OptimizeError("停滞后必须提供未使用过的 fresh profiling")
-            if state["iterations"] and proposal["axis_id"] == state["iterations"][-1]["axis_id"]:
+            if (
+                state["iterations"]
+                and proposal["axis_id"] == state["iterations"][-1]["axis_id"]
+            ):
                 raise OptimizeError("reprofile 后必须切换 axis_id")
             state["reprofile_required"] = False
             state["reprofile_used"] = True
@@ -797,21 +1122,34 @@ def begin_round(state_path, expected_revision, proposal_path):
         number = len(state["iterations"]) + 1
         if number > state["policy"]["max_iterations"]:
             raise OptimizeError("优化预算已耗尽")
-        trace_dir = evidence_root / "traces" / "iter-{:03d}-{}".format(number, proposal["axis_id"])
+        trace_dir = (
+            evidence_root
+            / "traces"
+            / "iter-{:03d}-{}".format(number, proposal["axis_id"])
+        )
         if trace_dir.exists():
             raise OptimizeError("trace 目录已存在")
         trace_dir.mkdir(parents=True)
         best_snapshot = Path(state["best_correct"]["kernel_snapshot"])
         kernel_path = Path(state["kernel"]["path"])
         _atomic_bytes(kernel_path, best_snapshot.read_bytes())
+        _sync_solution(state)
         _atomic_json(trace_dir / "proposal.json", proposal)
         proposal_input = Path(proposal_path).resolve()
-        if _is_within(proposal_input, evidence_root) and proposal_input != trace_dir / "proposal.json":
+        if (
+            _is_within(proposal_input, evidence_root)
+            and proposal_input != trace_dir / "proposal.json"
+        ):
             proposal_input.unlink()
         state["active_round"] = {
-            "round": number, "trace_id": "iter-{:03d}-{}".format(number, proposal["axis_id"]),
-            "trace_dir": str(trace_dir), "parent_kernel_sha256": state["best_correct"]["kernel_sha256"],
-            "proposal": proposal, "working_tree_state": _working_tree_state(_repository_root_from_state(state)),
+            "round": number,
+            "trace_id": "iter-{:03d}-{}".format(number, proposal["axis_id"]),
+            "trace_dir": str(trace_dir),
+            "parent_kernel_sha256": state["best_correct"]["kernel_sha256"],
+            "proposal": proposal,
+            "working_tree_state": _working_tree_state(
+                _repository_root_from_state(state)
+            ),
         }
         state["evidence"].extend(profiles)
         state["next_action"] = "run_candidate"
@@ -820,12 +1158,21 @@ def begin_round(state_path, expected_revision, proposal_path):
 
 def record_round(state_path, expected_revision, result_path):
     submission = _load_json(result_path)
-    if set(submission) != {"round", "correctness_status", "command_results", "benchmark_result"}:
+    if set(submission) != {
+        "round",
+        "correctness_status",
+        "command_results",
+        "benchmark_result",
+    }:
         raise OptimizeError("round result 字段集合非法")
     with LockedState(state_path, expected_revision) as state:
         evidence_root = _evidence_root_from_state(state)
         active = state["active_round"]
-        if active is None or state["next_action"] != "run_candidate" or submission["round"] != active["round"]:
+        if (
+            active is None
+            or state["next_action"] != "run_candidate"
+            or submission["round"] != active["round"]
+        ):
             raise OptimizeError("没有匹配的 active round")
         trace_dir = Path(active["trace_dir"])
         _approved_file(result_path, evidence_root, "round submission", trace_dir)
@@ -844,40 +1191,82 @@ def record_round(state_path, expected_revision, result_path):
         command_results, candidate, profiles = {}, None, []
         decision, reason, accepted = "rejected", status, False
         if status == "passed":
-            command_results = _command_evidence(submission["command_results"], state, evidence_root, trace_dir)
+            command_results = _command_evidence(
+                submission["command_results"], state, evidence_root, trace_dir
+            )
             if not submission["benchmark_result"]:
                 raise OptimizeError("正确候选必须提供 benchmark result")
-            candidate = _benchmark_point(submission["benchmark_result"], state["policy"], evidence_root, candidate_sha, state["baseline"], trace_dir)
-            profiles = _compact_profiles(candidate["source"], trace_dir / "profile", state["policy"]["profiling_required"])
+            candidate = _benchmark_point(
+                submission["benchmark_result"],
+                state["policy"],
+                evidence_root,
+                candidate_sha,
+                state["baseline"],
+                trace_dir,
+            )
+            profiles = _compact_profiles(
+                candidate["source"],
+                trace_dir / "profile",
+                state["policy"]["profiling_required"],
+                state["policy"]["anti_hack"],
+            )
             candidate = _compact_point(candidate)
-            fraction, required = _improvement(candidate, state["best_correct"], state["policy"])
+            fraction, required = _improvement(
+                candidate, state["best_correct"], state["policy"]
+            )
             accepted = fraction >= required
             decision = "accepted" if accepted else "rejected"
-            reason = "improvement {:.8f} {} required {:.8f}".format(fraction, ">=" if accepted else "<", required)
+            reason = "improvement {:.8f} {} required {:.8f}".format(
+                fraction, ">=" if accepted else "<", required
+            )
         else:
             if submission["benchmark_result"] is not None:
                 raise OptimizeError("未通过正确性时不得提供 benchmark")
             if submission["command_results"] not in ({}, None):
                 raise OptimizeError("未通过正确性时 command_results 必须为空")
         iteration = {
-            "round": active["round"], "trace_id": active["trace_id"], "axis_id": active["proposal"]["axis_id"],
-            "parent_kernel_sha256": active["parent_kernel_sha256"], "candidate_kernel_sha256": candidate_sha,
-            "kernel_snapshot": str(kernel_snapshot), "correctness_status": status,
-            "command_results": command_results, "benchmark": candidate, "profile": profiles,
-            "decision": decision, "reason": reason, "proposal": active["proposal"],
+            "round": active["round"],
+            "trace_id": active["trace_id"],
+            "axis_id": active["proposal"]["axis_id"],
+            "parent_kernel_sha256": active["parent_kernel_sha256"],
+            "candidate_kernel_sha256": candidate_sha,
+            "kernel_snapshot": str(kernel_snapshot),
+            "correctness_status": status,
+            "command_results": command_results,
+            "benchmark": candidate,
+            "profile": profiles,
+            "decision": decision,
+            "reason": reason,
+            "proposal": active["proposal"],
         }
         _atomic_json(trace_dir / "result.json", iteration)
-        _prune_directory(trace_dir, [trace_dir / "proposal.json", kernel_snapshot, trace_dir / "result.json", trace_dir / "profile"])
+        _prune_directory(
+            trace_dir,
+            [
+                trace_dir / "proposal.json",
+                kernel_snapshot,
+                trace_dir / "result.json",
+                trace_dir / "profile",
+            ],
+        )
         state["iterations"].append(iteration)
         state["active_round"] = None
         if accepted:
             best = dict(candidate)
-            best.update({"kernel_snapshot": str(kernel_snapshot), "trace_id": active["trace_id"]})
+            best.update(
+                {
+                    "kernel_snapshot": str(kernel_snapshot),
+                    "trace_id": active["trace_id"],
+                }
+            )
             state["best_correct"] = best
             state["stall_count"] = 0
         else:
             state["stall_count"] += 1
-            _atomic_bytes(kernel_path, Path(state["best_correct"]["kernel_snapshot"]).read_bytes())
+            _atomic_bytes(
+                kernel_path, Path(state["best_correct"]["kernel_snapshot"]).read_bytes()
+            )
+            _sync_solution(state)
         state["post_reprofile_round"] = False
         state["target_met"] = _target_met(state["best_correct"], state["policy"])
         if state["target_met"]:
@@ -896,18 +1285,23 @@ def record_round(state_path, expected_revision, result_path):
 def begin_finalization(state_path, expected_revision):
     with LockedState(state_path, expected_revision) as state:
         evidence_root = _evidence_root_from_state(state)
-        if state["next_action"] != "begin_finalization" or state["finalization"] is not None:
+        if (
+            state["next_action"] != "begin_finalization"
+            or state["finalization"] is not None
+        ):
             raise OptimizeError("当前状态不能开始 finalization")
         kernel_path = Path(state["kernel"]["path"])
         snapshot = Path(state["best_correct"]["kernel_snapshot"])
         _atomic_bytes(kernel_path, snapshot.read_bytes())
+        _sync_solution(state)
         final_dir = evidence_root / "final"
         final_dir.mkdir(parents=True, exist_ok=True)
         final_kernel = final_dir / "kernel.py"
         _atomic_bytes(final_kernel, snapshot.read_bytes())
         state["finalization"] = {
             "kernel_sha256": state["best_correct"]["kernel_sha256"],
-            "kernel_snapshot": str(final_kernel), "evidence_dir": str(final_dir),
+            "kernel_snapshot": str(final_kernel),
+            "evidence_dir": str(final_dir),
         }
         state["next_action"] = "verify_final"
         return _save(state_path, state)
@@ -915,10 +1309,18 @@ def begin_finalization(state_path, expected_revision):
 
 def finalize(state_path, expected_revision, result_path):
     submission = _load_json(result_path)
-    required = {"command_results", "benchmark_result", "remaining_bottlenecks", "next_steps"}
+    required = {
+        "command_results",
+        "benchmark_result",
+        "remaining_bottlenecks",
+        "next_steps",
+    }
     if set(submission) != required:
         raise OptimizeError("final result 字段集合非法")
-    if not all(isinstance(submission[key], str) and submission[key].strip() for key in ("remaining_bottlenecks", "next_steps")):
+    if not all(
+        isinstance(submission[key], str) and submission[key].strip()
+        for key in ("remaining_bottlenecks", "next_steps")
+    ):
         raise OptimizeError("final synthesis 字段不能为空")
     with LockedState(state_path, expected_revision) as state:
         evidence_root = _evidence_root_from_state(state)
@@ -930,24 +1332,62 @@ def finalize(state_path, expected_revision, result_path):
         kernel_path = Path(state["kernel"]["path"])
         if _sha256(kernel_path) != state["best_correct"]["kernel_sha256"]:
             raise OptimizeError("真实 kernel 与 best snapshot 不一致")
-        command_results = _command_evidence(submission["command_results"], state, evidence_root, final_dir)
-        point = _benchmark_point(submission["benchmark_result"], state["policy"], evidence_root, state["best_correct"]["kernel_sha256"], state["baseline"], final_dir)
+        if state.get("solution"):
+            _validate_solution_package(state)
+        command_results = _command_evidence(
+            submission["command_results"], state, evidence_root, final_dir
+        )
+        point = _benchmark_point(
+            submission["benchmark_result"],
+            state["policy"],
+            evidence_root,
+            state["best_correct"]["kernel_sha256"],
+            state["baseline"],
+            final_dir,
+        )
         if point["benchmark_sha256"] in {
             item["benchmark"].get("benchmark_sha256")
             for item in state["iterations"]
             if item.get("benchmark")
         }:
             raise OptimizeError("finalization 必须使用 fresh benchmark result")
-        profiles = _compact_profiles(point["source"], final_dir / "profile", state["policy"]["profiling_required"])
+        profiles = _compact_profiles(
+            point["source"],
+            final_dir / "profile",
+            state["policy"]["profiling_required"],
+            state["policy"]["anti_hack"],
+        )
         point = _compact_point(point)
         target_met = _target_met(point, state["policy"])
         verification = {
-            "command_results": command_results, "benchmark": point, "profile": profiles,
-            "target_met": target_met, "remaining_bottlenecks": submission["remaining_bottlenecks"],
+            "command_results": command_results,
+            "benchmark": point,
+            "profile": profiles,
+            "target_met": target_met,
+            "remaining_bottlenecks": submission["remaining_bottlenecks"],
             "next_steps": submission["next_steps"],
         }
+        if state.get("verification_context"):
+            try:
+                verification["acceptance"] = verification_tools.export_acceptance(
+                    state["verification_context"],
+                    state["repository_root"],
+                    state["best_correct"]["kernel_sha256"],
+                    [row["evidence"] for row in submission["command_results"].values()],
+                    submission["benchmark_result"],
+                    final_dir / "acceptance",
+                )
+            except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+                raise OptimizeError("最终验收证据导出失败：{}".format(exc)) from exc
         _atomic_json(final_dir / "result.json", verification)
-        _prune_directory(final_dir, [final_dir / "kernel.py", final_dir / "result.json", final_dir / "profile"])
+        kept = [
+            final_dir / "kernel.py",
+            final_dir / "result.json",
+            final_dir / "profile",
+        ]
+        if "acceptance" in verification:
+            kept.append(final_dir / "acceptance")
+        _prune_directory(final_dir, kept)
         state["target_met"] = target_met
         state["status"] = "passed" if target_met else "failed"
         state["next_action"] = "complete"
@@ -958,13 +1398,19 @@ def finalize(state_path, expected_revision, result_path):
 def status(state_path):
     state = _load_json(state_path)
     if state.get("schema") != SCHEMA:
-        raise OptimizeError("state schema 非法")
+        raise OptimizeError("state schema 非法；请重新创建设计配置，不自动迁移旧 run")
     _validate_config(state)
     view = _state_view(state)
     kernel = Path(state["kernel"]["path"])
     actual = _sha256(kernel) if kernel.is_file() and not kernel.is_symlink() else None
-    expected = (state["active_round"] or {}).get("parent_kernel_sha256", state["best_correct"]["kernel_sha256"])
-    view["kernel_status"] = {"actual_sha256": actual, "expected_sha256": expected, "matches_expected": actual == expected}
+    expected = (state["active_round"] or {}).get(
+        "parent_kernel_sha256", state["best_correct"]["kernel_sha256"]
+    )
+    view["kernel_status"] = {
+        "actual_sha256": actual,
+        "expected_sha256": expected,
+        "matches_expected": actual == expected,
+    }
     return view
 
 
@@ -974,23 +1420,44 @@ def _expected(parser):
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(description="CATLASS DSL compact single-kernel optimizer")
+    parser = argparse.ArgumentParser(
+        description="CATLASS DSL compact operator-source optimizer"
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     initialize_parser = commands.add_parser("initialize")
     _expected(initialize_parser)
     initialize_parser.add_argument("--run-id", required=True)
     initialize_parser.add_argument("--repository-root", required=True)
     initialize_parser.add_argument("--kernel", required=True)
-    initialize_parser.add_argument("--metric-path", default="performance.candidate.mean_ms")
-    initialize_parser.add_argument("--direction", choices=("lower", "higher"), default="lower")
+    initialize_parser.add_argument(
+        "--solution", help="派生源码包，默认主实现同目录的 solution.json"
+    )
+    initialize_parser.add_argument(
+        "--verification-context", help="develop 导出的可选批准验证上下文"
+    )
+    initialize_parser.add_argument(
+        "--metric-path", default="performance.candidate.mean_ms"
+    )
+    initialize_parser.add_argument(
+        "--direction", choices=("lower", "higher"), default="lower"
+    )
     initialize_parser.add_argument("--threshold", required=True, type=float)
     initialize_parser.add_argument("--max-iterations", type=int, default=30)
     initialize_parser.add_argument("--stall-threshold", type=int, default=3)
-    initialize_parser.add_argument("--min-improvement-fraction", type=float, default=0.0)
-    initialize_parser.add_argument("--profiling-required", choices=("yes", "no"), default="no")
+    initialize_parser.add_argument(
+        "--min-improvement-fraction", type=float, default=0.0
+    )
+    initialize_parser.add_argument(
+        "--profiling-required", choices=("yes", "no"), default="no"
+    )
+    initialize_parser.add_argument(
+        "--anti-hack", choices=("off", "single-fused"), default="off"
+    )
     initialize_parser.add_argument("--required-command", action="append", required=True)
     initialize_parser.add_argument("--baseline-result", required=True)
-    initialize_parser.add_argument("--correctness-evidence", action="append", default=[], required=True)
+    initialize_parser.add_argument(
+        "--correctness-evidence", action="append", default=[], required=True
+    )
     begin = commands.add_parser("begin-round")
     _expected(begin)
     begin.add_argument("--proposal", required=True)
@@ -1012,11 +1479,24 @@ def main(argv=None):
     try:
         if args.command == "initialize":
             output = initialize(
-                args.state, args.run_id, args.repository_root, args.kernel,
-                args.baseline_result, args.correctness_evidence, args.expected_revision,
-                args.metric_path, args.direction, args.threshold, args.max_iterations,
-                args.stall_threshold, args.min_improvement_fraction,
-                args.profiling_required, args.required_command,
+                args.state,
+                args.run_id,
+                args.repository_root,
+                args.kernel,
+                args.baseline_result,
+                args.correctness_evidence,
+                args.expected_revision,
+                args.metric_path,
+                args.direction,
+                args.threshold,
+                args.max_iterations,
+                args.stall_threshold,
+                args.min_improvement_fraction,
+                args.profiling_required,
+                args.required_command,
+                args.anti_hack,
+                args.solution,
+                args.verification_context,
             )
         elif args.command == "begin-round":
             output = begin_round(args.state, args.expected_revision, args.proposal)

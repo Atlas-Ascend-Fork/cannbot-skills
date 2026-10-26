@@ -2,6 +2,10 @@
 
 > **记录规则**：单条不超过 **200 字**，按【领域】+ 问题 + 修复要点组织；技术细节、验证数据与发布过程放 PR 描述 / commit message，不写入日志。
 
+### 【2026-10-26】
+#### 新特性 New Features
+- 【算子生成】`plugins-community/catlass-dsl-generator` 新增骨架门禁、探针与调研预算、无性能目标时三轮性能收口，沉淀 14 条实现模式知识条目。
+
 ### 【2026-10-23】
 #### 变更 Changes
 - 【插件清理】删除 `plugins-official/ops-direct-invoke` 旧副本及注册、测试入口，统一指向 [cannbot 应用仓](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke)；保留公共 Skills 与 Flash 插件，同步安装说明与 ST 统计。

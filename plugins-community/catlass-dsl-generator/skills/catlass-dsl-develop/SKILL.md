@@ -1,123 +1,227 @@
 ---
 name: catlass-dsl-develop
-description: Develop, debug, review, test, benchmark, profile, and optionally optimize one CATLASS DSL kernel from an approved DESIGN.md with agent-led decisions, correctness gates, compact traces, knowledge queries, and resumable state. Use for new CATLASS DSL operator implementation or complete operator delivery.
+description: Generate a complete CATLASS Python DSL operator from an approved DESIGN.md, then debug, review, test, benchmark, profile, and optionally optimize it with knowledge queries and resumable state. Use for CATLASS DSL operator implementation, debugging, and delivery from an approved design.
 ---
 
 # CATLASS DSL Develop
 
-驱动 analyze/query knowledge → task or hypothesis → modify → focused correctness → record →
-review/full test → benchmark/profile → optional optimize → finalize 闭环。Agent 负责实现和决策；
-`develop_state.py` 只冻结配置、验证门禁、推进 `next_action` 并清理产物。
+读取获批设计，一次生成全部代码，再进行验证和增量调试。Agent 负责实现与决策，
+`develop_state.py` 固化配置、验证门禁、推进 `next_action` 并保存紧凑证据。
 
 ## First action
 
-先从用户提示、获批 `DESIGN.md` 和工作区解析信息；可发现时不要询问。只有接口、唯一
-kernel、验证命令或性能目标存在真实歧义时才停止。执行前固定展示：
+先读用户提示、获批 `DESIGN.md` 和 `state.json`；可发现的信息不要询问。展示：
 
 **📋 Resolved Plan**
 
-- **Workspace** — `<repository root>`
-- **Design** — `<DESIGN.md and SHA-256>`
-- **Kernel** — `<one repository-relative kernel_path>`
-- **Benchmark inputs** — `<solution.json>, <definition.json>, <workload.jsonl>`
-- **Commands / required cases** — `<resolved JSON argv and case IDs>`
-- **Device** — `<idle npu:index>`
-- **Risk** — `<standard|high and review focus>`
-- **Performance** — `<metric, target or measurement-only>`
-- **Knowledge** — `<query filters and relevant concepts or none>`
+- **Workspace / Design** — 仓库根目录、设计路径和 SHA-256。
+- **Implementation** — 一个主 Python 文件 `kernel_path`，可包含多个 DSL kernel。
+- **Fusion** — `performance`（默认）或用户明确指定的 `single_kernel`。
+- **Benchmark inputs** — `solution_path`、`definition.json`、`workload.jsonl`。
+- **Commands / required cases** — 获批 argv、case IDs、设备与环境。
+- **Risk / Performance / Knowledge** — 评审重点、性能目标或只测量、查询条件。
 
-把获批计划写入 [state template](templates/state.json) 的 `config`。`kernel_path` 必须引用
-`allowed_paths` 中唯一的主 kernel；state 路径固定为：
+配置使用 [state template](templates/state.json)，状态位于：
 
 ```text
 .catlass-dsl/develop-runs/<run-id>/state.json
 ```
 
-初始化本地知识 bundle，验证并启动 controller：
+`fusion.mode=performance` 默认关闭全部 anti-hack，允许多个 kernel、executor、
+GM 中间张量及显式 shape/dtype/layout 分派。只在用户明确要求单个融合 kernel 时使用
+`single_kernel`，要求只声明一个 `@tla.kernel`、每次 `run` 只 launch 一个 kernel，
+不得为编译期变体声明独立 kernel。benchmark argv 分别使用 `--anti-hack off` 或
+`--anti-hack single-fused`，optimize 的初始化和全部复测必须继承它。
+
+每个 kernel 保持自包含：固定配置在函数内定义，运行时配置走形式参数或 tensor metadata；
+host 不通过 `global`、模块级可变状态或 closure 注入语义。默认模式的普通代码评审仍检查
+实现是否符合获批设计，但不执行源码 anti-hack 扫描、launch/name 审计或 manifest 校验。
 
 ```bash
-python3 skills/catlass-dsl-knowledge/scripts/record_knowledge.py initialize \
-  --project-root <workspace>
-python3 skills/catlass-dsl-develop/scripts/develop_state.py validate \
-  --state <run>/state.json
-python3 skills/catlass-dsl-develop/scripts/develop_state.py start \
-  --state <run>/state.json
+python3 skills/catlass-dsl-knowledge/scripts/record_knowledge.py initialize --project-root <workspace>
+python3 skills/catlass-dsl-develop/scripts/develop_state.py validate --state <run>/state.json
+python3 skills/catlass-dsl-develop/scripts/develop_state.py start --state <run>/state.json
 ```
+
+## 骨架先行，增量扩展
+
+默认从 `implement` 开始。**先写出可编译、可运行的最小端到端路径**：单 tile / 单分块、
+单一路径、host 可调用；**数值允许错误**，但必须能在 NPU 上完整跑完一次并返回。
+
+骨架完成后**立即进入 `focused_test`**（编译 + 最小 shape 运行），拿到第一个真实反馈；
+再按「正确性 → 边界 → 性能」顺序增量扩展。每次扩展都必须重新通过编译与 focused test。
+
+仍保持一个主实现文件（复用 SHA-256 / 快照 / best 恢复机制）；`solution.json` 随每次
+增量同步更新，不做"攒到最后一次性生成"。
+
+代码生成阶段只做静态检查（Python 语法、`run` 入口、`solution.json` 与源码一致性，
+UTF-8 内容保留原始换行使源码包 SHA-256 与文件字节一致），不导入 CATLASS、不要求本地
+有 NPU；真正的能力验证由紧随其后的 focused test 承担。
+
+**调研预算（可数，不依赖时钟）**：骨架跑通之前，同一文件读取不超过 2 次，总读取不超过
+20 次；达到任一上限必须停止调研并落笔写骨架。骨架跑通后进入调试循环，正常开发的重心应
+落在"改→编译→上板→看数"上，而不是继续查阅资料。本地只做生成与静态检查；编译、上板、benchmark 在远端完成，见「执行环境」。
+
+## 执行环境
+
+开发机没有 NPU 时可采用"本地生成、远端验证"：本地负责设计、代码生成、`solution.json`
+与静态检查；编译、上板、精度比对、benchmark 在远端完成，连接与文件同步由用户自备。
+两种模式的证据要求一致：`result.evidence` 必须指向实际执行日志，没有执行记录不得记为
+`passed`。
+
+## 机制验证预算
+
+骨架成形前允许验证少数不确定机制，但验证必须有计数上限、有出口、可复用：
+
+- **默认不写独立探针**。优先使用 `python/tla_dsl/examples/` 与 `catlass/examples/` 中已
+  覆盖的写法；examples 未覆盖、但能通过编译（frontend lowering）或一次数值对比判断的，
+  直接写入主实现后再验证。
+- 只有同时满足三条才允许写独立探针：examples 未覆盖；失败会推翻已批准设计（而不是只需
+  改常量或 tiling）；无法用编译检查或分段运行判断。
+- 单个探针必须：只回答一个是/否命题；自带断言与退出码；单次运行有 ≤120 秒超时；同一
+  探针修改 3 次仍不通即判定该机制不可用，按 DESIGN.md 的备选路径推进，禁止继续调试探针
+  本身。
+- 探针总数不超过 5 个。超出即停止验证，未验证机制在 `ITERATIONS.md` 中标注为假设，
+  留待实现阶段的 focused test 验证。
+- 探针通过的代码必须直接提升为主实现的骨架函数，禁止"探针 → 记笔记 → 重写"；探针得到的
+  容量、对齐、语义结论必须立即回写 DESIGN.md 的契约约束清单。
+
+## 高风险接口选型
+
+`tla.gather` 在当前 DSL 版本上属于高风险接口：表宽受单寄存器限制（f32 ≤64 lane，超限报
+`valid_lanes must be <= 64`），索引必须来自向量运算（裸载入的向量会静默返回全 0），多块
+组合时还容易触发后端 legalize 失败。**默认不要用它，能不用就不用。**
+
+需要按索引从大缓冲区里取数时，采用已实测性能最优的做法：
+
+**预计算索引（bucket + 链表）+ SIMT 标量读**
+
+- 阶段 1（每个 M 块一次）：把每个 id 映射到 V 方向桶，桶内用链表串起同桶的 k 位置；
+- 阶段 2（每个 V 块一次）：沿链表游标，用 SIMT 标量读 `x[row, tok - v_block_offset]`
+  直接写 payload；
+- 每个 id 在整个 V 循环里**只被访问一次**，总量 `O(M·K + M·V/BN)`，与 V 无关。
+
+约束与实现细节见 `knowledge/dsl/pattern-precomputed-index-structure`。
+
+只有在索引方案确实不可行时才考虑其他路径：逐 lane 标量读（性能次之），最后才是 `gather`
+（须遵守 2.1.0 契约并用已知表做数值对拍）。选型理由写入 DESIGN.md。
 
 ## Agent loop
 
-每个 iteration 只完成一个任务或验证一个假设：
+状态推进：`skeleton → implement → focused_test →（数值收敛后）targeted_review（high risk）
+→ final_review → full_test → benchmark → optional optimize → finish`。
 
-1. **Analyze and query.** 读取 DESIGN、当前 kernel、已有 `ITERATIONS.md` 和最近 result。
-   按 operator family、DSL API、错误类型、shape/dtype/layout 查询最窄的 `operator`、`dsl`
-   或 `debug` concept；性能问题查询 `optimization`。查询先使用 `--compact`，再对选中的路径
-   调用 `record_knowledge.py get` 读取完整 concept，不扫描整个 bundle。记录 CLI 返回的规范化查询、匹配模式，
-   以及所采用条目的 score/matched_fields/matched_terms；零命中与建议也记录，但建议必须由
-   agent 明确发起新查询后才能采用。
-2. **Task or hypothesis.** task breakdown 必须覆盖 config 中所有 allowed paths 和非性能
-   required cases。debug 只写一个假设、Expected 和判伪条件，不在一轮混入多个修改轴。
-3. **Modify.** 只修改当前任务的 allowed paths。融合算子每次入口调用必须只 launch 一个
-   `@tla.kernel`；不得以 GM 临时张量串联多个 executor，也不得用 Torch 计算 API 实现。
-   包装层只允许元数据检查和空输出分配。不得修改 oracle、workload、容差、benchmark
-   或计时边界换取通过。每个 decorated kernel 必须自包含，只能读取形式参数、函数内
-   局部值、Python 内建符号和 `tla` API；禁止模块级 tile/shape/dtype/params/开关、可变
-   全局状态和 closure capture。固定值在 kernel 内定义，运行时值走显式 ABI 或 tensor
-   metadata；同一 solution 只声明一个 `@tla.kernel`，所有 shape/dtype/layout 编译期变体
-   必须复用它并由形式参数类型或 metadata 驱动。wrapper 不得通过 `global`、修改模块对象
-   改变 kernel 语义；不得为编译期变体声明独立 kernel 或选择独立 dispatch kernel。
-4. **Focused correctness.** 先运行受影响的 focused cases。失败时停止本轮，不执行后续
-   benchmark；保存稳定错误类型和有界诊断摘要。
-5. **Record immediately.** 测试、review 或 benchmark 返回后，下一动作必须是创建临时
-   submission 并调用 `advance`。当前 iteration 关闭前不得继续修改、查询或规划下一轮。
-6. **Decide.** 按 controller 的 status、next action 和失效门禁继续 implement/debug、
-   targeted review、final review、full test、benchmark、optimize 或 finish。
+**第一份提交必须是 `skeleton`**：可编译、能在 NPU 上完整跑完一次的最小端到端路径
+（数值允许错误）。骨架未提交前，不允许进入额外的源码调研或编写探针。
+
+1. **Validate.** 完整首版生成后，执行获批 focused cases，覆盖完整计算链路及受影响用例。
+   没有独立 focused_test 命令时执行获批 full_test 命令，不跳过首轮验证。
+   编译、运行、精度、review 或 full test 失败转 `debug`；失败后不测性能。
+2. **Analyze and query.** 遇到问题先读日志、DESIGN、当前源码及 `ITERATIONS.md`，按算子族、
+   API、错误类型、shape/dtype/layout 查询 `debug`、`dsl` 或 `operator`，性能问题查询
+   `optimization`。先 `query --compact`，再对实际采用条目调用 `get` 读取全文。
+   记录规范化查询、匹配模式、score/matched_fields/matched_terms；零命中时调整条件重查，
+   不扫描整个知识库，不把建议直接作为已采用知识。
+3. **Debug.** 一轮验证一个假设，写明 Expected 和判伪条件，然后增量修改完整实现。
+   每次修改重新生成 `solution.json`，不修改 reference、workload、容差或计时边界换取通过。
+   `debug` 完成后返回 `focused_test`。
+4. **Milestone submission.** 只在里程碑提交 `advance`：骨架跑通、focused test 通过、
+   数值收敛、或判定 blocked。探索阶段的每次小改动不必提交，也不产生新的 iteration；
+   提交时绑定当前 kernel SHA。审计链由里程碑快照 + 最终快照保证，不在探索期逐轮收税。
+5. **Continue.** 读取状态机的 `status`、`next_action` 和已失效门禁，不凭记忆跳步。
 
 ```bash
 python3 skills/catlass-dsl-develop/scripts/develop_state.py advance \
-  --state <run>/state.json \
-  --result <run>/traces/iter-NNN-<stage>/submission.json
+  --state <run>/state.json --result <run>/traces/iter-NNN-<stage>/submission.json
 ```
 
-Controller 解析后删除 submission 和成功原始日志。`result.json` 保存 stage、attempt、
-kernel SHA-256、状态、摘要、结构化 command/review/benchmark 结果、knowledge queries、
-decision 和 next action。failed/blocked trace 最多额外保留一个有大小上限的
-`failure.txt`。
+NPU/CANN/CATLASS 不可用时记录 `blocked/not_run` 和精确重跑 argv，保留完整实现及当前
+`next_action`；环境就绪后可重试该阶段，无需重启 run 或重新生成代码。未执行不是通过。
 
 ## Review, test, and benchmark
 
-- `risk_level=high` 时 implement/debug 后先做 independent targeted review；所有任务都要
-  做覆盖当前 kernel 的 independent final review。
-- review 修复会失效受影响测试和 benchmark；修复后重新执行相关门禁。
-- final review 通过后运行全部 correctness、boundary 和 safety required cases。
-- full test 通过后始终调用 `catlass-dsl-bench`，即使没有性能门槛；benchmark 必须包含
-  correctness、有限正数 candidate mean、candidate profiling 和 `anti_hack.status=passed`。
-- targeted/final review 必须检查 host 入口只调用一个 executor，且没有 Torch/Tensor
-  计算路径；anti-hack 失败一律回到 implement/debug，不能进入 optimize 或 finish。
-- targeted/final review 必须枚举每个 `@tla.kernel` 的自由名字；除 `tla` API 命名空间和
-  Python 内建符号外必须为空，并确认 wrapper 没有使用 `global`、模块属性或可变容器
-  注入 tile、shape、dtype、params 或分支开关。还要确认 solution 只声明一个 kernel，
-  编译期变体没有独立 kernel dispatch。任一违反都回到 implement/debug。
-- 使用 `npu-smi info` 选择无进程 NPU，执行前 source 项目 `env.sh`；真实 NPU 算子不在
-  沙箱运行。
-- Torch reference profile 使用项目级共享缓存。candidate profiler 原始目录中完成
-  anti-hack 校验；压缩审计目录只保留合并 `kernel_details.csv`，并可选保留
-  `step_trace_time.csv`，不保存 `anti_hack/` 或 manifest。校验时证据缺失则失败关闭。
-- 有性能目标且未达标时调用 `catlass-dsl-optimize`。返回 best kernel path/SHA 后重新运行
-  benchmark、final review 和 full test，不能直接采用 optimize 的最后一次尝试。
+- review 在**数值收敛之后**执行：`focused_test` 通过且数值稳定后，才做 targeted review
+  （high risk）和 final review，然后跑全部 required cases。编写与调试阶段不因 review
+  未做而阻塞——写之前能拿到的唯一真实反馈是"跑一次"。
+- review 必须检查每个阶段的复杂度标注（实现中一行注释即可，不要求展开分析）。
+  选择/索引类阶段若为 O(M·K·nv)（按 V 块重新扫描全部 K），必须要求给出理由与实测代价，
+  否则判不通过并要求改为 O(M·K)。
+- review 默认检查接口、数学语义、数据流、融合范围及 DSL 实现；严格单融合模式额外检查
+  自由名字、唯一声明、单 launch、无独立 dispatch 和无 Torch/Tensor 计算替代。
+- full test 通过后始终调用 `catlass-dsl-bench`，要求正确性、有限正数 candidate mean 和
+  profiling 通过。默认 `anti_hack.status=disabled`，不要求审计 manifest；严格模式要求
+  `anti_hack.status=passed`，并复检原始逐 iteration CSV 和 manifest，缺失即失败。
+- 多 kernel 时测量完整 `run`，包括所有阶段；不挑选其中一个 kernel 的耗时作为整体性能。
+- 代码变化使旧测试、review、benchmark 和知识准入失效；每个结果绑定当前 kernel SHA-256。
+- 有性能目标且未达标才调用 `catlass-dsl-optimize`，继承融合/anti-hack 策略。采用 best 后
+  优先接收其 finalize 的完整验收记录，再 final_review；证据完整且评审未修改代码时直接
+  finish。缺少可复用证据时才重新 benchmark、full test，不能采用普通轮次或最后一次尝试。
+- 选择空闲 NPU，执行前 source 项目 `env.sh`。candidate profiler 每轮重新采集，Torch
+  reference profile 复用项目共享缓存；普通 trace 归档只保留 CSV。严格模式的 optimize
+  最终验收移交另外保留复核所需的审计分片，不保存完整 profiler trace。
+
+## 性能收口：无性能目标时必须优化三轮
+
+**触发条件**：用户提示词或获批 DESIGN.md 中没有给出明确的性能目标（耗时上限、加速比、
+"必须快于参考实现"之类）。此时 benchmark 全绿只代表"能跑对"，不代表"做完"。
+
+**为什么必须继续**：实测出现过验收形状下 candidate 慢于 reference（加速比 0.8x 量级）
+仍首个全绿就交回的情况——它自己已定位三处优化（L1/L0 软件流水、A tile 一次载入服务多个
+V 块、修好 L0C→UB 去掉 GM 中转）却一处未做。**慢于参考实现说明数据通路或流水仍有明显
+空间，直接交付等于把已知可改进项留给用户。**
+
+**必须完成的动作**：benchmark 与 profiling 全绿后，默认继续做 **3 轮性能优化迭代**。
+每轮按下列顺序执行，任一步缺失视为该轮未完成：
+
+1. **瓶颈取证**：从本轮 fresh profiling 的原始数据指出主导瓶颈——哪个 pipe 占比最高、
+   属搬运受限还是计算受限、该 pipe 的理论下限是多少——写入 `ITERATIONS.md`。
+   禁止只写"还能优化"这类无证据结论。
+2. **单元假设**：针对该瓶颈提出**一个**改动假设，写明预期收益与判伪条件
+   （例："L1/L0 双缓冲后 MTE2 与 MAC 可重叠，预期总时长降到 max(MTE2, MAC)"）。
+   一轮只改一个变量，不混合多个改动轴。
+3. **针对性修改**：只改与假设相关的实现；保持正确性门禁可重跑。
+4. **前后对比**：同一 workload、同一设备重跑 benchmark，记录 candidate mean 前后值、
+   相对参考的加速比、是否达成预期；未达成时说明原因，不得粉饰或只报聚合值。
+
+**允许提前停止的唯一条件**：某轮 profiling 证明剩余时间已接近硬下限（例如 >80% 时间
+落在单一 pipe 且该 pipe 已达理论带宽/算力），并给出量化依据。"感觉差不多了"不算。
+
+**交付前检查**：`ITERATIONS.md` 必须含 `## Performance Rounds` 表（至少 3 行，或附硬下限
+证据），每行含：瓶颈、改动、before→after、是否达成预期。`finish` 时随交付物一并提交。
+
+**与既有规则的关系**：有明确性能目标且未达标时仍走 `catlass-dsl-optimize`；本条适用于
+**没有目标**的情形，目的是把"能跑"推进到"接近该实现方式的极限"。
+
+## Verification reuse
+
+默认启用证据复用。design 明确 `focused_cases` 与实际命令；focused_test 生成的逐 case
+执行报告覆盖全部 required cases 和获批命令时，final_review 后不重复 full_test。
+optimize 的 finalize 完整验收也可移交给 develop，复核后只补 final_review。
+两者均绑定源码、规格、命令、环境和测量参数，finish 前重新核对，变化后补跑门禁。
+实际测试执行器报告、当前环境快照、`export-verification-context`、optimize 的
+`--verification-context` 和 submission 扩展见
+[证据复用协议](references/verification-reuse.md)。不能用 submission 的覆盖声明替代报告。
+模板：[focused-test submission](templates/focused-test-result.json)、
+[执行器报告](templates/test-report.json)；报告中的状态必须由真实执行结果填写。
 
 ## Finalization and knowledge
 
-所有 submission、iteration 和知识查询均绑定当前 kernel SHA-256，不依赖 Git 仓库、HEAD、
-分支或提交。`finish` 必须绑定当前 kernel SHA，并证明 full test、final review、fresh benchmark 和
-profiling 均通过。Controller 把真实 kernel 快照写入 `final/kernel.py`，生成紧凑
-`final/result.json`，并核对它们与 state 中最终 SHA 一致。最终 `ITERATIONS.md` 必须列出
-fresh benchmark 中每个 workload 的 UUID、candidate/reference mean ms 和
-`reference_mean / candidate_mean` 加速比，使用 `## Workload Speedups` 独立表格呈现；不得
-只报告聚合均值。
+`finish` 必须证明当前源码的 full test、final review、fresh benchmark 和 profiling 均通过；
+源码包也必须一致。保存真实源码到 `final/kernel.py`，以及紧凑的 `final/result.json`。
+`ITERATIONS.md` 是唯一人类入口，表头为：
 
-只有完整测试或 profiling 直接支持的结论才批量交给 `catlass-dsl-knowledge record`，使用
-kernel SHA-256 绑定；证伪假设、静态推断和 `not_run` 不得录入。知识录入成功路径、有效
-方向、dead ends、最终性能、剩余风险和下一步写入 `ITERATIONS.md` 综合总结。
+```markdown
+| Iter | Title | Score | Passed | Notes |
+```
+
+最终用 `## Workload Speedups` 表格列出每个 workload UUID、candidate/reference mean ms
+和 `reference_mean / candidate_mean`，不只报告聚合指标。
+
+没有声明性能目标时，`finish` 还要求 `ITERATIONS.md` 含 `## Performance Rounds` 表且
+至少三轮（或附证明已达硬下限的量化证据），否则不予交付。
+
+仅将完整测试或 profiling 直接支持的经验在完成时批量交给 `catlass-dsl-knowledge record`，
+绑定最终 kernel SHA-256。证伪假设、静态推断及 `not_run` 不入库。
 
 ## Compact artifacts
 
@@ -125,46 +229,17 @@ kernel SHA-256 绑定；证伪假设、静态推断和 `not_run` 不得录入。
 .catlass-dsl/develop-runs/<run-id>/
 ├── state.json
 ├── ITERATIONS.md
-├── traces/
-│   └── iter-NNN-<stage>/
-│       ├── kernel.py                         # 该轮关闭时的源码快照
-│       ├── result.json
-│       ├── failure.txt                         # 仅 failed/blocked
-│       └── profile/case-NNNN/
-│           ├── kernel_details.csv
-│           └── step_trace_time.csv
+├── traces/iter-NNN-<stage>/
+│   ├── kernel.py
+│   ├── result.json
+│   ├── failure.txt                  # 仅 failed/blocked/not_run
+│   ├── validation/                  # 可选，参与复用的执行报告
+│   └── profile/case-NNNN/{kernel_details.csv,step_trace_time.csv}
 └── final/
     ├── kernel.py
     ├── result.json
-    └── profile/case-NNNN/
-        ├── kernel_details.csv
-        └── step_trace_time.csv
+    └── profile/case-NNNN/{kernel_details.csv,step_trace_time.csv}
 ```
 
-`ITERATIONS.md` 是唯一人类入口，表头固定为：
-
-```markdown
-| Iter | Title | Score | Passed | Notes |
-```
-
-非性能阶段 Score 为 `—`；benchmark/final 使用 baseline 相对加速比。禁止留下根
-`README.md`、`state/`、`stages/`、`artifacts/`、逐阶段 `SUMMARY.md`、`manifest.json`、
-持久 submission、完整 profiler trace、编译缓存、额外 Git 工作目录、分支或提交产物。
-每个 trace 必须保留且只保留一份 `kernel.py`，其 SHA-256 必须等于该轮 `result.json`
-中的 `kernel_sha256`，使通过、失败和 blocked iteration 都有可复核的源码证据。
-
-## Stop and failure rules
-
-- skipped、xfailed、missing、timeout、hang 和 `not_run` 都不能成为通过。
-- NPU benchmark 缺少显式 `anti_hack.status=passed` 时失败关闭；旧证据必须重新执行。
-- correctness 失败回到 implement/debug；review 失败先修复；benchmark correctness 失败
-  不能进入 optimize。
-- kernel 读取用户定义模块级值或 closure、wrapper 改写 kernel 隐式配置时，结构审查必须
-  失败；为编译期变体声明独立 kernel 同样失败。正确性或性能通过不能覆盖该失败。
-- NPU、CANN 或 CATLASS 环境缺失时返回 blocked/not_run，记录精确重跑 argv，不伪造通过。
-- `state.json` 是唯一机器权威；只接受 `catlass.dsl.workflow.v3`，不迁移旧 run。
-
-## Reference files
-
-- [state.json](templates/state.json) — 冻结 config 并启动 run。
-- [task-breakdown-result.json](templates/task-breakdown-result.json) — task breakdown submission 示例。
+每轮快照必须与结果 SHA-256 一致。submission 解析后删除，日志仅保留有界失败摘要。
+只接受 `catlass.dsl.workflow.v4`；旧 run 不自动迁移，需重新创建设计配置并批准。

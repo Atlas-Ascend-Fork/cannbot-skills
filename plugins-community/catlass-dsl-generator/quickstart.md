@@ -137,10 +137,11 @@ git clone <git-repository-url> ~/.cursor/plugins/local/catlass-dsl-generator
 ### Benchmark
 
 三个输入文件的接口定义见 [`catlass-dsl-bench/SKILL.md`](skills/catlass-dsl-bench/SKILL.md)。
-NPU candidate 必须通过单融合 kernel anti-hack：每次 `run` 只 launch 一个源码声明的
-`@tla.kernel`，并禁止用 Torch/Tensor 计算算子替代 DSL；失败结果不计性能。
-candidate 只在逐 trial profiler 窗口内执行，并复用其中一次输出做正确性检查；
-`anti_hack_manifest.json` 以 SHA-256 绑定每个 iteration 的单行 kernel CSV，供工作流复检。
+默认 `fusion.mode=performance`，design 以整体性能选择融合范围，允许多个 DSL kernel、
+executor 和 GM 中间张量。benchmark 使用 `--anti-hack off`，关闭全部 anti-hack，
+结果显式记录 `anti_hack.status=disabled`；正确性和 profiling 门禁仍保留。
+只有用户明确要求单个融合 kernel 时采用 `single_kernel`，benchmark/optimize 使用
+`--anti-hack single-fused`：检查唯一源码声明、每次单 launch 及审计证据。
 
 ```bash
 python3 skills/catlass-dsl-bench/scripts/bench.py \
@@ -186,8 +187,8 @@ python3 skills/catlass-dsl-knowledge/scripts/record_knowledge.py query \
 
 - 直接在当前 **Git workspace** 中运行，并明确允许修改的路径
 - 测试、benchmark 和 profiling 命令应能从目标项目直接执行
-- 融合算子每次入口调用只 launch 一个 CATLASS kernel，NPU 结果包含
-  `anti_hack.status=passed` 和 `kernel_details.csv` 证据
+- 融合范围由 design 按整体性能确定，NPU 结果包含
+  profiling CSV 证据；严格模式额外要求 `anti_hack.status=passed`
 - 缺少 CANN、NPU 或 CATLASS DSL 环境时，相关结果为 `not_run`，不会被视作通过
 
 ---
@@ -198,3 +199,35 @@ python3 skills/catlass-dsl-knowledge/scripts/record_knowledge.py query \
 python3 -m pytest
 python3 -m compileall -q skills
 ```
+
+
+## 完整生成与后续调试
+
+develop 默认从 implement 开始，一次生成主 Python 文件内的全部 kernel、host 编排及
+完整 `solution.json`，不拆任务、不逐任务上板。生成只检查语法和源码包一致性，不要求
+本地安装 NPU/CATLASS；生成完成不代表验证通过。
+
+随后进入 focused_test；编译、运行、精度或评审失败时先查知识库、读取采用条目，再
+增量修改并重建 `solution.json`，回到验证。环境缺失记录 blocked/not_run，保留代码及
+待执行阶段，环境就绪后直接继续。连接与同步由使用者现有方式处理。
+
+开发状态使用 `catlass.dsl.workflow.v4`，优化状态使用 `catlass.dsl.optimization.v5`，
+benchmark 结果为 version 4。旧 run 不自动迁移，需要重新创建设计配置。
+
+真实 NPU 冒烟通过 `CATLASS_DSL_BENCH_SOLUTION`、`CATLASS_DSL_BENCH_WORKLOAD`、
+`CATLASS_DSL_BENCH_DEFINITION` 提供绝对路径，默认方案可包含多个 kernel。
+另设 `CATLASS_DSL_BENCH_SINGLE_SOLUTION` 指向同一算子的单融合方案，即可同时覆盖
+严格模式；无对应配置时各自标记 skipped，不伪造硬件验证结果。
+
+## 调试验收去重
+
+- focused_test 的执行器报告覆盖全部 required cases 和批准命令时，评审后直接 benchmark，
+  不重复 full_test；部分覆盖仍补跑全测。
+- optimize 初始化可传 `--verification-context`。其 finalize 保留完整验收记录后，develop
+  通过 optimize submission 的 `optimize_result` 接收，只补 final_review；条件不变则 finish。
+- 复用绑定源码、规格、命令与脚本、设备环境和测量参数；当前快照、报告或摘要不完整时
+  继续原验证流程，finish 前再次检查。
+
+环境快照、逐 case 报告、上下文导出及 submission 格式见
+[证据复用协议](skills/catlass-dsl-develop/references/verification-reuse.md)。旧 run 的状态版本
+保持不变，缺少结构化证据时不自动跳过门禁。

@@ -78,8 +78,15 @@ DTYPES = {
     "uint8",
 }
 INPUT_TYPES = {
-    "random", "zeros", "ones", "scalar", "tensor", "null",
-    "custom", "safetensors", "tensor_list",
+    "random",
+    "zeros",
+    "ones",
+    "scalar",
+    "tensor",
+    "null",
+    "custom",
+    "safetensors",
+    "tensor_list",
 }
 AXIS_TYPES = {"const", "var", "expr"}
 SOLUTION_LANGUAGES = {"python", "ascendc", "triton", "tilelang", "catlass"}
@@ -104,6 +111,12 @@ def _not_applicable_anti_hack(reason="cpu_device"):
         "launches_per_iteration": None,
         "reason": reason,
     }
+
+
+def _disabled_anti_hack():
+    result = _not_applicable_anti_hack("disabled_by_policy")
+    result.update(status="disabled", policy="off")
+    return result
 
 
 def _qualified_name(node, aliases):
@@ -179,13 +192,13 @@ def _torch_source_violations(path, tree, aliases):
             if name not in ALLOWED_TORCH_CALLS:
                 violations.append(_source_location(path, node, name))
         elif (
-            isinstance(node.func, ast.Name)
-            and node.func.id == "getattr"
-            and node.args
+            isinstance(node.func, ast.Name) and node.func.id == "getattr" and node.args
         ):
             owner = _qualified_name(node.args[0], aliases)
             if owner and (owner == "torch" or owner.startswith("torch.")):
-                violations.append(_source_location(path, node, "getattr({})".format(owner)))
+                violations.append(
+                    _source_location(path, node, "getattr({})".format(owner))
+                )
     return violations
 
 
@@ -285,7 +298,9 @@ def _host_tensor_violations(modules, functions, entry_key):
                 if isinstance(value, ast.Call):
                     called = _qualified_name(value.func, aliases)
                     if called in {
-                        "torch.empty", "torch.empty_like", "torch.empty_strided"
+                        "torch.empty",
+                        "torch.empty_like",
+                        "torch.empty_strided",
                     }:
                         return True
                     helper = _resolve_helper(module, called, functions)
@@ -299,7 +314,9 @@ def _host_tensor_violations(modules, functions, entry_key):
                     if helper:
                         helper_args = _function_arguments(functions[helper][2])
                         for index, argument in enumerate(node.args):
-                            if index < len(helper_args) and expression_tainted(argument):
+                            if index < len(helper_args) and expression_tainted(
+                                argument
+                            ):
                                 if helper_args[index] not in tainted_parameters[helper]:
                                     tainted_parameters[helper].add(helper_args[index])
                                     changed = True
@@ -309,7 +326,9 @@ def _host_tensor_violations(modules, functions, entry_key):
                             _contains_tainted_tensor(owner, tainted)
                             and node.func.attr not in TENSOR_METADATA_METHODS
                         ):
-                            add_violation(path, node, "Tensor.{}".format(node.func.attr))
+                            add_violation(
+                                path, node, "Tensor.{}".format(node.func.attr)
+                            )
                 elif isinstance(node, ast.BinOp) and (
                     expression_tainted(node.left) or expression_tainted(node.right)
                 ):
@@ -342,7 +361,9 @@ def _host_tensor_violations(modules, functions, entry_key):
                     add_violation(path, node, "Tensor.__getitem__")
                 elif isinstance(node, (ast.Assign, ast.AnnAssign)):
                     value = node.value
-                    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                    targets = (
+                        node.targets if isinstance(node, ast.Assign) else [node.target]
+                    )
                     if value is not None and expression_tainted(value):
                         for target in targets:
                             for name in _assignment_names(target):
@@ -360,6 +381,7 @@ def audit_solution_sources(solution):
     modules = {}
     functions = {}
     declared = set()
+    kernel_count = 0
     violations = []
     for source in solution["sources"]:
         path = source["path"]
@@ -379,6 +401,7 @@ def audit_solution_sources(solution):
                 functions[key] = (path, module, node)
                 if _is_catlass_kernel(node, aliases):
                     declared.add(node.name)
+                    kernel_count += 1
 
     entry_file, entry_symbol = solution["spec"]["entry_point"].split("::")
     entry_key = "{}.{}".format(_module_name(entry_file), entry_symbol)
@@ -394,6 +417,8 @@ def audit_solution_sources(solution):
         reason = "torch_computation"
     elif not declared:
         reason = "no_catlass_kernel"
+    elif kernel_count != 1:
+        reason = "multiple_catlass_kernels"
     status = "failed" if reason else "passed"
     return {
         "status": status,
@@ -516,9 +541,7 @@ def load_definition(path):
         if axis_type == "const":
             optional.add("value")
             if type(spec.get("value")) is not int or spec["value"] < 0:
-                raise BenchError(
-                    "configuration", "const axis value 必须是非负整数"
-                )
+                raise BenchError("configuration", "const axis value 必须是非负整数")
         elif axis_type == "expr":
             optional.add("expression")
             _string(spec.get("expression"), "expr axis expression")
@@ -532,10 +555,11 @@ def load_definition(path):
     try:
         tree = ast.parse(reference)
     except SyntaxError as exc:
-        raise BenchError("configuration", "definition.reference 不是合法 Python") from exc
+        raise BenchError(
+            "configuration", "definition.reference 不是合法 Python"
+        ) from exc
     if not any(
-        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name == "run"
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "run"
         for node in tree.body
     ):
         raise BenchError("configuration", "definition.reference 必须定义顶层 run")
@@ -648,13 +672,9 @@ def _validate_tolerance(value):
         "allow_negative_inf": value.get("allow_negative_inf", False),
     }
     if not 0 < result["required_matched_ratio"] <= 1:
-        raise BenchError(
-            "configuration", "required_matched_ratio 必须在 (0, 1] 内"
-        )
+        raise BenchError("configuration", "required_matched_ratio 必须在 (0, 1] 内")
     if result["max_error_cap"] is not None:
-        result["max_error_cap"] = _number(
-            result["max_error_cap"], "max_error_cap"
-        )
+        result["max_error_cap"] = _number(result["max_error_cap"], "max_error_cap")
     if type(result["allow_negative_inf"]) is not bool:
         raise BenchError("configuration", "allow_negative_inf 必须是 bool")
     return result
@@ -712,9 +732,7 @@ def _validate_input(name, value):
             or any(type(item) is not int or item < 0 for item in shape)
             for shape in shapes
         ):
-            raise BenchError(
-                "configuration", "tensor_list.shapes 必须是 shape 列表"
-            )
+            raise BenchError("configuration", "tensor_list.shapes 必须是 shape 列表")
     return dict(value)
 
 
@@ -749,10 +767,8 @@ def load_workloads(path):
             raise BenchError("configuration", "workload.axes 必须是非负整数对象或 null")
         if not isinstance(value["inputs"], dict) or not value["inputs"]:
             raise BenchError("configuration", "workload.inputs 必须是非空对象")
-        inputs = {
-            name: _validate_input(name, spec)
-            for name, spec in value["inputs"].items()
-        }
+        spec_items = value["inputs"].items()
+        inputs = {name: _validate_input(name, spec) for name, spec in spec_items}
         custom_count = sum(spec["type"] == "custom" for spec in inputs.values())
         if custom_count not in (0, len(inputs)):
             raise BenchError("configuration", "custom input 不能与其他 input type 混用")
@@ -887,7 +903,9 @@ def _load_safetensor(spec, root, device):
     return values[spec["tensor_key"]]
 
 
-def generate_inputs(definition, workload, reference_module, device, seed, workload_root):
+def generate_inputs(
+    definition, workload, reference_module, device, seed, workload_root
+):
     import torch
 
     axes = resolve_axes(definition, workload)
@@ -895,7 +913,11 @@ def generate_inputs(definition, workload, reference_module, device, seed, worklo
     torch.manual_seed(seed)
     backend_name = str(device).split(":", 1)[0]
     backend = getattr(torch, backend_name, None)
-    if backend_name != "cpu" and backend is not None and hasattr(backend, "manual_seed_all"):
+    if (
+        backend_name != "cpu"
+        and backend is not None
+        and hasattr(backend, "manual_seed_all")
+    ):
         backend.manual_seed_all(seed)
 
     if all(spec["type"] == "custom" for spec in workload["inputs"].values()):
@@ -912,7 +934,8 @@ def generate_inputs(definition, workload, reference_module, device, seed, worklo
         values = generator(axes, str(device))
         if not isinstance(values, dict) or set(values) != set(definition["inputs"]):
             raise BenchError(
-                "runtime", "custom_inputs_entrypoint 返回值必须完整匹配 definition inputs"
+                "runtime",
+                "custom_inputs_entrypoint 返回值必须完整匹配 definition inputs",
             )
         return [values[name] for name in definition["inputs"]], axes
 
@@ -1009,9 +1032,7 @@ def stage_solution(solution, output):
 def load_reference(definition, output):
     path = Path(output) / "reference.py"
     _atomic_write(path, definition["reference"])
-    module = _load_module(
-        path, "catlass_dsl_reference_{}".format(uuid.uuid4().hex)
-    )
+    module = _load_module(path, "catlass_dsl_reference_{}".format(uuid.uuid4().hex))
     run = getattr(module, "run", None)
     if not callable(run):
         raise BenchError("build", "definition.reference.run 不可调用")
@@ -1094,9 +1115,8 @@ def compare_outputs(candidate, reference, definition, axes, tolerance, torch):
             & tolerance["allow_negative_inf"]
         )
         nonfinite = (
-            (~torch.isfinite(actual_float) | ~torch.isfinite(expected_float))
-            & ~both_negative_inf
-        )
+            ~torch.isfinite(actual_float) | ~torch.isfinite(expected_float)
+        ) & ~both_negative_inf
         if bool(nonfinite.any()):
             record.update(
                 {
@@ -1124,9 +1144,8 @@ def compare_outputs(candidate, reference, definition, axes, tolerance, torch):
             matched_ratio = 1.0
         else:
             absolute_error = torch.abs(actual_float - expected_float)
-            bound = (
-                tolerance["max_atol"]
-                + tolerance["max_rtol"] * torch.abs(expected_float)
+            bound = tolerance["max_atol"] + tolerance["max_rtol"] * torch.abs(
+                expected_float
             )
             matched_ratio = float((absolute_error <= bound).float().mean().item())
             max_absolute_error = float(absolute_error.max().item())
@@ -1171,8 +1190,14 @@ def configure_device(device, torch):
                 "environment_missing", "npu device 需要 torch_npu"
             ) from exc
         backend = getattr(torch, "npu", None)
-    if backend is None or not hasattr(backend, "is_available") or not backend.is_available():
-        raise BenchError("environment_missing", "{} backend 不可用".format(backend_name))
+    if (
+        backend is None
+        or not hasattr(backend, "is_available")
+        or not backend.is_available()
+    ):
+        raise BenchError(
+            "environment_missing", "{} backend 不可用".format(backend_name)
+        )
     try:
         backend.set_device(device)
     except Exception as exc:
@@ -1237,15 +1262,11 @@ def parse_profile_kernel_mean_ms(trace_dir, trials):
 
     kernel_files = sorted(trace_dir.glob("**/kernel_details.csv"))
     if kernel_files:
-        total_us = _profiler_csv_total_us(
-            kernel_files[0], ["Duration(us)", "Duration"]
-        )
+        total_us = _profiler_csv_total_us(kernel_files[0], ["Duration(us)", "Duration"])
         if total_us is not None:
             return total_us / trials / 1000.0, "kernel_details.Duration"
 
-    raise BenchError(
-        "runtime", "torch_npu profiler 未生成可用的 kernel 性能数据"
-    )
+    raise BenchError("runtime", "torch_npu profiler 未生成可用的 kernel 性能数据")
 
 
 def _anti_hack_failure(reason, declared, names, trials, launches):
@@ -1270,15 +1291,15 @@ def parse_profile_anti_hack(trace_dir, trials, declared_kernel_names):
     declared = set(declared_kernel_names)
     kernel_files = sorted(trace_dir.glob("**/kernel_details.csv"))
     if len(kernel_files) != 1:
-        _anti_hack_failure(
-            "kernel_details_file_count", declared, [], trials, 0
-        )
+        _anti_hack_failure("kernel_details_file_count", declared, [], trials, 0)
     names = []
     try:
         with kernel_files[0].open(newline="", encoding="utf-8-sig") as handle:
             reader = csv.DictReader(handle)
             required_columns = {"Name", "Type", "OP State"}
-            if not reader.fieldnames or not required_columns.issubset(reader.fieldnames):
+            if not reader.fieldnames or not required_columns.issubset(
+                reader.fieldnames
+            ):
                 _anti_hack_failure(
                     "kernel_details_missing_provenance", declared, [], trials, 0
                 )
@@ -1299,18 +1320,16 @@ def parse_profile_anti_hack(trace_dir, trials, declared_kernel_names):
                         trials,
                         len(names),
                     )
-    except OSError as exc:
-        _anti_hack_failure("kernel_details_unreadable", declared, names, trials, len(names))
+    except OSError:
+        _anti_hack_failure(
+            "kernel_details_unreadable", declared, names, trials, len(names)
+        )
 
     if len(names) != trials:
-        _anti_hack_failure(
-            "launch_count_mismatch", declared, names, trials, len(names)
-        )
+        _anti_hack_failure("launch_count_mismatch", declared, names, trials, len(names))
     observed = set(names)
     if len(observed) != 1:
-        _anti_hack_failure(
-            "multiple_kernel_names", declared, names, trials, len(names)
-        )
+        _anti_hack_failure("multiple_kernel_names", declared, names, trials, len(names))
     if not observed.issubset(declared):
         _anti_hack_failure(
             "kernel_not_declared_catlass", declared, names, trials, len(names)
@@ -1379,10 +1398,9 @@ def measure_npu(
         export_type=torch_npu.profiler.ExportType.Text,
         profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
     )
-    # References are outside the candidate policy and retain normal priming.
-    # Candidates must never run outside a profiler window: the active trials
-    # are their only invocations, and one captured output is reused for the
-    # correctness gate by run_suite.
+    # References and default candidates retain normal priming and warmup.
+    # Strict candidates run only inside profiler windows; their captured
+    # output is reused for correctness by run_suite.
     if declared_kernel_names is None:
         function(*inputs)
         synchronize()
@@ -1425,9 +1443,7 @@ def measure_npu(
             iteration_dirs.append(iteration_dir)
             if declared_kernel_names is not None:
                 anti_hack_iterations.append(
-                    parse_profile_anti_hack(
-                        iteration_dir, 1, declared_kernel_names
-                    )
+                    parse_profile_anti_hack(iteration_dir, 1, declared_kernel_names)
                 )
     except Exception as exc:
         if isinstance(exc, BenchError):
@@ -1435,8 +1451,12 @@ def measure_npu(
         raise BenchError(
             "runtime", "torch_npu profiler 性能测量失败: {}".format(exc)
         ) from exc
-    _merge_profile_csv(iteration_dirs, "kernel_details.csv", trace_dir / "kernel_details.csv")
-    _merge_profile_csv(iteration_dirs, "step_trace_time.csv", trace_dir / "step_trace_time.csv")
+    _merge_profile_csv(
+        iteration_dirs, "kernel_details.csv", trace_dir / "kernel_details.csv"
+    )
+    _merge_profile_csv(
+        iteration_dirs, "step_trace_time.csv", trace_dir / "step_trace_time.csv"
+    )
     ordered = sorted(durations)
     p95_index = max(0, math.ceil(len(ordered) * 0.95) - 1)
     result = {
@@ -1545,7 +1565,7 @@ def _atomic_write(path, content):
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=".bench.", dir=str(path.parent))
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
@@ -1604,7 +1624,14 @@ def _load_reference_profile_cache(entry, cache_key, workload_ids):
             if timing.get("mean_ms", 0) <= 0:
                 raise ValueError("缺少有效 mean_ms")
         return manifest
-    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+    except (
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+        KeyError,
+        TypeError,
+        ValueError,
+    ) as exc:
         raise BenchError(
             "configuration", "reference profile cache 已损坏: {}".format(exc)
         ) from exc
@@ -1727,9 +1754,7 @@ def _persist(result, output):
             "report_md": str(report_path.resolve()),
         }
     )
-    _atomic_write(
-        result_path, json.dumps(result, ensure_ascii=False, indent=2) + "\n"
-    )
+    _atomic_write(result_path, json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     _atomic_write(report_path, _report(result))
 
 
@@ -1744,11 +1769,12 @@ def run_suite(
     warmup=DEFAULT_WARMUP,
     trials=DEFAULT_TRIALS,
     reference_profile_cache=None,
+    anti_hack="off",
 ):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     result = {
-        "schema_version": 3,
+        "schema_version": 4,
         "status": "failed",
         "definition": {},
         "solution": {},
@@ -1758,6 +1784,7 @@ def run_suite(
             "seed": seed,
             "warmup": warmup,
             "trials": trials,
+            "anti_hack": anti_hack,
             "commit": _git_head(solution),
             "config": str(Path(workload).resolve()),
             "arch": None,
@@ -1768,11 +1795,15 @@ def run_suite(
         "correctness": {"status": "failed", "passed": 0, "total": 0},
         "performance": {"status": "not_run"},
         "profiling": {"status": "not_run"},
-        "anti_hack": _not_applicable_anti_hack(),
+        "anti_hack": _disabled_anti_hack()
+        if anti_hack == "off"
+        else _not_applicable_anti_hack(),
         "workloads": [],
         "artifacts": {},
     }
     try:
+        if anti_hack not in {"off", "single-fused"}:
+            raise BenchError("configuration", "anti_hack 必须为 off 或 single-fused")
         if type(seed) is not int:
             raise BenchError("configuration", "seed 必须是整数")
         if type(warmup) is not int or warmup < 0:
@@ -1793,7 +1824,8 @@ def run_suite(
         workloads, workload_path, workload_sha = load_workloads(workload)
         is_npu = device.split(":", 1)[0] == "npu"
         source_anti_hack = None
-        if is_npu:
+        strict_candidate = is_npu and anti_hack == "single-fused"
+        if strict_candidate:
             source_anti_hack = audit_solution_sources(solution_data)
             result["anti_hack"] = source_anti_hack
             if source_anti_hack["status"] != "passed":
@@ -1889,7 +1921,9 @@ def run_suite(
                         "launches_per_iteration": None,
                         "reason": "not_run",
                     }
-                    if is_npu
+                    if strict_candidate
+                    else _disabled_anti_hack()
+                    if anti_hack == "off"
                     else _not_applicable_anti_hack()
                 ),
             }
@@ -1911,7 +1945,7 @@ def run_suite(
                     reference_raw, definition_data["outputs"], torch
                 )
                 candidate_timing = None
-                if is_npu:
+                if strict_candidate:
                     case_profile_dir = profile_root / "case-{:04d}".format(
                         workload_index
                     )
@@ -1932,9 +1966,7 @@ def run_suite(
                         trials,
                         synchronize,
                         case_profile_dir / "candidate",
-                        declared_kernel_names=source_anti_hack[
-                            "declared_kernel_names"
-                        ],
+                        declared_kernel_names=source_anti_hack["declared_kernel_names"],
                     )
                     record["anti_hack"] = candidate_timing.pop("anti_hack")
                     captured_output = candidate_timing.pop("_last_output")
@@ -1976,10 +2008,30 @@ def run_suite(
                     result["workloads"].append(record)
                     continue
 
-                reference_timing_inputs = [
-                    clone_value(item, torch) for item in inputs
-                ]
+                reference_timing_inputs = [clone_value(item, torch) for item in inputs]
                 if is_npu:
+                    if not strict_candidate:
+                        timing_inputs = [clone_value(item, torch) for item in inputs]
+                        if solution_data["spec"]["destination_passing_style"]:
+                            timing_buffers = allocate_outputs(
+                                definition_data, axes, timing_inputs, torch
+                            )
+
+                            def timed_solution(*args):
+                                return solution_run(*args, *timing_buffers)
+
+                        else:
+                            timed_solution = solution_run
+                        candidate_timing = measure_npu(
+                            timed_solution,
+                            timing_inputs,
+                            warmup,
+                            trials,
+                            synchronize,
+                            profile_root
+                            / "case-{:04d}".format(workload_index)
+                            / "candidate",
+                        )
                     if workload_data["uuid"] in reference_timings:
                         reference_timing = dict(
                             reference_timings[workload_data["uuid"]]
@@ -2052,8 +2104,7 @@ def run_suite(
             result["workloads"].append(record)
 
         passed = sum(
-            item["correctness"]["status"] == "passed"
-            for item in result["workloads"]
+            item["correctness"]["status"] == "passed" for item in result["workloads"]
         )
         total = len(result["workloads"])
         result["correctness"] = {
@@ -2071,7 +2122,9 @@ def run_suite(
                 "status": (
                     "passed"
                     if profiled == total
-                    else "partial" if profiled else "not_run"
+                    else "partial"
+                    if profiled
+                    else "not_run"
                 ),
                 "profiled": profiled,
                 "total": total,
@@ -2081,7 +2134,9 @@ def run_suite(
                     "cache_status": (
                         "reused"
                         if reference_cache
-                        else "collected" if profiled == total else "incomplete"
+                        else "collected"
+                        if profiled == total
+                        else "incomplete"
                     ),
                     "cache_key": reference_cache_key,
                     "artifact": str(reference_cache_entry.resolve()),
@@ -2097,11 +2152,13 @@ def run_suite(
                     reference_cache_identity,
                     reference_timings,
                 )
-                result["profiling"]["reference"]["manifest"] = str(manifest_path.resolve())
+                result["profiling"]["reference"]["manifest"] = str(
+                    manifest_path.resolve()
+                )
+        if strict_candidate:
             anti_hack_records = [item["anti_hack"] for item in result["workloads"]]
-            anti_hack_passed = (
-                len(anti_hack_records) == total
-                and all(item.get("status") == "passed" for item in anti_hack_records)
+            anti_hack_passed = len(anti_hack_records) == total and all(
+                item.get("status") == "passed" for item in anti_hack_records
             )
             observed_names = sorted(
                 {
@@ -2127,9 +2184,7 @@ def run_suite(
             result["anti_hack"] = {
                 "status": "passed" if anti_hack_passed else "failed",
                 "policy": ANTI_HACK_POLICY,
-                "declared_kernel_names": source_anti_hack[
-                    "declared_kernel_names"
-                ],
+                "declared_kernel_names": source_anti_hack["declared_kernel_names"],
                 "observed_kernel_names": observed_names,
                 "profiled_iterations": profiled_iterations,
                 "observed_launches": observed_launches,
@@ -2180,6 +2235,7 @@ def main(argv=None):
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--warmup", type=int, default=DEFAULT_WARMUP)
     parser.add_argument("--trials", type=int, default=DEFAULT_TRIALS)
+    parser.add_argument("--anti-hack", choices=("off", "single-fused"), default="off")
     parser.add_argument(
         "--reference-profile-cache",
         type=Path,
@@ -2199,6 +2255,7 @@ def main(argv=None):
         warmup=args.warmup,
         trials=args.trials,
         reference_profile_cache=args.reference_profile_cache,
+        anti_hack=args.anti_hack,
     )
     if result["status"] == "passed":
         return 0

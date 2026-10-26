@@ -1,3 +1,13 @@
+# ----------------------------------------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# ----------------------------------------------------------------------------------------------------------
+
 import importlib.util
 import json
 from pathlib import Path
@@ -17,12 +27,30 @@ def load_module():
     return module
 
 
+def package_solution(kernel):
+    (kernel.parent / "solution.json").write_text(
+        json.dumps(
+            {
+                "spec": {"entry_point": "operator.py::run"},
+                "sources": [
+                    {
+                        "path": "operator.py",
+                        "content": kernel.read_bytes().decode("utf-8"),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def workspace_project(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     kernel = project / "src/operator.py"
     kernel.parent.mkdir()
-    kernel.write_text("TILE = 8\n", encoding="utf-8")
+    kernel.write_text("def run(x):\n    return x\n", encoding="utf-8")
+    package_solution(kernel)
     return project.resolve(), kernel
 
 
@@ -161,18 +189,23 @@ def contract_text(project, design_sha256, *, risk="standard", performance=False)
 | knowledge_mode | batch_at_finish |
 | delivery | working_tree |
 """.format(
-        project=project, benchmark_row=benchmark_row,
+        project=project,
+        benchmark_row=benchmark_row,
         design_sha256=design_sha256,
         performance_case=performance_case,
-        required=performance_values[0], metric_path=performance_values[1],
-        direction=performance_values[2], threshold=performance_values[3],
+        required=performance_values[0],
+        metric_path=performance_values[1],
+        direction=performance_values[2],
+        threshold=performance_values[3],
         benchmark_command=performance_values[4],
         max_iterations=performance_values[5],
         stall_threshold=performance_values[6],
         min_improvement_fraction=performance_values[7],
         profiling_required=performance_values[8],
-        risk=risk, develop_run_id=DEVELOP_RUN_ID,
-        reasons=reasons, focus=focus,
+        risk=risk,
+        develop_run_id=DEVELOP_RUN_ID,
+        reasons=reasons,
+        focus=focus,
     )
 
 
@@ -183,44 +216,31 @@ def approved_contract(tmp_path, *, risk="standard", performance=False):
     design.write_text("# Test operator design\n", encoding="utf-8")
     design_sha256 = module.hashlib.sha256(design.read_bytes()).hexdigest()
     path = tmp_path / "CONTRACT.md"
-    draft = contract_text(
-        project, design_sha256, risk=risk, performance=performance
-    )
+    draft = contract_text(project, design_sha256, risk=risk, performance=performance)
     digest = module.contract_digest(draft.encode())
     path.write_text(draft.replace("<computed>", digest), encoding="utf-8")
     return module, path, project, module.hashlib.sha256(kernel.read_bytes()).hexdigest()
 
 
 def result(stage, kernel_sha256, **values):
-    return {
+    payload = {
         "stage": stage,
         "status": "passed",
         "kernel_sha256": kernel_sha256,
         "evidence": ["evidence/{}.json".format(stage)],
         **values,
     }
-
-
-def breakdown(head):
-    return result(
-        "task_breakdown",
-        head,
-        tasks=[
-            {
-                "task_id": "implement-operator",
-                "depends_on": [],
-                "allowed_paths": ["src/operator.py"],
-                "required_cases": ["correctness-main"],
-                "done_when": "required correctness case passes",
-            }
-        ],
-    )
+    if stage == "skeleton":
+        payload.setdefault("compile", {"status": "passed"})
+        payload.setdefault("run", {"status": "wrong_values"})
+    return payload
 
 
 def benchmark_result(head, *, target_met=None):
     profile_artifact = "artifacts/benchmark/profiling"
     values = {
         "correctness": "passed",
+        "solution": {"source_sha256": head},
         "environment": {"device": "npu:0"},
         "anti_hack": {
             "status": "passed",
@@ -299,19 +319,16 @@ def test_contract_parses_and_verifies_workspace_without_git(tmp_path):
     assert contract["commands"][0]["parsed_argv"] == ["python3", "-m", "pytest"]
     assert contract["specification"]["operator_name"] == "test_operator"
     assert {row["direction"] for row in contract["tensor_interface"]} == {
-        "input", "output"
+        "input",
+        "output",
     }
 
 
 def test_contract_rejects_design_document_drift(tmp_path):
     module, path, _project, _head = approved_contract(tmp_path)
-    (tmp_path / "DESIGN.md").write_text(
-        "# Changed after approval\n", encoding="utf-8"
-    )
+    (tmp_path / "DESIGN.md").write_text("# Changed after approval\n", encoding="utf-8")
     with pytest.raises(module.ContractError, match="design_sha256"):
-        module.validate_contract(
-            module.parse_contract(path), require_approved=True
-        )
+        module.validate_contract(module.parse_contract(path), require_approved=True)
 
 
 def test_design_contract_rejects_empty_specification_and_invalid_interface(tmp_path):
@@ -330,8 +347,16 @@ def test_design_contract_rejects_empty_specification_and_invalid_interface(tmp_p
     "mutation, expected",
     [
         (lambda text: text.replace("## Required Cases\n", ""), "章节"),
-        (lambda text: text.replace("src/operator.py", "../operator.py"), "安全仓库相对路径"),
-        (lambda text: text.replace("| full-test |\n\n## Performance", "| missing |\n\n## Performance"), "未知 command_id"),
+        (
+            lambda text: text.replace("src/operator.py", "../operator.py"),
+            "安全仓库相对路径",
+        ),
+        (
+            lambda text: text.replace(
+                "| full-test |\n\n## Performance", "| missing |\n\n## Performance"
+            ),
+            "未知 command_id",
+        ),
     ],
 )
 def test_contract_rejects_missing_section_illegal_path_and_unknown_command(
@@ -351,13 +376,11 @@ def test_contract_rejects_missing_section_illegal_path_and_unknown_command(
         ("invalid-20261340-256199", "UTC"),
     ],
 )
-def test_contract_requires_valid_second_precision_run_id(
-    tmp_path, run_id, expected
-):
+def test_contract_requires_valid_second_precision_run_id(tmp_path, run_id, expected):
     module, path, _project, _head = approved_contract(tmp_path)
     contract = module.parse_contract(path)
-    contract["delivery"]["evidence_directory"] = (
-        ".catlass-dsl/develop-runs/{}".format(run_id)
+    contract["delivery"]["evidence_directory"] = ".catlass-dsl/develop-runs/{}".format(
+        run_id
     )
     with pytest.raises(module.ContractError, match=expected):
         module.validate_contract(contract, require_approved=True)
@@ -368,7 +391,9 @@ def test_contract_change_invalidates_digest_and_state(tmp_path):
     contract = module.parse_contract(path)
     state = module.start_state(contract)
     path.write_text(
-        path.read_text(encoding="utf-8").replace("implementation", "implementation update"),
+        path.read_text(encoding="utf-8").replace(
+            "implementation", "implementation update"
+        ),
         encoding="utf-8",
     )
     changed = module.parse_contract(path)
@@ -382,16 +407,20 @@ def test_standard_flow_has_one_review_and_requires_benchmark(tmp_path):
     module, path, _project, head = approved_contract(tmp_path)
     contract = module.parse_contract(path)
     state = module.start_state(contract)
-    assert state["next_action"] == "task_breakdown"
-    state = module.advance_state(contract, state, breakdown(head))
-    for stage in ("implement", "final_review", "full_test"):
+    assert state["next_action"] == "skeleton"
+    for stage in ("skeleton", "implement", "focused_test", "final_review", "full_test"):
         state = module.advance_state(contract, state, result(stage, head))
     state = module.advance_state(contract, state, benchmark_result(head))
     state = module.advance_state(contract, state, result("finish", head))
     assert state["status"] == "passed"
     assert state["next_action"] == "complete"
     assert [event["stage"] for event in state["events"]] == [
-        "task_breakdown", "implement", "final_review", "full_test", "benchmark",
+        "skeleton",
+        "implement",
+        "focused_test",
+        "final_review",
+        "full_test",
+        "benchmark",
         "finish",
     ]
     assert state["benchmark"]["benchmark"]["profiling"]["status"] == "passed"
@@ -404,9 +433,10 @@ def test_high_risk_adds_targeted_review_and_performance_adds_benchmark(tmp_path)
     )
     contract = module.parse_contract(path)
     state = module.start_state(contract)
-    state = module.advance_state(contract, state, breakdown(head))
     stages = (
+        ("skeleton", {}),
         ("implement", {}),
+        ("focused_test", {}),
         ("targeted_review", {}),
         ("final_review", {}),
         ("full_test", {}),
@@ -425,32 +455,42 @@ def test_failed_performance_routes_to_optimize_then_rebenchmark(tmp_path):
     module, path, _project, head = approved_contract(tmp_path, performance=True)
     contract = module.parse_contract(path)
     state = module.start_state(contract)
-    state = module.advance_state(contract, state, breakdown(head))
-    for stage in ("implement", "final_review", "full_test"):
+    for stage in ("skeleton", "implement", "focused_test", "final_review", "full_test"):
         state = module.advance_state(contract, state, result(stage, head))
     state = module.advance_state(
-        contract, state,
+        contract,
+        state,
         benchmark_result(head, target_met=False),
     )
     assert state["next_action"] == "optimize"
     state = module.advance_state(contract, state, result("optimize", head))
     assert state["next_action"] == "benchmark"
     state = module.advance_state(
-        contract, state,
+        contract,
+        state,
         benchmark_result(head, target_met=True),
     )
     assert state["next_action"] == "final_review"
     state = module.advance_state(contract, state, result("final_review", head))
+    assert state["next_action"] == "full_test"
+    state = module.advance_state(contract, state, result("full_test", head))
+    state = module.advance_state(
+        contract, state, benchmark_result(head, target_met=True)
+    )
     assert state["next_action"] == "finish"
 
 
 def test_public_capabilities_can_start_at_their_own_stage(tmp_path):
     module, path, _project, _head = approved_contract(tmp_path, performance=True)
     contract = module.parse_contract(path)
-    assert module.start_state_at(contract, "task_breakdown")["next_action"] == "task_breakdown"
+    with pytest.raises(module.ContractError, match="entry_stage"):
+        module.start_state_at(contract, "task_breakdown")
+    assert module.start_state_at(contract, "skeleton")["next_action"] == "skeleton"
     assert module.start_state_at(contract, "implement")["next_action"] == "implement"
     assert module.start_state_at(contract, "debug")["next_action"] == "debug"
-    assert module.start_state_at(contract, "final_review")["next_action"] == "final_review"
+    assert (
+        module.start_state_at(contract, "final_review")["next_action"] == "final_review"
+    )
     assert module.start_state_at(contract, "benchmark")["next_action"] == "benchmark"
     assert module.start_state_at(contract, "optimize")["next_action"] == "optimize"
 
@@ -475,19 +515,23 @@ def test_develop_records_local_knowledge_queries(tmp_path):
             "text": "LayoutError",
         },
         "matches": [".catlass-dsl/knowledge/debug/environment-and-build.md"],
-        "evidence": ".catlass-dsl/develop-runs/{}/stages/001-debug/evidence/query-compile.json".format(DEVELOP_RUN_ID),
+        "evidence": ".catlass-dsl/develop-runs/{}/stages/001-debug/evidence/query-compile.json".format(
+            DEVELOP_RUN_ID
+        ),
         "kernel_sha256": head,
         "retrieval": {
             "normalized_text": "layouterror",
             "normalized_operator_family": "elementwise",
             "match_mode": "all_terms",
         },
-        "match_details": [{
-            "path": ".catlass-dsl/knowledge/debug/environment-and-build.md",
-            "score": 18,
-            "matched_fields": ["title", "body"],
-            "matched_terms": ["layouterror"],
-        }],
+        "match_details": [
+            {
+                "path": ".catlass-dsl/knowledge/debug/environment-and-build.md",
+                "score": 18,
+                "matched_fields": ["title", "body"],
+                "matched_terms": ["layouterror"],
+            }
+        ],
     }
     state = module.advance_state(
         contract, state, result("debug", head, knowledge_queries=[query])
@@ -505,7 +549,9 @@ def test_develop_rejects_stale_or_unsafe_knowledge_query(tmp_path):
         "failure_signature": "runtime|required-main|device-error",
         "filters": {"text": "device error"},
         "matches": [".catlass-dsl/knowledge/../outside.md"],
-        "evidence": ".catlass-dsl/develop-runs/{}/stages/001-debug/evidence/query-runtime.json".format(DEVELOP_RUN_ID),
+        "evidence": ".catlass-dsl/develop-runs/{}/stages/001-debug/evidence/query-runtime.json".format(
+            DEVELOP_RUN_ID
+        ),
         "kernel_sha256": head,
     }
     with pytest.raises(module.ContractError, match="matches"):
@@ -532,7 +578,9 @@ def test_develop_accepts_legacy_empty_knowledge_state_and_rejects_duplicate_quer
         "failure_signature": "test|required-main|mismatch|f16-8x8",
         "filters": {"tags": ["correctness"], "text": "mismatch"},
         "matches": [],
-        "evidence": ".catlass-dsl/develop-runs/{}/stages/001-debug/evidence/query-correctness.json".format(DEVELOP_RUN_ID),
+        "evidence": ".catlass-dsl/develop-runs/{}/stages/001-debug/evidence/query-correctness.json".format(
+            DEVELOP_RUN_ID
+        ),
         "kernel_sha256": head,
     }
     state = module.advance_state(
@@ -578,6 +626,9 @@ def test_benchmark_requires_performance_and_candidate_profile(tmp_path):
     with pytest.raises(module.ContractError, match="workload"):
         module.advance_state(contract, state, missing_workloads)
 
+    state["config"]["fusion"]["mode"] = "single_kernel"
+    state["config"]["approval"]["config_digest"] = module.config_digest(state["config"])
+    state["config_digest"] = module.config_digest(state["config"])
     missing_anti_hack = benchmark_result(head)
     missing_anti_hack.pop("anti_hack")
     with pytest.raises(module.ContractError, match="anti_hack.status=passed"):
@@ -605,11 +656,13 @@ def test_final_iterations_report_contains_each_workload_speedup(tmp_path):
     finish = result("finish", head, knowledge={})
     finish.update({"sequence": 2, "next_action": "complete"})
     state = module.start_state(contract)
-    state.update({
-        "events": [benchmark, finish],
-        "next_action": "complete",
-        "status": "passed",
-    })
+    state.update(
+        {
+            "events": [benchmark, finish],
+            "next_action": "complete",
+            "status": "passed",
+        }
+    )
     report = module._iterations_markdown(contract, state)
     assert "## Workload Speedups" in report
     assert "| case-a | 1.000000 | 2.500000 | 2.5000x |" in report
@@ -638,14 +691,17 @@ def test_public_controller_output_shape_is_stable(tmp_path):
     assert all(field in state for field in module.OUTPUT_FIELDS)
 
 
-@pytest.mark.parametrize("schema", ["catlass.dsl.workflow.v1", "catlass.dsl.workflow.v2"])
+@pytest.mark.parametrize(
+    "schema",
+    ["catlass.dsl.workflow.v1", "catlass.dsl.workflow.v2", "catlass.dsl.workflow.v3"],
+)
 def test_develop_rejects_old_schema(tmp_path, schema):
     module, path, _project, head = approved_contract(tmp_path)
     contract = module.parse_contract(path)
-    state = module.start_state(contract)
+    state = module.start_state_at(contract, "implement")
     state["schema"] = schema
     with pytest.raises(module.ContractError, match="state schema 非法"):
-        module.advance_state(contract, state, breakdown(head))
+        module.advance_state(contract, state, result("implement", head))
 
 
 def test_cli_creates_compact_trace_and_single_iterations_log(tmp_path, capsys):
@@ -654,10 +710,16 @@ def test_cli_creates_compact_trace_and_single_iterations_log(tmp_path, capsys):
     state_path = run_root / "state.json"
     state_path.parent.mkdir(parents=True)
     kernel = project / "src/operator.py"
-    kernel.write_text("TILE = 1\n")
+    kernel.write_text("def run(x):\n    return x\n")
+    package_solution(kernel)
     head = module.hashlib.sha256(kernel.read_bytes()).hexdigest()
-    state_path.write_text(json.dumps(module.start_state(module.parse_contract(contract_path))))
-    assert module.main(["start", "--state", str(state_path)]) == 0
+    state_path.write_text(
+        json.dumps(module.start_state(module.parse_contract(contract_path)))
+    )
+    assert (
+        module.main(["start", "--state", str(state_path), "--entry-stage", "implement"])
+        == 0
+    )
     capsys.readouterr()
     assert {path.name for path in run_root.iterdir()} == {
         "ITERATIONS.md",
@@ -665,38 +727,40 @@ def test_cli_creates_compact_trace_and_single_iterations_log(tmp_path, capsys):
         "traces",
     }
 
-    stage_dir = run_root / "traces/iter-001-task_breakdown"
+    stage_dir = run_root / "traces/iter-001-implement"
     evidence = stage_dir / "evidence/task-breakdown.md"
     evidence.parent.mkdir(parents=True)
     evidence.write_text("# Task Breakdown\n", encoding="utf-8")
-    submission = breakdown(head)
-    submission["evidence"] = [
-        str(evidence.relative_to(project))
-    ]
+    submission = result("implement", head)
+    submission["evidence"] = [str(evidence.relative_to(project))]
     submission_path = stage_dir / "submission.json"
     submission_path.write_text(json.dumps(submission), encoding="utf-8")
 
-    assert module.main(
-        [
-            "advance",
-            "--state",
-            str(state_path),
-            "--result",
-            str(submission_path),
-        ]
-    ) == 0
+    assert (
+        module.main(
+            [
+                "advance",
+                "--state",
+                str(state_path),
+                "--result",
+                str(submission_path),
+            ]
+        )
+        == 0
+    )
     capsys.readouterr()
     assert (stage_dir / "result.json").is_file()
     assert {path.name for path in stage_dir.iterdir()} == {"kernel.py", "result.json"}
     assert (stage_dir / "kernel.py").read_text() == kernel.read_text()
     trace_result = json.loads((stage_dir / "result.json").read_text())
-    assert trace_result["kernel_sha256"] == module.hashlib.sha256(
-        (stage_dir / "kernel.py").read_bytes()
-    ).hexdigest()
+    assert (
+        trace_result["kernel_sha256"]
+        == module.hashlib.sha256((stage_dir / "kernel.py").read_bytes()).hexdigest()
+    )
     assert not submission_path.exists()
     run_index = (run_root / "ITERATIONS.md").read_text(encoding="utf-8")
     assert "| Iter | Title | Score | Passed | Notes |" in run_index
-    assert "task_breakdown" in run_index
+    assert "implement" in run_index
     stored = json.loads(state_path.read_text(encoding="utf-8"))
     assert stored["events"][0]["sequence"] == 1
 
@@ -704,40 +768,51 @@ def test_cli_creates_compact_trace_and_single_iterations_log(tmp_path, capsys):
 def test_failed_trace_keeps_only_bounded_failure(tmp_path):
     module, path, project, head = approved_contract(tmp_path)
     contract = module.parse_contract(path)
-    state = module.start_state(contract)
+    state = module.start_state_at(contract, "implement")
     run_root = project / ".catlass-dsl/develop-runs" / DEVELOP_RUN_ID
-    trace = run_root / "traces/iter-001-task_breakdown"
+    trace = run_root / "traces/iter-001-implement"
     trace.mkdir(parents=True)
     evidence = trace / "raw.log"
     evidence.write_text("raw failure")
     submission = trace / "submission.json"
-    payload = result("task_breakdown", head, failure_summary="x" * 20000)
+    payload = result("implement", head, failure_summary="x" * 20000)
     payload["status"] = "failed"
     payload["evidence"] = [str(evidence.relative_to(project))]
     submission.write_text(json.dumps(payload))
     next_state = module.advance_state(contract, state, payload)
-    module._record_stage(contract, {"events": [], "next_action": "task_breakdown"}, submission, payload, next_state)
+    module._record_stage(
+        contract,
+        {"events": [], "next_action": "implement"},
+        submission,
+        payload,
+        next_state,
+    )
     assert {item.name for item in trace.iterdir()} == {
-        "kernel.py", "result.json", "failure.txt"
+        "kernel.py",
+        "result.json",
+        "failure.txt",
     }
     trace_result = json.loads((trace / "result.json").read_text())
-    assert trace_result["kernel_sha256"] == module.hashlib.sha256(
-        (trace / "kernel.py").read_bytes()
-    ).hexdigest()
+    assert (
+        trace_result["kernel_sha256"]
+        == module.hashlib.sha256((trace / "kernel.py").read_bytes()).hexdigest()
+    )
     assert (trace / "failure.txt").stat().st_size <= 16385
 
 
 def test_record_rejects_kernel_changed_after_validation(tmp_path):
     module, path, project, head = approved_contract(tmp_path)
     contract = module.parse_contract(path)
-    state = module.start_state(contract)
+    state = module.start_state_at(contract, "implement")
     trace = (
-        project / ".catlass-dsl/develop-runs" / DEVELOP_RUN_ID
-        / "traces/iter-001-task_breakdown"
+        project
+        / ".catlass-dsl/develop-runs"
+        / DEVELOP_RUN_ID
+        / "traces/iter-001-implement"
     )
     trace.mkdir(parents=True)
     submission = trace / "submission.json"
-    payload = breakdown(head)
+    payload = result("implement", head)
     evidence = trace / "task-breakdown.json"
     evidence.write_text("{}")
     payload["evidence"] = [str(evidence.relative_to(project))]
@@ -747,7 +822,7 @@ def test_record_rejects_kernel_changed_after_validation(tmp_path):
     with pytest.raises(module.ContractError, match="关闭前 kernel 已变化"):
         module._record_stage(
             contract,
-            {"events": [], "next_action": "task_breakdown"},
+            {"events": [], "next_action": "implement"},
             submission,
             payload,
             next_state,
@@ -759,7 +834,6 @@ def test_finish_snapshots_kernel_and_whitelists_profile(tmp_path):
     contract = module.parse_contract(path)
     state = module.start_state(contract)
     kernel = project / "src/operator.py"
-    kernel.write_text("TILE = 8\n")
     run_root = project / ".catlass-dsl/develop-runs" / DEVELOP_RUN_ID
     trace = run_root / "traces/iter-001-finish"
     trace.mkdir(parents=True)
@@ -773,27 +847,40 @@ def test_finish_snapshots_kernel_and_whitelists_profile(tmp_path):
     iteration = profiler.parent / "anti_hack/iteration-0000/kernel_details.csv"
     iteration.parent.mkdir(parents=True)
     iteration.write_text("Name,Type,OP State\nk,k,N/A\n")
-    (profiler.parent / "anti_hack_manifest.json").write_text(json.dumps({
-        "schema_version": 1,
-        "policy": "single-fused-catlass-kernel-v1",
-        "profiled_iterations": 1,
-        "iterations": [{
-            "iteration": 0,
-            "kernel_details": "anti_hack/iteration-0000/kernel_details.csv",
-            "sha256": module.hashlib.sha256(iteration.read_bytes()).hexdigest(),
-            "observed_kernel_names": ["k"],
-            "observed_launches": 1,
-        }],
-    }))
+    (profiler.parent / "anti_hack_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "policy": "single-fused-catlass-kernel-v1",
+                "profiled_iterations": 1,
+                "iterations": [
+                    {
+                        "iteration": 0,
+                        "kernel_details": "anti_hack/iteration-0000/kernel_details.csv",
+                        "sha256": module.hashlib.sha256(
+                            iteration.read_bytes()
+                        ).hexdigest(),
+                        "observed_kernel_names": ["k"],
+                        "observed_launches": 1,
+                    }
+                ],
+            }
+        )
+    )
     payload = result("finish", head, knowledge={})
     payload["evidence"] = [str(evidence.relative_to(project))]
-    payload["profiling"] = {"status": "passed", "candidate": {"artifact": str(profiler.parent)}}
+    payload["profiling"] = {
+        "status": "passed",
+        "candidate": {"artifact": str(profiler.parent)},
+    }
     state["next_action"] = "finish"
-    state["tests"] = {"status": "passed"}
-    state["review"] = {"final_review": {"status": "passed"}}
+    state["tests"] = {"status": "passed", "kernel_sha256": head}
+    state["review"] = {"final_review": {"status": "passed", "kernel_sha256": head}}
     state["benchmark"] = {
         "benchmark": {
             "status": "passed",
+            "kernel_sha256": head,
+            "profiling": {"status": "passed"},
             "environment": {"device": "npu:0"},
             "anti_hack": benchmark_result(head)["anti_hack"],
         }
@@ -801,13 +888,26 @@ def test_finish_snapshots_kernel_and_whitelists_profile(tmp_path):
     submission = trace / "submission.json"
     submission.write_text(json.dumps(payload))
     next_state = module.advance_state(contract, state, payload)
-    module._record_stage(contract, {"events": [], "next_action": "finish"}, submission, payload, next_state)
+    module._record_stage(
+        contract,
+        {"events": [], "next_action": "finish"},
+        submission,
+        payload,
+        next_state,
+    )
     final = run_root / "final"
     assert (final / "kernel.py").read_text() == kernel.read_text()
     final_result = json.loads((final / "result.json").read_text())
-    assert final_result["kernel_sha256"] == module.hashlib.sha256(kernel.read_bytes()).hexdigest()
+    assert (
+        final_result["kernel_sha256"]
+        == module.hashlib.sha256(kernel.read_bytes()).hexdigest()
+    )
     assert next_state["events"][-1]["kernel_sha256"] == final_result["kernel_sha256"]
-    assert {item.name for item in final.iterdir()} == {"kernel.py", "result.json", "profile"}
+    assert {item.name for item in final.iterdir()} == {
+        "kernel.py",
+        "result.json",
+        "profile",
+    }
     assert {item.name for item in (final / "profile/case-0000").iterdir()} == {
         "kernel_details.csv",
         "step_trace_time.csv",
@@ -817,17 +917,122 @@ def test_finish_snapshots_kernel_and_whitelists_profile(tmp_path):
     assert not list(run_root.glob("**/trace.json"))
 
 
-def test_task_breakdown_rejects_unapproved_paths_and_forward_dependencies(tmp_path):
-    module, path, _project, head = approved_contract(tmp_path)
-    contract = module.parse_contract(path)
-    state = module.start_state(contract)
-    invalid = breakdown(head)
-    invalid["tasks"][0]["allowed_paths"] = ["src/unapproved.py"]
-    with pytest.raises(module.ContractError, match="批准路径"):
-        module.advance_state(contract, state, invalid)
+def test_complete_generation_precedes_focused_test_and_can_resume(tmp_path):
+    module, path, project, head = approved_contract(tmp_path)
+    state = module.start_state_at(module.parse_contract(path), "implement")
+    assert state["config"]["fusion"] == {"mode": "performance"}
+    assert "tasks" not in state
+    state = module.advance_state(state["config"], state, result("implement", head))
+    assert state["next_action"] == "focused_test"
+    for status in ("blocked", "not_run"):
+        state = module.advance_state(
+            state["config"], state, result("focused_test", head, status=status)
+        )
+        assert state["next_action"] == "focused_test"
+        assert (project / "src/solution.json").is_file()
+    state = module.advance_state(state["config"], state, result("focused_test", head))
+    assert state["next_action"] == "final_review"
 
-    state = module.start_state(contract)
-    invalid = breakdown(head)
-    invalid["tasks"][0]["depends_on"] = ["future-task"]
-    with pytest.raises(module.ContractError, match="前序 task"):
-        module.advance_state(contract, state, invalid)
+
+@pytest.mark.parametrize(
+    "failure",
+    ["missing_package", "stale_package", "syntax", "missing_run", "placeholder"],
+)
+def test_generation_rejects_incomplete_or_inconsistent_sources(tmp_path, failure):
+    module, path, project, head = approved_contract(tmp_path)
+    state = module.start_state(module.parse_contract(path))
+    kernel = project / "src/operator.py"
+    if failure == "missing_package":
+        kernel.with_name("solution.json").unlink()
+    else:
+        kernel.write_text(
+            {
+                "stale_package": "def run(x):\n    return x + 1\n",
+                "syntax": "def run(\n",
+                "missing_run": "value = 1\n",
+                "placeholder": "def run(x):\n    pass\n",
+            }[failure],
+            encoding="utf-8",
+        )
+        if failure != "stale_package":
+            package_solution(kernel)
+        head = module.hashlib.sha256(kernel.read_bytes()).hexdigest()
+    with pytest.raises(module.ContractError):
+        module.advance_state(state["config"], state, result("implement", head))
+
+
+def test_failure_requires_knowledge_then_debug_returns_to_validation(tmp_path):
+    module, path, _project, head = approved_contract(tmp_path)
+    state = module.start_state_at(module.parse_contract(path), "focused_test")
+    state = module.advance_state(
+        state["config"], state, result("focused_test", head, status="failed")
+    )
+    assert state["next_action"] == "debug"
+    with pytest.raises(module.ContractError, match="knowledge_queries"):
+        module.advance_state(state["config"], state, result("debug", head))
+    query = {
+        "trigger": "correctness",
+        "failure_signature": "mismatch",
+        "filters": {"category": "debug", "text": "mismatch"},
+        "matches": [],
+        "evidence": "query.json",
+        "kernel_sha256": head,
+    }
+    state = module.advance_state(
+        state["config"], state, result("debug", head, knowledge_queries=[query])
+    )
+    assert state["next_action"] == "focused_test"
+
+
+def test_default_benchmark_needs_no_anti_hack_and_source_change_invalidates_gates(
+    tmp_path,
+):
+    module, path, project, head = approved_contract(tmp_path)
+    state = module.start_state_at(module.parse_contract(path), "benchmark")
+    benchmark = benchmark_result(head)
+    benchmark["anti_hack"] = {"status": "disabled", "policy": "off"}
+    for workload in benchmark["workloads"]:
+        workload.pop("anti_hack")
+    state = module.advance_state(state["config"], state, benchmark)
+    state["tests"] = {"status": "passed", "kernel_sha256": head}
+    state["review"] = {"final_review": {"status": "passed", "kernel_sha256": head}}
+    state["next_action"] = "debug"
+    kernel = project / "src/operator.py"
+    kernel.write_text("def run(x):\n    return x + 1\n", encoding="utf-8")
+    package_solution(kernel)
+    new_sha = module.hashlib.sha256(kernel.read_bytes()).hexdigest()
+    state = module.advance_state(state["config"], state, result("debug", new_sha))
+    assert state["tests"] == state["review"] == state["benchmark"] == {}
+
+
+def test_default_profile_archive_accepts_multiple_rows_without_manifest(tmp_path):
+    module = load_module()
+    trace = tmp_path / "iter-001-benchmark"
+    source = trace / "raw-profiler"
+    case = source / "case-0000"
+    case.mkdir(parents=True)
+    (case / "kernel_details.csv").write_text(
+        "Name,Duration(us)\nstage_a,100\nstage_b,200\n", encoding="utf-8"
+    )
+    payload = {
+        "stage": "benchmark",
+        "environment": {"device": "npu:0"},
+        "profiling": {"status": "passed", "candidate": {"artifact": str(source)}},
+        "workloads": [{"performance": {"candidate": {"trace_dir": str(case)}}}],
+    }
+    copied = module._compact_profile(payload, trace / "profile", tmp_path)
+    assert len(copied) == 1
+    assert "stage_b" in copied[0].read_text(encoding="utf-8")
+    with pytest.raises(module.ContractError, match="anti_hack"):
+        module._compact_profile(
+            payload, trace / "strict-profile", tmp_path, strict=True
+        )
+
+
+def test_advance_rejects_non_object_reuse(tmp_path):
+    module, path, _project, head = approved_contract(tmp_path)
+    state = module.start_state_at(module.parse_contract(path), "focused_test")
+    with pytest.raises(module.ContractError, match="reuse"):
+        module.advance_state(
+            state["config"], state, result("focused_test", head, reuse="passed")
+        )

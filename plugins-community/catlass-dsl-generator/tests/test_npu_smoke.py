@@ -9,6 +9,7 @@
 # ----------------------------------------------------------------------------------------------------------
 
 import os
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -39,9 +40,9 @@ def configured_file(variable):
 
 def configured_device():
     value = os.environ.get("CATLASS_DSL_BENCH_DEVICE", "npu:0")
-    assert value == "npu" or (
-        value.startswith("npu:") and value[4:].isdigit()
-    ), "CATLASS_DSL_BENCH_DEVICE 必须为 npu[:index]"
+    assert value == "npu" or (value.startswith("npu:") and value[4:].isdigit()), (
+        "CATLASS_DSL_BENCH_DEVICE 必须为 npu[:index]"
+    )
     return value
 
 
@@ -58,12 +59,17 @@ def test_configured_device_rejects_cpu(monkeypatch):
 
 
 @pytest.mark.npu
-def test_configured_npu_benchmark(tmp_path):
+@pytest.mark.parametrize("anti_hack", ["off", "single-fused"])
+def test_configured_npu_benchmark(tmp_path, anti_hack):
     configured = [name for name in REQUIRED if os.environ.get(name)]
     if not configured:
         pytest.skip("设置 CATLASS_DSL_BENCH_* 三个输入后运行真实 NPU smoke")
     if len(configured) != len(REQUIRED):
         pytest.fail("NPU smoke 自定义输入必须同时提供：" + ", ".join(REQUIRED))
+    if anti_hack == "single-fused" and not os.environ.get(
+        "CATLASS_DSL_BENCH_SINGLE_SOLUTION"
+    ):
+        pytest.skip("严格模式需设置 CATLASS_DSL_BENCH_SINGLE_SOLUTION")
 
     import torch
     import torch_npu  # noqa: F401
@@ -71,6 +77,8 @@ def test_configured_npu_benchmark(tmp_path):
     if not torch.npu.is_available():
         pytest.skip("当前 pytest 进程无法访问 NPU")
     solution, workload, definition = [configured_file(name) for name in REQUIRED]
+    if anti_hack == "single-fused":
+        solution = configured_file("CATLASS_DSL_BENCH_SINGLE_SOLUTION")
     output = tmp_path / "npu-smoke"
     command = [
         sys.executable,
@@ -85,6 +93,8 @@ def test_configured_npu_benchmark(tmp_path):
         configured_device(),
         "--output",
         str(output),
+        "--anti-hack",
+        anti_hack,
     ]
     completed = subprocess.run(
         command,
@@ -99,3 +109,7 @@ def test_configured_npu_benchmark(tmp_path):
         completed.stdout, completed.stderr
     )
     assert (output / "result.json").is_file()
+    result = json.loads((output / "result.json").read_text(encoding="utf-8"))
+    assert result["anti_hack"]["status"] == (
+        "disabled" if anti_hack == "off" else "passed"
+    )

@@ -26,7 +26,12 @@ class ReferenceError(ValueError):
 
 
 OPAQUE_CASE_AXES = {
-    "case", "case_id", "case_index", "case_number", "config", "config_id",
+    "case",
+    "case_id",
+    "case_index",
+    "case_number",
+    "config",
+    "config_id",
     "config_index",
 }
 
@@ -113,13 +118,13 @@ def validate_reference(
     definition_data = bench.load_definition(definition)
     workloads, workload_path, workload_sha256 = bench.load_workloads(workload)
     opaque_axes = sorted(
-        name for name in definition_data["axes"]
-        if name.lower() in OPAQUE_CASE_AXES
+        name for name in definition_data["axes"] if name.lower() in OPAQUE_CASE_AXES
     )
     if opaque_axes:
         raise ReferenceError(
-            "case 完整配置必须保存在 workload.jsonl，禁止不透明 case/config axis: {}"
-            .format(opaque_axes)
+            "case 完整配置必须保存在 workload.jsonl，禁止不透明 case/config axis: {}".format(
+                opaque_axes
+            )
         )
     if definition_data["reference"] != source:
         raise ReferenceError(
@@ -148,16 +153,14 @@ def validate_reference(
             seed,
             Path(workload_path).parent,
         )
-        output = run(
-            *[bench.clone_value(item, torch) for item in inputs]
-        )
+        output = run(*[bench.clone_value(item, torch) for item in inputs])
         synchronize()
         try:
-            outputs = bench.normalize_outputs(
-                output, definition_data["outputs"], torch
-            )
+            outputs = bench.normalize_outputs(output, definition_data["outputs"], torch)
         except Exception as exc:
-            raise ReferenceError("reference 输出不符合 definition: {}".format(exc)) from exc
+            raise ReferenceError(
+                "reference 输出不符合 definition: {}".format(exc)
+            ) from exc
         output_values = list(outputs.values())
         leaves = _output_summary(
             output_values[0] if len(output_values) == 1 else output_values, torch
@@ -209,8 +212,8 @@ def update_state(path, result):
     if not path.is_file() or path.is_symlink():
         raise ReferenceError("state.json 不存在或不是普通文件")
     state = json.loads(path.read_text(encoding="utf-8"))
-    if state.get("schema") != "catlass.dsl.workflow.v3":
-        raise ReferenceError("state schema 必须是 catlass.dsl.workflow.v3")
+    if state.get("schema") != "catlass.dsl.workflow.v4":
+        raise ReferenceError("state schema 必须是 catlass.dsl.workflow.v4")
     config = state.get("config")
     if not isinstance(config, dict):
         raise ReferenceError("state.config 必须是对象")

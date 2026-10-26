@@ -34,7 +34,9 @@ optimize = load(OPTIMIZE_SCRIPT, "compact_optimize_module")
 
 def run_git(root, *args):
     return subprocess.run(
-        ["git", "-C", str(root), *args], check=True, text=True,
+        ["git", "-C", str(root), *args],
+        check=True,
+        text=True,
         stdout=subprocess.PIPE,
     ).stdout.strip()
 
@@ -49,8 +51,12 @@ def setup_project(tmp_path, **policy):
     root = tmp_path / "project"
     root.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True)
-    subprocess.run(["git", "config", "user.name", "CATLASS DSL Test"], cwd=root, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=root, check=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "CATLASS DSL Test"], cwd=root, check=True
+    )
     (root / "src").mkdir()
     kernel = root / "src/operator.py"
     kernel.write_text("TILE = 1\n", encoding="utf-8")
@@ -74,66 +80,106 @@ def benchmark(path, root, kernel, metric, *, std=0.1, profiling=False, noise=Tru
         (trace / "step_trace_time.csv").write_text("Computing\n10\n", encoding="utf-8")
         iterations = []
         for index in range(2):
-            iteration = trace / "anti_hack" / "iteration-{:04d}".format(index) / "kernel_details.csv"
+            iteration = (
+                trace
+                / "anti_hack"
+                / "iteration-{:04d}".format(index)
+                / "kernel_details.csv"
+            )
             iteration.parent.mkdir(parents=True, exist_ok=True)
             iteration.write_text(
                 "Name,Type,OP State,Duration(us)\nk,k,N/A,10\n",
                 encoding="utf-8",
             )
-            iterations.append({
-                "iteration": index,
-                "kernel_details": str(iteration.relative_to(trace)),
-                "sha256": hashlib.sha256(iteration.read_bytes()).hexdigest(),
-                "observed_kernel_names": ["k"],
-                "observed_launches": 1,
-            })
-        (trace / "anti_hack_manifest.json").write_text(json.dumps({
-            "schema_version": 1,
-            "policy": "single-fused-catlass-kernel-v1",
-            "profiled_iterations": 2,
-            "iterations": iterations,
-        }), encoding="utf-8")
+            iterations.append(
+                {
+                    "iteration": index,
+                    "kernel_details": str(iteration.relative_to(trace)),
+                    "sha256": hashlib.sha256(iteration.read_bytes()).hexdigest(),
+                    "observed_kernel_names": ["k"],
+                    "observed_launches": 1,
+                }
+            )
+        (trace / "anti_hack_manifest.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "policy": "single-fused-catlass-kernel-v1",
+                    "profiled_iterations": 2,
+                    "iterations": iterations,
+                }
+            ),
+            encoding="utf-8",
+        )
         if noise:
             (trace / "trace.json").write_text("{}", encoding="utf-8")
             (trace / "huge.bin").write_bytes(b"noise")
-        workloads = [{
-            "uuid": "case-1",
-            "anti_hack": {
-                "status": "passed",
-                "policy": "single-fused-catlass-kernel-v1",
-                "declared_kernel_names": ["k"],
-                "observed_kernel_names": ["k"],
-                "profiled_iterations": 2,
-                "observed_launches": 2,
-                "launches_per_iteration": 1.0,
-                "reason": None,
-            },
-            "performance": {"candidate": {"trace_dir": str(trace)}},
-        }]
-    return write_json(path, {
-        "status": "passed",
-        "solution": {"source_sha256": hashlib.sha256(kernel.read_bytes()).hexdigest()},
-        "environment": {"config": str(root / "bench.json"), "device": "npu:0" if profiling else "cpu", "arch": "test", "catlass": "test", "cann": "test", "warmup": 1, "trials": 2},
-        "anti_hack": ({
+        workloads = [
+            {
+                "uuid": "case-1",
+                "anti_hack": {
+                    "status": "passed",
+                    "policy": "single-fused-catlass-kernel-v1",
+                    "declared_kernel_names": ["k"],
+                    "observed_kernel_names": ["k"],
+                    "profiled_iterations": 2,
+                    "observed_launches": 2,
+                    "launches_per_iteration": 1.0,
+                    "reason": None,
+                },
+                "performance": {"candidate": {"trace_dir": str(trace)}},
+            }
+        ]
+    return write_json(
+        path,
+        {
             "status": "passed",
-            "policy": "single-fused-catlass-kernel-v1",
-            "declared_kernel_names": ["k"],
-            "observed_kernel_names": ["k"],
-            "profiled_iterations": 2,
-            "observed_launches": 2,
-            "launches_per_iteration": 1.0,
-            "reason": None,
-        } if profiling else {"status": "not_applicable"}),
-        "correctness": {"status": "passed"},
-        "performance": {"status": "passed", "candidate": {"mean_ms": metric, "std_ms": std}},
-        "profiling": {"status": "passed" if profiling else "not_run"},
-        "workloads": workloads,
-    })
+            "solution": {
+                "source_sha256": hashlib.sha256(kernel.read_bytes()).hexdigest()
+            },
+            "environment": {
+                "config": str(root / "bench.json"),
+                "device": "npu:0" if profiling else "cpu",
+                "arch": "test",
+                "catlass": "test",
+                "cann": "test",
+                "warmup": 1,
+                "trials": 2,
+            },
+            "anti_hack": (
+                {
+                    "status": "passed",
+                    "policy": "single-fused-catlass-kernel-v1",
+                    "declared_kernel_names": ["k"],
+                    "observed_kernel_names": ["k"],
+                    "profiled_iterations": 2,
+                    "observed_launches": 2,
+                    "launches_per_iteration": 1.0,
+                    "reason": None,
+                }
+                if profiling
+                else {"status": "not_applicable"}
+            ),
+            "correctness": {"status": "passed"},
+            "performance": {
+                "status": "passed",
+                "candidate": {"mean_ms": metric, "std_ms": std},
+            },
+            "profiling": {"status": "passed" if profiling else "not_run"},
+            "workloads": workloads,
+        },
+    )
 
 
 def initialize(tmp_path, **policy):
     root, evidence, kernel = setup_project(tmp_path, **policy)
-    baseline = benchmark(evidence / "baseline/benchmark/result.json", root, kernel, 10.0, profiling=policy.get("profiling") == "yes")
+    baseline = benchmark(
+        evidence / "baseline/benchmark/result.json",
+        root,
+        kernel,
+        10.0,
+        profiling=policy.get("profiling") == "yes",
+    )
     correctness = evidence / "baseline/correctness/full-test.txt"
     correctness.parent.mkdir(parents=True)
     correctness.write_text("passed\n", encoding="utf-8")
@@ -148,25 +194,38 @@ def initialize(tmp_path, **policy):
     if "maximum" in policy:
         initialize_policy["max_iterations"] = policy["maximum"]
     result = optimize.initialize(
-        state, RUN_ID, root, kernel, baseline, ["full-test={}".format(correctness)], 0,
+        state,
+        RUN_ID,
+        root,
+        kernel,
+        baseline,
+        ["full-test={}".format(correctness)],
+        0,
         **initialize_policy,
     )
     return root, evidence, kernel, state, result
 
 
 def proposal(path, axis="tile", profiles=None):
-    return write_json(path, {
-        "hypothesis": "change tile structure",
-        "axis_id": axis,
-        "expected_effect": "reduce mean latency by five percent",
-        "falsification_condition": "mean latency does not improve",
-        "knowledge_sources": ["knowledge/optimization/tiling.md"] if not profiles else [],
-        "profile_evidence": profiles or [],
-    })
+    return write_json(
+        path,
+        {
+            "hypothesis": "change tile structure",
+            "axis_id": axis,
+            "expected_effect": "reduce mean latency by five percent",
+            "falsification_condition": "mean latency does not improve",
+            "knowledge_sources": ["knowledge/optimization/tiling.md"]
+            if not profiles
+            else [],
+            "profile_evidence": profiles or [],
+        },
+    )
 
 
 def begin(state, evidence, revision, axis="tile", profiles=None):
-    return optimize.begin_round(state, revision, proposal(evidence / "proposal-input.json", axis, profiles))
+    return optimize.begin_round(
+        state, revision, proposal(evidence / "proposal-input.json", axis, profiles)
+    )
 
 
 def submit_pass(root, evidence, kernel, state, active, metric, profiling=False):
@@ -174,23 +233,42 @@ def submit_pass(root, evidence, kernel, state, active, metric, profiling=False):
     correctness = trace / "correctness/full-test.txt"
     correctness.parent.mkdir(parents=True)
     correctness.write_text("passed\n", encoding="utf-8")
-    bench = benchmark(trace / "benchmark/result.json", root, kernel, metric, profiling=profiling)
-    submission = write_json(trace / "submission.json", {
-        "round": active["round"], "correctness_status": "passed",
-        "command_results": {"full-test": {"status": "passed", "evidence": str(correctness)}},
-        "benchmark_result": str(bench),
-    })
-    return optimize.record_round(state, json.loads(Path(state).read_text())["revision"], submission)
+    bench = benchmark(
+        trace / "benchmark/result.json", root, kernel, metric, profiling=profiling
+    )
+    submission = write_json(
+        trace / "submission.json",
+        {
+            "round": active["round"],
+            "correctness_status": "passed",
+            "command_results": {
+                "full-test": {"status": "passed", "evidence": str(correctness)}
+            },
+            "benchmark_result": str(bench),
+        },
+    )
+    return optimize.record_round(
+        state, json.loads(Path(state).read_text())["revision"], submission
+    )
 
 
 def test_initialize_creates_compact_baseline_and_ako_summary(tmp_path):
     _root, evidence, kernel, state, result = initialize(tmp_path)
-    assert result["best_correct"]["kernel_sha256"] == hashlib.sha256(kernel.read_bytes()).hexdigest()
+    assert (
+        result["best_correct"]["kernel_sha256"]
+        == hashlib.sha256(kernel.read_bytes()).hexdigest()
+    )
     assert json.loads(state.read_text())["policy"]["max_iterations"] == 30
-    assert sorted(path.name for path in (evidence / "baseline").iterdir()) == ["kernel.py", "result.json"]
+    assert sorted(path.name for path in (evidence / "baseline").iterdir()) == [
+        "kernel.py",
+        "result.json",
+    ]
     assert state == evidence / "state.json"
     text = (evidence / "ITERATIONS.md").read_text()
-    assert "# Iteration Log" in text and "| Iter | Title | Score | Passed | Notes |" in text
+    assert (
+        "# Iteration Log" in text
+        and "| Iter | Title | Score | Passed | Notes |" in text
+    )
     assert not (evidence / "worktrees").exists()
     assert not (evidence / "state.json.lock").exists()
 
@@ -221,19 +299,94 @@ def test_initialize_rejects_npu_benchmark_without_anti_hack(tmp_path):
             0,
             profiling_required="yes",
             required_commands=["full-test"],
+            anti_hack="single-fused",
         )
+
+
+def test_default_optimizer_accepts_disabled_anti_hack_and_multiple_profile_rows(
+    tmp_path,
+):
+    root, evidence, kernel = setup_project(tmp_path)
+    path = benchmark(
+        evidence / "baseline/benchmark/result.json", root, kernel, 10.0, profiling=True
+    )
+    payload = json.loads(path.read_text())
+    payload["anti_hack"] = {"status": "disabled", "policy": "off"}
+    for workload in payload["workloads"]:
+        workload.pop("anti_hack")
+        trace = Path(workload["performance"]["candidate"]["trace_dir"])
+        (trace / "anti_hack_manifest.json").unlink()
+        (trace / "kernel_details.csv").write_text(
+            "Name,Duration(us)\nstage_a,100\nstage_b,200\n"
+        )
+    path.write_text(json.dumps(payload))
+    policy = optimize._policy(
+        "performance.candidate.mean_ms", "lower", 8, 30, 3, 0.03, "yes"
+    )
+    point = optimize._benchmark_point(path, policy, evidence, optimize._sha256(kernel))
+    assert point["anti_hack"]["status"] == "disabled"
+    profiles = optimize._compact_profiles(payload, evidence / "profile", True)
+    assert profiles[0]["kernel_details.csv"]
+    with pytest.raises(optimize.OptimizeError, match="anti_hack"):
+        optimize._compact_profiles(
+            payload, evidence / "strict-profile", True, "single-fused"
+        )
+
+
+def test_best_restore_keeps_derived_source_package_consistent(tmp_path):
+    root, evidence, kernel = setup_project(tmp_path)
+    package_path = kernel.with_name("solution.json")
+    package = {
+        "name": "operator",
+        "spec": {"entry_point": "operator.py::run"},
+        "sources": [{"path": "operator.py", "content": kernel.read_text()}],
+    }
+    package_path.write_text(json.dumps(package))
+    baseline = benchmark(
+        evidence / "baseline/benchmark/result.json", root, kernel, 10.0
+    )
+    correctness = evidence / "baseline/correctness/full-test.txt"
+    correctness.parent.mkdir(parents=True)
+    correctness.write_text("passed\n")
+    state = evidence / "state.json"
+    view = optimize.initialize(
+        state, RUN_ID, root, kernel, baseline, ["full-test={}".format(correctness)], 0
+    )
+    assert json.loads(state.read_text())["solution"]["path"] == str(package_path)
+    active = begin(state, evidence, view["revision"])["active_round"]
+    kernel.write_text("TILE = 99\n")
+    package["sources"][0]["content"] = kernel.read_text()
+    package_path.write_text(json.dumps(package))
+    output = submit_pass(root, evidence, kernel, state, active, 11.0)
+    assert output["next_action"] == "begin_round"
+    assert kernel.read_text() == "TILE = 1\n"
+    assert (
+        json.loads(package_path.read_text())["sources"][0]["content"]
+        == kernel.read_text()
+    )
 
 
 def test_initialize_rejects_kernel_outside_repository(tmp_path):
     root, evidence, kernel = setup_project(tmp_path)
-    baseline = benchmark(evidence / "baseline/benchmark/result.json", root, kernel, 10.0)
+    baseline = benchmark(
+        evidence / "baseline/benchmark/result.json", root, kernel, 10.0
+    )
     correctness = evidence / "baseline/correctness/full-test.txt"
     correctness.parent.mkdir(parents=True)
     correctness.write_text("passed\n")
     outside = tmp_path / "outside.py"
     outside.write_text("x = 1\n")
     with pytest.raises(optimize.OptimizeError, match="越出 repository_root"):
-        optimize.initialize(evidence / "state.json", RUN_ID, root, outside, baseline, ["full-test={}".format(correctness)], 0, threshold=8.0)
+        optimize.initialize(
+            evidence / "state.json",
+            RUN_ID,
+            root,
+            outside,
+            baseline,
+            ["full-test={}".format(correctness)],
+            0,
+            threshold=8.0,
+        )
 
 
 def test_accepted_round_uses_kernel_hash_and_compacts_trace(tmp_path):
@@ -244,8 +397,16 @@ def test_accepted_round_uses_kernel_hash_and_compacts_trace(tmp_path):
     kernel.write_text("TILE = 2\n", encoding="utf-8")
     recorded = submit_pass(root, evidence, kernel, state, active, 8.0, profiling=True)
     trace = Path(recorded["iterations"][0]["kernel_snapshot"]).parent
-    assert recorded["best_correct"]["kernel_sha256"] == hashlib.sha256(kernel.read_bytes()).hexdigest()
-    assert {path.name for path in trace.iterdir()} == {"kernel.py", "proposal.json", "result.json", "profile"}
+    assert (
+        recorded["best_correct"]["kernel_sha256"]
+        == hashlib.sha256(kernel.read_bytes()).hexdigest()
+    )
+    assert {path.name for path in trace.iterdir()} == {
+        "kernel.py",
+        "proposal.json",
+        "result.json",
+        "profile",
+    }
     profile_files = {path.name for path in (trace / "profile/case-0000").iterdir()}
     assert profile_files == {"kernel_details.csv", "step_trace_time.csv"}
     assert not (trace / "profile/case-0000/anti_hack_manifest.json").exists()
@@ -262,16 +423,25 @@ def test_rejected_and_failed_rounds_restore_best(tmp_path):
     started = begin(state, evidence, rejected["revision"], axis="pipeline")
     kernel.write_text("BROKEN = True\n")
     trace = Path(started["active_round"]["trace_dir"])
-    submission = write_json(trace / "submission.json", {"round": 2, "correctness_status": "failed", "command_results": {}, "benchmark_result": None})
+    submission = write_json(
+        trace / "submission.json",
+        {
+            "round": 2,
+            "correctness_status": "failed",
+            "command_results": {},
+            "benchmark_result": None,
+        },
+    )
     failed = optimize.record_round(state, started["revision"], submission)
     assert kernel.read_text() == "TILE = 1\n"
-    assert Path(failed["iterations"][1]["kernel_snapshot"]).read_text() == "BROKEN = True\n"
+    assert (
+        Path(failed["iterations"][1]["kernel_snapshot"]).read_text()
+        == "BROKEN = True\n"
+    )
 
 
 def test_stall_reprofiles_repeatedly_without_stopping_iteration(tmp_path):
-    root, evidence, kernel, state, current = initialize(
-        tmp_path, stall=2, maximum=5
-    )
+    root, evidence, kernel, state, current = initialize(tmp_path, stall=2, maximum=5)
 
     for round_number, axis in ((1, "tile"), (2, "pipeline")):
         started = begin(state, evidence, current["revision"], axis=axis)
@@ -295,17 +465,13 @@ def test_stall_reprofiles_repeatedly_without_stopping_iteration(tmp_path):
     )
     assert started["stall_count"] == 0
     kernel.write_text("TILE = 4\n")
-    current = submit_pass(
-        root, evidence, kernel, state, started["active_round"], 9.9
-    )
+    current = submit_pass(root, evidence, kernel, state, started["active_round"], 9.9)
     assert current["next_action"] == "begin_round"
     assert current["status"] == "running"
 
     started = begin(state, evidence, current["revision"], axis="layout")
     kernel.write_text("TILE = 5\n")
-    current = submit_pass(
-        root, evidence, kernel, state, started["active_round"], 9.9
-    )
+    current = submit_pass(root, evidence, kernel, state, started["active_round"], 9.9)
     assert current["next_action"] == "reprofile"
     assert current["reprofile_required"] is True
     assert current["status"] == "running"
@@ -320,9 +486,7 @@ def test_stall_reprofiles_repeatedly_without_stopping_iteration(tmp_path):
         profiles=[str(second_profile)],
     )
     kernel.write_text("TILE = 6\n")
-    current = submit_pass(
-        root, evidence, kernel, state, started["active_round"], 9.9
-    )
+    current = submit_pass(root, evidence, kernel, state, started["active_round"], 9.9)
     assert current["next_action"] == "begin_finalization"
     assert current["status"] == "failed"
     assert len(current["iterations"]) == 5
@@ -334,9 +498,15 @@ def test_round_rejects_changes_outside_the_single_kernel(tmp_path):
     kernel.write_text("TILE = 2\n")
     (root / "bench.json").write_text('{"changed": true}\n')
     trace = Path(started["active_round"]["trace_dir"])
-    submission = write_json(trace / "submission.json", {
-        "round": 1, "correctness_status": "failed", "command_results": {}, "benchmark_result": None,
-    })
+    submission = write_json(
+        trace / "submission.json",
+        {
+            "round": 1,
+            "correctness_status": "failed",
+            "command_results": {},
+            "benchmark_result": None,
+        },
+    )
     with pytest.raises(optimize.OptimizeError, match="越出唯一 kernel"):
         optimize.record_round(state, started["revision"], submission)
 
@@ -346,9 +516,15 @@ def test_profile_whitelist_allows_one_csv_and_rejects_none(tmp_path):
     trace = tmp_path / "trace"
     trace.mkdir()
     (trace / "kernel_details.csv").write_text("Duration(us)\n1\n")
-    benchmark_value = {"workloads": [{"uuid": "x", "performance": {"candidate": {"trace_dir": str(trace)}}}]}
+    benchmark_value = {
+        "workloads": [
+            {"uuid": "x", "performance": {"candidate": {"trace_dir": str(trace)}}}
+        ]
+    }
     records = optimize._compact_profiles(benchmark_value, destination, True)
-    assert records[0]["kernel_details.csv"] and records[0]["step_trace_time.csv"] is None
+    assert (
+        records[0]["kernel_details.csv"] and records[0]["step_trace_time.csv"] is None
+    )
     (trace / "kernel_details.csv").unlink()
     with pytest.raises(optimize.OptimizeError, match="profiling 未生成"):
         optimize._compact_profiles(benchmark_value, tmp_path / "empty", True)
@@ -391,7 +567,9 @@ def test_profile_evidence_rejects_duplicate_iteration_fragment_reference(tmp_pat
     trace = Path(result["workloads"][0]["performance"]["candidate"]["trace_dir"])
     manifest_path = trace / "anti_hack_manifest.json"
     manifest = json.loads(manifest_path.read_text())
-    manifest["iterations"][1]["kernel_details"] = manifest["iterations"][0]["kernel_details"]
+    manifest["iterations"][1]["kernel_details"] = manifest["iterations"][0][
+        "kernel_details"
+    ]
     manifest["iterations"][1]["sha256"] = manifest["iterations"][0]["sha256"]
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
@@ -412,18 +590,121 @@ def test_finalization_leaves_best_uncommitted_and_writes_synthesis(tmp_path):
     correctness.parent.mkdir(parents=True)
     correctness.write_text("passed\n")
     final_bench = benchmark(final_dir / "benchmark/result.json", root, kernel, 8.1)
-    submission = write_json(final_dir / "submission.json", {
-        "command_results": {"full-test": {"status": "passed", "evidence": str(correctness)}},
-        "benchmark_result": str(final_bench), "remaining_bottlenecks": "memory latency", "next_steps": "try wider tiles",
-    })
+    submission = write_json(
+        final_dir / "submission.json",
+        {
+            "command_results": {
+                "full-test": {"status": "passed", "evidence": str(correctness)}
+            },
+            "benchmark_result": str(final_bench),
+            "remaining_bottlenecks": "memory latency",
+            "next_steps": "try wider tiles",
+        },
+    )
     finished = optimize.finalize(state, final_started["revision"], submission)
     assert finished["status"] == "passed"
     assert finished["best_kernel_path"] == str(kernel)
-    assert finished["best_kernel_sha256"] == hashlib.sha256(kernel.read_bytes()).hexdigest()
-    assert sorted(path.name for path in final_dir.iterdir()) == ["kernel.py", "result.json"]
+    assert (
+        finished["best_kernel_sha256"]
+        == hashlib.sha256(kernel.read_bytes()).hexdigest()
+    )
+    assert sorted(path.name for path in final_dir.iterdir()) == [
+        "kernel.py",
+        "result.json",
+    ]
     assert run_git(root, "status", "--porcelain")
     summary = (evidence / "ITERATIONS.md").read_text()
-    assert "Session synthesis" in summary and "memory latency" in summary and "try wider tiles" in summary
+    assert (
+        "Session synthesis" in summary
+        and "memory latency" in summary
+        and "try wider tiles" in summary
+    )
+
+
+@pytest.mark.parametrize(
+    "strict, structured", [(False, True), (True, True), (False, False)]
+)
+def test_final_acceptance_is_portable_after_real_optimizer_pruning(
+    tmp_path, strict, structured
+):
+    from test_verification_reuse import (
+        project_with_context,
+        report,
+        complete_benchmark,
+        advance,
+    )
+
+    develop, root, head, develop_state, env, context = project_with_context(
+        tmp_path, strict
+    )
+    run_git(root, "init", "-q")
+    run_git(root, "config", "user.name", "Test")
+    run_git(root, "config", "user.email", "test@example.com")
+    run_git(root, "add", ".")
+    run_git(root, "commit", "-qm", "baseline")
+    evidence = root / ".catlass-dsl/optimize-runs" / RUN_ID
+    baseline = complete_benchmark(root, context, head, evidence / "baseline/benchmark")
+    baseline_report = report(
+        root, context, head, evidence / "baseline/correctness.json"
+    )
+    context_path = write_json(root / "verification-context.json", context)
+    state_path = evidence / "state.json"
+    initialized = optimize.initialize(
+        state_path,
+        RUN_ID,
+        root,
+        root / "src/operator.py",
+        baseline,
+        ["full-test={}".format(baseline_report)],
+        0,
+        threshold=2.0,
+        profiling_required="yes",
+        anti_hack=env["anti_hack"],
+        verification_context=context_path,
+    )
+    assert initialized["next_action"] == "begin_finalization"
+    started = optimize.begin_finalization(state_path, initialized["revision"])
+    final_dir = evidence / "final"
+    test_report = report(root, context, head, final_dir / "raw/test.json")
+    if not structured:
+        test_report.write_text("passed\n", encoding="utf-8")
+    benchmark_path = complete_benchmark(
+        root, context, head, final_dir / "raw/benchmark"
+    )
+    submission = write_json(
+        final_dir / "submission.json",
+        {
+            "command_results": {
+                "full-test": {"status": "passed", "evidence": str(test_report)}
+            },
+            "benchmark_result": str(benchmark_path),
+            "remaining_bottlenecks": "none",
+            "next_steps": "none",
+        },
+    )
+    if not structured:
+        with pytest.raises(optimize.OptimizeError, match="最终验收证据导出失败"):
+            optimize.finalize(state_path, started["revision"], submission)
+        assert not (final_dir / "result.json").exists()
+        return
+    finalized = optimize.finalize(state_path, started["revision"], submission)
+    assert finalized["status"] == "passed"
+    assert not test_report.exists() and not benchmark_path.exists()
+    payload = json.loads((final_dir / "result.json").read_text())
+    assert "acceptance" in payload
+    develop_state["next_action"] = "optimize"
+    develop_state = advance(
+        develop,
+        develop_state,
+        env,
+        head,
+        optimize_result=str(final_dir / "result.json"),
+    )
+    assert develop_state["next_action"] == "final_review"
+    develop_state = advance(develop, develop_state, env, head)
+    assert develop_state["next_action"] == "finish"
+    develop_state = advance(develop, develop_state, env, head)
+    assert develop_state["next_action"] == "complete"
 
 
 def test_status_rejects_non_current_schema(tmp_path):
@@ -445,7 +726,9 @@ def test_state_freezes_configuration_and_detects_tampering(tmp_path):
 
 def test_controller_cli_has_no_contract_input():
     help_text = OPTIMIZE_SCRIPT.read_text(encoding="utf-8")
-    skill_text = (ROOT / "skills/catlass-dsl-optimize/SKILL.md").read_text(encoding="utf-8")
+    skill_text = (ROOT / "skills/catlass-dsl-optimize/SKILL.md").read_text(
+        encoding="utf-8"
+    )
     assert "--contract" not in help_text
     assert "CONTRACT.md" not in help_text
     assert "--contract" not in skill_text

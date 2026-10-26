@@ -25,17 +25,20 @@ CATLASS DSL 是以 Python 语法编写的算子 DSL，不是 C++ 算子库。设
   CATLASS Python DSL 的现有接口；
 - C++、MLIR 或生成代码只能作为后端实现和问题定位资料，不能成为算子公开接口或
   初步实现方案。
-- 融合算子的全部阶段必须设计为一次 host `run` 只 launch 一个 CATLASS kernel，且同一
-  算子只声明一个 `@tla.kernel`；不同 shape/dtype/layout 等编译期变体必须复用该 kernel，
-  禁止声明多个 dispatch kernel。不得用 GM 中间张量串联多个 executor，也不得把
-  Torch/vendor 算子作为任一计算阶段。
+- 默认 `fusion.mode=performance`，按整体性能最大化确定融合范围。比较数据复用、GM
+  读写、launch 开销、存储容量、同步成本与并行度，允许多个 `@tla.kernel`、多个 executor、
+  GM 中间张量及 shape/dtype/layout 分派；计算主体仍使用 CATLASS Python DSL。
+- 只有用户明确要求单个融合 kernel 时设置 `fusion.mode=single_kernel`：一次 host `run`
+  只 launch 一个 kernel，solution 只声明一个 `@tla.kernel`，所有编译期变体复用它，
+  不得为编译期变体声明独立 kernel，不得通过 GM 临时张量连接多个 executor。
+- 默认关闭全部 anti-hack；严格单融合模式才启用源码与逐次 launch 的完整 anti-hack。
 - 每个 `@tla.kernel` 必须自包含：除形式参数、函数内局部值、Python 内建符号和受信任的
   `tla` API 命名空间外，不得读取模块级 tile、shape、dtype、params 对象、开关或其他
   用户定义全局值，也不得捕获 closure 配置。
 - 固定 tile/dtype/params 在 kernel 函数内定义；实际 shape 和其他运行时配置通过显式
   scalar/tensor 参数、tiling data 或 tensor metadata 取得。shape/dtype/layout 等编译期
-  特化必须由同一个 decorated kernel 的形式参数类型和 metadata 驱动，host 不得通过
-  `global`、模块属性或可变容器改写语义；不得为编译期变体声明独立 kernel。
+  特化由 decorated kernel 的形式参数类型和 metadata 驱动，host 不得通过
+  `global`、模块属性或可变容器改写语义。默认模式允许显式选择不同 kernel。
 
 若目标仓库同时包含 C++ CATLASS 与 CATLASS DSL，必须先定位 Python DSL 样例和
 `catlass.tla` 导入方式。没有真实 Python DSL API 支持的设计项应标记为待验证假设，
@@ -97,8 +100,10 @@ case 会直接复用 `bench.py` 的 definition/workload 校验、设备初始化
 和 `workload.jsonl` 的 SHA-256；把 case 状态、输出结构、输入路径和完整摘要归一化到
 `state.json.config.reference_validation`，不生成 `reference-cases.json`。同时把相对路径和
 完整摘要写入 state config 的 `semantics.computation`，并在 `DESIGN.md` 中用可读
-文字展示，随设计一同获批。任一文件变化必须重新运行全部 case、更新摘要、增加
-revision 并重新批准。
+文字展示，随设计一同获批。`reference.py`、`definition.json`、`workload.jsonl` 的
+校验口径（用例集、容差、输入契约）一旦获批即冻结；任一变化必须重新运行全部 case、
+更新摘要并增加 revision。**但新增或修改 `DESIGN.md` 的实现方案不需要重新批准**——
+见下方"设计是工作草稿"。
 
 ## 过程
 
@@ -112,11 +117,16 @@ revision 并重新批准。
 5. 生成 Torch `reference.py` 和 `definition.json`，并把每个非 performance required
    case 写成 `workload.jsonl` 中的一行。
 6. 运行全部 reference cases，将结构化结果归一化进 `state.json` 并冻结三个输入文件的摘要。
-7. 使用 CATLASS Python DSL API 给出单次 launch 的融合算法、数据流、tiling/layout、
-   内存空间、pipeline 和同步方案；中间结果必须在该 kernel 内生产和消费，并保留尚待
-   实测的假设。明确固定配置的 kernel 内局部定义、运行时配置的显式来源，以及同一
-   kernel 如何覆盖所有编译期变体，不把模块级状态或独立 dispatch kernel 设计成隐式 ABI。
-8. 明确正确性 oracle、required cases、风险、允许路径、必需 benchmark/profiling 命令和可选性能门槛。
+7. 使用 CATLASS Python DSL API 给出融合范围、各 kernel 的计算职责与调用顺序、
+   中间张量、tiling/layout、内存空间、pipeline 和同步方案，解释性能选择依据。
+   tiling 的块数按核数取整（块数接近核数整数倍），行块大小对齐 cube fractal（16 行）；
+   依据见 `dsl/pattern-gemm-optimization-ladder`。
+   写明 `fusion.mode` 及单融合要求是否由用户明确提出；没有实测支持的性能判断标记为
+   待验证假设。明确固定配置的局部定义和运行时配置的显式来源。
+8. 明确正确性 oracle、required cases、`focused_cases`、对应的实际 focused/full_test 命令、
+   风险、允许路径、必需 benchmark/profiling 命令和可选性能门槛。没有专用 focused 命令时
+   使用批准的 full_test；要求执行器输出实际 argv、退出码及逐 case 结果，以便完整覆盖时
+   复用验收证据，协议见 [证据复用](../catlass-dsl-develop/references/verification-reuse.md)。
 9. 从 [`templates/DESIGN.md`](templates/DESIGN.md) 创建面向用户的设计文档。
 10. 在 develop run 根目录的 `state.json` 中冻结配置，并写入
     `DESIGN.md` 的 SHA-256。
@@ -130,15 +140,23 @@ python3 skills/catlass-dsl-develop/scripts/develop_state.py validate \
 
 初步设计不是已验证实现结论，不得虚构 benchmark 或 profiling 数据。涉及 DSL
 执行语义、同步、内存、layout、精度 oracle、公共接口或构建配置时，
-`risk_level` 必须为 `high` 并填写 targeted review focus。state config 初始化后不可修改；
-变化必须建立新的 develop run 并重新审批。
+`risk_level` 必须为 `high` 并填写 targeted review focus。
+
+**设计是工作草稿，不是合同。** state config 中的评测口径（allowed paths、required cases、
+benchmark argv、融合模式、anti-hack 策略）初始化后不可修改；但 `DESIGN.md` 中的实现方案
+（tiling、数据流、buffer 规划、同步策略、kernel 划分）允许在 develop 阶段随实测修改：
+
+- 修改后不新建 develop run、不需重新批准；
+- 在 `ITERATIONS.md` 记录一条"设计修订"（改了什么、为什么改、依据哪次实测）；
+- 只有最终交付（`finish`）时才把 DESIGN.md 固化为只读快照。
+
+设计应当在"写→跑→看数"的循环中收敛，而不是在动笔前一次性消灭所有不确定性。
 
 批准前必须再次检查：算子主体和 reference 都是 Python 文件；算法和数据流引用的
 `tla.*` 接口可以从本地源码或 OKF 知识中定位；标准 definition/workload 覆盖并通过
 全部非 performance required cases；正文包含三个文件的实际 SHA-256；没有把 C++
-CATLASS API 当作 CATLASS DSL API；融合入口每次只 launch 一个 `@tla.kernel`；每个
-solution 只声明一个自包含 decorated kernel，host 不会改写其隐式全局配置，也不会为
-编译期变体选择另一个 kernel。
+CATLASS API 当作 CATLASS DSL API；每个 decorated kernel 自包含；融合边界有明确性能
+依据。仅在 `single_kernel` 模式检查唯一声明、单次 launch 和无独立变体分派。
 
 所有设计都必须批准 benchmark argv、metric JSON path，并设置 `profiling_required=yes`，
 以便 develop 保存最终性能现状和 candidate 原始 profile。声明性能门槛时还必须批准方向、
@@ -148,5 +166,8 @@ solution 只声明一个自包含 decorated kernel，host 不会改写其隐式�
 
 输出只有获批的可读 `DESIGN.md`、与其摘要绑定的 state config、冻结的
 `reference.py`、`definition.json`、`workload.jsonl`、执行证据及其摘要。
-`catlass-dsl-develop` 读取 state config 后再进行任务拆分、生成 `solution.json`、实现、
-与 reference 的精度对比、review、完整测试、最终 benchmark/profiling 和可选性能优化。
+`catlass-dsl-develop` 读取 state config 后一次生成完整实现与 `solution.json`，再进行
+focused_test、知识查询与调试修改、review、完整测试、最终 benchmark/profiling 和可选优化。
+代码仍集中在一个主 Python 实现文件，允许在文件内定义多个 kernel。冻结 `solution_path`，
+并在 benchmark argv 中设置 `--anti-hack off`（默认）或 `--anti-hack single-fused`（严格模式）；
+后续 optimize 必须继承该设置。

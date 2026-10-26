@@ -8,8 +8,8 @@ description: Use when independently checking and timing a CATLASS Python DSL sol
 以 NPU-KernelBench 风格的 `solution.json`、`workload.jsonl` 和 `definition.json`
 作为唯一公开输入，在当前进程依次执行输入生成、正确性、同步 warmup 和重复计时。
 输入会执行 Python 代码，必须来自用户信任的来源；本工具不提供安全沙箱。
-NPU candidate 还必须通过单融合 kernel anti-hack：每次 `run` 只能下发一个由 solution
-源码声明的 `@tla.kernel`，否则整套 benchmark 失败且不产生候选性能结论。
+默认 `--anti-hack off`，关闭全部 anti-hack，允许多个 DSL kernel 和 GM 中间张量。
+只有用户明确要求单融合时使用 `--anti-hack single-fused`，执行源码及逐次 launch 严格校验。
 
 ```bash
 python3 skills/catlass-dsl-bench/scripts/bench.py \
@@ -18,7 +18,7 @@ python3 skills/catlass-dsl-bench/scripts/bench.py \
   --definition <definition.json> \
   --output <evidence-directory>/benchmark \
   --reference-profile-cache <project>/.catlass-dsl/profiles/reference \
-  --device npu:0 --seed 1 --warmup 1 --trials 2
+  --device npu:0 --seed 1 --warmup 1 --trials 2 --anti-hack off
 ```
 
 默认执行 1 次 warmup、采集 2 次；仍可通过 `--warmup` 和 `--trials` 显式覆盖。
@@ -120,10 +120,18 @@ python3 skills/catlass-dsl-bench/scripts/bench.py \
 - solution 中每个 `@tla.kernel` 必须自包含，只能读取形式参数、函数内局部值、Python
   内建符号和受信任的 `tla` API 命名空间。禁止模块级 tile/shape/dtype/params/开关、
   可变全局状态和 closure capture；固定值在 kernel 内定义，运行时值使用显式 ABI 或
-  tensor metadata。solution 必须且只能声明一个 `@tla.kernel`；所有 shape/dtype/layout
-  编译期变体复用该函数，并由形式参数类型或 metadata 生成各自编译产物。
+  tensor metadata。默认允许多个 kernel 和显式变体分派；严格模式
+  solution 只能声明一个 `@tla.kernel`，不得为编译期变体声明独立 kernel。
 
 ## Anti-hack 接口
+
+Python `run_suite(..., anti_hack="off")` 与 CLI `--anti-hack {off,single-fused}` 一致。
+默认 `off` 不执行以下任何 anti-hack 检查，不生成审计 manifest；根结果和逐 workload
+记录 `status=disabled`、`policy=off`、`reason=disabled_by_policy`，不伪装为通过。
+默认流程先正常 correctness，再 prime/warmup 和采样；正确性失败不测性能。
+多 kernel 时统计完整 `run` 的所有计算阶段。普通配置、正确性和 profiling 校验仍生效。
+
+以下全部条款仅适用于显式 `single-fused` 模式：
 
 - benchmark 前必须审查每个 decorated kernel 的自由名字，并检查 host entry point 没有
   通过 `global`、模块属性或可变容器改变 kernel 编译语义。结构审查失败时不得执行或
@@ -151,7 +159,7 @@ python3 skills/catlass-dsl-bench/scripts/bench.py \
 ## 结果与流程
 
 根 `result.json` 汇总所有 workload，`workloads[]` 指向各用例的原始结果；兼容 optimize
-的聚合指标为 `performance.candidate.mean_ms`，当前 schema 为 version 3。NPU 性能使用 `torch_npu.profiler`
+的聚合指标为 `performance.candidate.mean_ms`，当前 schema 为 version 4。NPU 性能使用 `torch_npu.profiler`
 采集，优先以 `step_trace_time.csv` 的 `Computing` 总时间除以 trials，缺失时回退到
 `kernel_details.csv` 的 kernel 总时长。候选实现会随开发或优化轮次变化，因此每次都在
 本轮输出目录的 `profiling/` 中重新采集；不变的 Torch reference 只采集一次，并按
@@ -164,6 +172,6 @@ manifest 和原始 trace，不复制或再次执行 reference profiling。若输
 任何 workload 精度失败都会使 suite 失败，且该 workload 不产生有效性能结论。
 环境缺失返回退出码 2；配置或正确性失败返回 1。
 
-独立纳入状态机时，`CONTRACT.md` 的批准命令必须把三个输入文件和输出目录作为逐项 argv。
+独立纳入状态机时，`state.json` 的批准命令必须把三个输入文件和输出目录作为逐项 argv。
 只有契约声明性能目标时才把结果交给 `catlass-dsl-optimize`；正确性失败回到 develop
 内部定位流程。

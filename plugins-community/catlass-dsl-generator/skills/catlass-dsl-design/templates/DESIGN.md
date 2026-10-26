@@ -45,10 +45,17 @@ class 或模板。
 
 描述准备采用的 Python DSL 算法、关键 `tla.*` API，以及仍需验证的假设。
 
+### 融合范围与性能依据
+
+默认 `fusion.mode=performance`，关闭全部 anti-hack；只有用户明确要求单个融合 kernel
+时才设为 `single_kernel` 并启用严格校验。记录用户约束，比较数据复用、GM 读写、launch
+开销、存储容量、同步成本和并行度，说明各 kernel 的计算范围、调用顺序及中间张量。
+没有实测数据的性能判断必须标记为待验证假设。
+
 ### 数据流
 
-按执行顺序说明数据如何在一次 CATLASS kernel launch 内加载、计算和写回。融合阶段的
-中间结果必须在该 kernel 内生产和消费，不得通过 GM 临时张量连接多个 executor。
+按执行顺序说明各 kernel 的加载、计算、写回和中间数据依赖。默认允许多个 executor
+及 GM 中间张量；严格模式要求所有融合阶段在一个 kernel 内完成。
 
 ### Tiling 与 Layout
 
@@ -63,6 +70,10 @@ class 或模板。
 列出必须通过的代表性、边界和安全用例。这里展示便于评审的输入和预期行为；
 精确的机器输入保存在 `workload.jsonl`。
 
+另外列出 `focused_cases` 和实际执行命令。没有专用 focused 命令时执行批准的全量命令；
+执行器应输出 argv、退出码、逐 case 状态和验证上下文摘要。覆盖全部 required cases 时，
+该执行证据可在评审后复用，不再重复全测。
+
 | 用例 | 类别 | 输入摘要 | 预期结果 |
 | --- | --- | --- | --- |
 | `correctness-main` | 正确性 | `<shape、dtype 和输入分布>` | `<与 Torch reference 的比较方式>` |
@@ -71,8 +82,8 @@ class 或模板。
 
 无论是否设置性能门槛，都要说明最终 benchmark 方法、采样参数、聚合指标和 candidate
 profiling 原始数据的保存位置。如果没有门槛，请明确写“本次不设置性能门槛，但仍执行
-最终 benchmark 和 profiling”；同时要求 `anti_hack.status=passed`，证明每个 workload
-每次只 launch 一个声明的 `@tla.kernel`。如果有，请继续说明方向、阈值、最大优化轮数
+最终 benchmark 和 profiling”。默认结果记录 `anti_hack.status=disabled`；严格模式要求
+`anti_hack.status=passed`，证明每次只 launch 一个声明的 kernel。如果有门槛，继续说明方向、阈值、最大优化轮数
 和停止条件。
 
 ## 修改范围
@@ -80,6 +91,10 @@ profiling 原始数据的保存位置。如果没有门槛，请明确写“本�
 列出允许修改的仓库相对路径，并用自然语言解释每个路径的用途。
 
 - `<safe/repository-relative/operator.py>`：CATLASS Python DSL 算子实现。
+- `solution_path`：完整源码包的仓库相对路径，默认与主实现文件同目录的 `solution.json`。
+
+develop 一次生成全部 kernel、host 编排及完整 `solution.json`，随后才进行调试验证；
+不进行任务拆分或逐任务上板。不涉及远程连接及文件同步实现。
 
 ## 风险与评审重点
 
