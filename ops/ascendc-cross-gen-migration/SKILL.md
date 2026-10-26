@@ -1,6 +1,6 @@
 ---
 name: ascendc-cross-gen-migration
-description: 当用户希望将已有 AscendC 算子工程跨架构迁移（当前支持 A2/A3（910b/910_93、DAV_2201）→ A5（950、DAV_3510），按 Step R 判定迁移路线）时使用。按 Stage 0–5 完成 L1 基础适配、L2 RegBase 改造、L3 SIMT 优化及 Cube 类算子迁移；精度标杆由 agent 逆向源码自合成，并与目标平台实测双向互检。
+description: 当用户希望将已有 AscendC 算子工程跨架构迁移（当前支持 A2/A3（910b/910_93、DAV_2201）→ A5（950、DAV_3510）与 A2/A3 → 310P（310P3、DAV_2002/dav-m200），按 Step R 判定迁移路线）时使用。按 Stage 0–5 完成 L1 基础适配、L2 RegBase 改造、L3 SIMT 优化及 Cube 类算子迁移；精度标杆由 agent 逆向源码自合成，并与目标平台实测双向互检。
 metadata:
   version: "3.4"
   date: "2026-09-30"
@@ -32,6 +32,7 @@ metadata:
 | 源平台 → 目标平台 | 路线包（判定后 MUST READ 其 `route.md`） |
 |---|---|
 | A2/A3（910b/910_93、DAV_2201）→ A5（950、DAV_3510） | [routes/2201-to-3510/route.md](routes/2201-to-3510/route.md) |
+| A2/A3（910b/910_93、DAV_2201）→ 310P（310P3、DAV_2002/dav-m200） | [routes/2201-to-2002/route.md](routes/2201-to-2002/route.md) |
 
 **判定规则**：
 
