@@ -201,6 +201,111 @@
       "expected_output": "1. 回复应指出 LoadData2DMxParams 的字段是 xStartPosition / xStep / yStartPosition / yStep（不是 mStep / kStep），它是 MX 块量化路径（LoadData_2D_MX 接口）专用的独立结构体，不要照搬 LoadData_2D_V2 的 LoadData2DParamsV2 字段名。\n2. 回复应说明单位：xStartPosition / xStep 以 1 个分形（32 字节）为单位，yStartPosition / yStep 与 srcStride / dstStride 以 32 字节为单位（区别于 LoadData2DParamsV2 的 16 元素 / 512 字节体系）。\n3. 回复应说明 yStep=0 表示 NOP（不执行搬运）。",
       "expectations": [],
       "files": []
+    },
+    {
+      "id": 14,
+      "title": "per-channel 系数取数优化（关键能力）",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "我在写 norm 类算子，Process 主循环里每个 chunk 都执行 const float s = scaleLocal.GetValue(cIdx); 取每通道系数做仿射，感觉性能不行，应该怎么优化？",
+      "expected_output": "1. 回复应指出该模式属标量访问反模式（per-channel 系数取数）：每 chunk 走 PIPE_S 标量通路，吞吐率与 vector 通路差数量级。\n2. 回复应给出优化方向：批量搬入 UB 后参与向量计算；具体实现路径按目标架构选择（A5 用 DIST_BRC 广播、A2/A3 用 Brcb 或 stride-0 广播），并说明架构检查的必要性。\n3. 回复应提醒：若系数访问非热点（如每 tile 只取 1 次），标量读取开销可忽略，无需强制替换。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 15,
+      "title": "标量访问合法性判定（关键能力）",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "我在代码检视时看到 kernel 里有一行 T maxVal = broadcastLocal.GetValue(0);，这是不是反模式，要不要改成向量化？",
+      "expected_output": "1. 回复应指出这不是反模式，属合法保留（reduce 段末取标量）：算法语义就是 reduce 出 1 个标量。\n2. 回复应说明强制改向量化反而引入不必要的 Broadcast 开销。\n3. 回复应给出合法保留的语义判定依据（数据来源是 reduce 输出、不在主循环热路径、低频、后续消费者是标量决策），并提醒区别于按通道索引取数（scaleLocal.GetValue(cIdx) 属必替换）。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 16,
+      "title": "主循环 TBuf 单点 SetValue 替换（关键能力）",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "我的算子主循环里用 for (uint32_t k = 0; k < tileLen; ++k) { ws.SetValue(idx, accS[k]); } 往 workspace TBuf 写中间结果，这个写法有什么问题，该怎么改？",
+      "expected_output": "1. 回复应指出该模式属反模式（主循环 TBuf 单点 SetValue）：逐元素走标量通路浪费 SIMD 性能。\n2. 回复应给出替换方向：单标量广播到多槽、整段回写、段内累加后整段写出等（不限定具体 API 名）。\n3. 回复应提醒区分合法形态：TQue FIFO 语义、Init 阶段预填充（前置阶段、规模有界）不算反模式。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 17,
+      "title": "语义判定不受命名影响（泛化）",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "我有一段代码：for (int i = 0; i < n; i++) { float s = coefficients.GetValue(channelIndex); ... } 这是 per-channel 系数取数吗？",
+      "expected_output": "1. 回复应指出是否属 per-channel 系数取数取决于语义（按通道索引访问系数数组），与变量名无关——`coefficients.GetValue(channelIndex)` 与 `scaleLocal.GetValue(cIdx)` 语义相同。\n2. 回复应说明判定依据：访问模式（按索引取单元素）、数据来源（系数数组）、执行频率（主循环内）。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 18,
+      "title": "架构适配选择（泛化）",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "我在 A2 上写 norm 算子，per-channel 系数取数性能差，能用 DIST_BRC 优化吗？",
+      "expected_output": "1. 回复应指出 DIST_BRC 是 A5（DAV_3510）RegBase 通路，A2 上不可用。\n2. 回复应给出 A2 上的替代方案：批量搬入 UB 后用 Brcb 或 stride-0 广播形态参与计算（参考 ascendc-perf-optimize vec-04 技术卡片）。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 19,
+      "title": "信息不足处理（泛化）",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "我的算子用了 LocalTensor 的 GetValue，这有问题吗？",
+      "expected_output": "1. 回复应指出需要更多信息才能判定：访问位置（主循环/Init 阶段）、访问频率（每元素/每 tile/每单元）、数据来源（中间结果/系数/元数据）、后续消费者（批量搬送/标量决策）。\n2. 回复应给出快速自查方法：用速查表 16 场景对照，或检查是否命中合法保留语义条件。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 20,
+      "title": "多实现满足约束（泛化）",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "我在 A5 上优化 norm 算子的 per-channel 系数取数，除了 DIST_BRC 还有别的方案吗？",
+      "expected_output": "1. 回复应指出存在多种满足约束的实现：DIST_BRC 广播（LoadAlign）、Brcb 批量广播后 stride-0 参与计算、或把系数作为 vector 操作数的一部分（如 Adds/Muls 的标量参数由寄存器广播提供）。\n2. 回复应说明选择依据：UB 预算、寄存器压力、通道切换频率，不限定必须叫某个 helper 名。",
+      "expectations": [],
+      "files": []
     }
   ],
   "skill_name": "ascendc-api-best-practices"

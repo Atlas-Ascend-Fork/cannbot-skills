@@ -22,6 +22,10 @@
 #### 变更 Changes
 - 【插件清理】删除 `plugins-community/ascendc-port-orchestrator` 插件及专属市场注册，移除 ST 测试白名单与覆盖率条目，保留公共 Skills。
 
+### 【2026-10-17】
+#### 新特性 New Features
+- 【算子】`ascendc-api-best-practices` 新增 `api-scalar-access-patterns.md`：GetValue/SetValue 标量访问 16 场景三档判定（必替换/优先替换/合法保留，命名仅作召回）+ per-channel 系数取数按架构选择替换路径（A5 DIST_BRC/A2-A3 Brcb）+ 自查 regex 与反例库；SKILL.md 索引/触发词同步，evals 增 7 例。
+
 ### 【2026-10-15】
 #### 缺陷修复 Bug Fixes
 - 【GE 图编译】同步 `ge-onnx-plugin-development` 与 GE 仓 develop 口径：插件唯一性以 origin type 为准（同 source 下 opsets 不重叠多插件允许）；parse_operator 标量仅 `f` 为字符串；补桥接按入口触发与诊断增强说明；新增 evals 用例 6。

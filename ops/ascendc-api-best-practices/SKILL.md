@@ -1,6 +1,6 @@
 ---
 name: ascendc-api-best-practices
-description: Ascend C API 使用最佳实践。提供算术、归约、数据搬运、Buffer管理、精度转换、通信接口等 API 的正确用法和限制说明。触发：用户询问具体 API 用法（如"DataCopy 怎么用"、"ReadNbi 怎么用"）、遇到 API 参数错误或限制报错（如 repeatTimes、对齐问题）、需要查看 API 最佳实践或避坑指南时。
+description: Ascend C API 使用最佳实践。提供算术、归约、数据搬运、Buffer管理、精度转换、通信接口等 API 的正确用法和限制说明。触发：用户询问具体 API 用法（如"DataCopy 怎么用"、"ReadNbi 怎么用"）、遇到 API 参数错误或限制报错（如 repeatTimes、对齐问题）、需要查看 API 最佳实践或避坑指南、算子性能疑似受标量访问/单元素读写影响时。
 ---
 
 # Ascend C API 最佳实践
@@ -16,6 +16,7 @@ description: Ascend C API 使用最佳实践。提供算术、归约、数据搬
 | **归约操作** | ReduceMax, ReduceSum | [api-reduce.md](references/api-reduce.md), [api-reduce-pattern.md](references/api-reduce-pattern.md) | Softmax, LayerNorm, ReduceMean |
 | **归并排序** | Sort, Concat, MrgSort, Extract | [api-mrgsort.md](references/api-mrgsort.md) | Sort, ArgSort, TopK |
 | **数据搬运** | DataCopy, DataCopyPad | [api-datacopy.md](references/api-datacopy.md) | 非对齐处理、多维搬运 |
+| **标量访问 Get/SetValue** | GlobalTensor/LocalTensor GetValue, SetValue | [api-scalar-access-patterns.md](references/api-scalar-access-patterns.md) | 按访问用途、执行频率、目标架构判断是否替换及替换路径 |
 | **LoadData / Cube 加载** | LoadData2D, LoadData2DV2, LoadData2DMx | [api-loaddata.md](references/api-loaddata.md) | L1 → L0 加载、Cube GEMM、MX 块量化格式 |
 | **Transpose / 重排** | TransDataTo5HD, Gather | [api-transpose.md](references/api-transpose.md) | 小通道 transpose、permute |
 | **数据过滤/解交织** | GatherMask | [api-gathermask.md](references/api-gathermask.md) | RoPE 奇偶拆分、列分量分离、非均匀间隔自定义 mask |
@@ -47,6 +48,7 @@ description: Ascend C API 使用最佳实践。提供算术、归约、数据搬
 | **多行广播（ARA 模板）** | [api-arithmetic.md](references/api-arithmetic.md) | BinaryRepeatParams.src1RepStride=0、分批处理 |
 | **半精度加减法（FP16/BF16 Add/Sub）** | [api-arithmetic.md](references/api-arithmetic.md), [api-precision.md](references/api-precision.md) | 默认升精度（除非 spec 明确同量级）、in-place 复用 |
 | **非对齐数据** | [api-datacopy.md](references/api-datacopy.md) | DataCopyPad、32 字节对齐 |
+| **标量访问与批量访问选择** | [api-scalar-access-patterns.md](references/api-scalar-access-patterns.md) | 判断访问用途、执行频率及目标架构，查阅适用条件与替代方案 |
 | **混合精度** | [api-precision.md](references/api-precision.md) | FP16 输入 FP32 计算 |
 | **Subnormal 精度丢失（DAV_3510 跨代迁移）** | [api-cross-gen-migration.md](references/api-cross-gen-migration.md) | FTZ 语义、PRECISION_1ULP_FTZ_FALSE、eps 规避 |
 | **Fixpipe 跨代参数（L0C 回写）** | [api-cross-gen-fixpipe.md](references/api-cross-gen-fixpipe.md) | DAV_2201→DAV_3510 回写参数切换：FixpipeParamsArch3510 字段与单位差异 |
@@ -74,6 +76,7 @@ description: Ascend C API 使用最佳实践。提供算术、归约、数据搬
 |-----|---------|---------|------|
 | `GlobalTensor::SetValue()` | 效率极低 | `DataCopyPad` | [api-datacopy.md](references/api-datacopy.md) |
 | `GlobalTensor::GetValue()` | 效率极低 | `DataCopyPad` | [api-datacopy.md](references/api-datacopy.md) |
+| `LocalTensor` 主循环/嵌套循环单点 `GetValue/SetValue` | PIPE_S 标量通路，吞吐率差数量级 | vector 通路（按目标架构选广播/批量方案） | [api-scalar-access-patterns.md](references/api-scalar-access-patterns.md)（判定标准与替代方案索引） |
 
 **限制使用的 API**：
 
