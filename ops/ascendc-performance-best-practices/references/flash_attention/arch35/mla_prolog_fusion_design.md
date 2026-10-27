@@ -4,6 +4,12 @@
 > 定位：**Cube+Vector 大融合算子**的通用优化方法论——把多路 Matmul + RMSNorm + RoPE + 量化/反量化 + KV/KR Cache 更新融进单 kernel，靠 CV 流水互相掩盖。可迁移到其它"GEMM + 归一化 + 位置编码 + cache 写"形态的注意力前/后处理融合算子。
 >
 > 使用前置：确认目标是 A5、且算子确为 mixed AIC/AIV 融合形态（单 kernel 内既有 Cube 矩阵乘又有 Vector 归一化/量化）。若只是单一算子，改查对应算子族（matmul / reduce / conversion）。
+>
+> **与定量方法的衔接**：本设计给出结构、同步与形态选路的方法论，不含单算子实测数字。落地具体 case 时按以下顺序补齐定量闭环：
+> ① tile 形状、缓冲深度与 CV 节拍按 [SFA 四层容量建模](cannbot-dsl/optimize/3-capacity-equations.md) 对本算子链**重推导**——第 1 层硬约束输入取当前实现的真实常量（`He`、`Dq`/`q_lora_rank`、`Nq` heads、NoPE `D`、RoPE `Dr`、cache 模式与量化模式集合、`AIC:AIV` 配比，以实际 `mla_prolog_comm.h`/manifest 为准）；本算子无 softmax 状态与 gather 环，台账住户、整除链与平衡方程逐项重推，不套用 SFA 数值；
+> ② DSL 表达层惯用法（视图声明/双代形态/动态 region/unit_flag）按 [SFA 实施惯用法](cannbot-dsl/assemble/glue-idioms.md)；
+> ③ 节拍/带宽验收与上板 profiling 流程按 [SFA 延迟线流水](cannbot-dsl/optimize/2-pipeline-modeling.md)；
+> ④ 单个 Matmul 子块（如 `x·W^DQ`）的候选 tiling 可用 `ascendc-perf-optimize` 的 matmul 实测求解工具包扫描裁决。
 
 ## 1. 优化目标
 

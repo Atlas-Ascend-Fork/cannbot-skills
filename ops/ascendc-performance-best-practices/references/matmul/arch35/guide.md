@@ -4,7 +4,16 @@
 
 按策略类型查找对应的适用场景与详细设计文档。
 
-适用于 `matmul` 族所有变体：`matmul`、`matmul_mxfp4`、`matmul_a16w16`、`batch_matmul`、`matmul_all_reduce`、`grouped_matmul` 等。
+## 族与变体总览
+
+MatMul 族收录以下变体的优化知识（介绍"MatMul 族有哪些优化知识"时，先列变体清单再列策略）：
+
+- `matmul`、`batch_matmul`：基础与批量矩阵乘；
+- `grouped_matmul`（GroupMatMul / GroupedMatmul）：MoE 多专家分组；
+- `matmul_mxfp4`、`matmul_a16w16`：量化 / MX 变体；
+- `matmul_all_reduce` 等 MC² 通算融合算子：归 [mc2 族](../../mc2/guide.md)，本页不重复其通信优化。
+
+形态相近的融合算子按 SKILL.md 融合拆解规则逐内嵌单元归族。
 
 > **建模先行**：选型前先按 [performance_modeling.md](performance_modeling.md) 完成各流水理论耗时评估与 Bound 判定（含真/假 MTE2 Bound、VF Bound 区分），再按下表选择策略。基本块（baseM/baseN/baseK）与切分层级（kL1/scaleKL1）的选型约束见 [basic_block_design.md](basic_block_design.md)，各策略文档中的基本块参数以其为准。
 

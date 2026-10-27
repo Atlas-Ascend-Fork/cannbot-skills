@@ -18,3 +18,11 @@
 验收者核对输入、版本、预热/采样和原始数据对应关系，确认正式采样没有重新编译，完整设备任务满足生产执行约束；对已有完整证据不重复运行。缺少当前实现的设备证据时注明“算子性能尚未实测”，不能保证性能不受影响；违规或证据缺失不予通过。
 
 生成采集脚本时按 `cannbot-dsl-test-generator` 的脚本执行契约处理失败、结果与路径；生产路径判定按 `cannbot-dsl-code-reviewer`，具体工具用法参见 [msprof 指南](msprof-guide.md)。
+
+## DSL 编译/prime 启动与配对确认（kernel 级标准计时适配）
+
+DSL 实现接入本 skill 的标准可比较计时（`collect_perf_application.py`）时：
+
+- **preparation launch**：DSL 的编译/prime 不属于被测耗时。runner adapter 实现 `prepare_target(inputs)`，在每 case 正式 pair 循环前调用；返回的 kernel 名写入 `preparation_kernel_sequence`，采集器映射为 `role=preparation, sample_index=-1`，计入会话容量但不计入 target 样本耗时。协议细节见 [application_runner_contract.md](application_runner_contract.md)；torch 模板见 `assets/app_runner/torch/torch_app_runner.py`。
+- **配对确认（shared candidate confirmation）**：小改动（<3%）走 confidence 判定时，用事前冻结的 AB/BA 配对与共享输入 SHA 恢复，禁止采集器看结果后补配置；确认元数据随 collection 归档。
+- 上述证据与 [DSL 公开入口测量](#采集) 的编译/缓存证据互补：公开入口口径证明端到端，标准计时口径证明 kernel 级收益。

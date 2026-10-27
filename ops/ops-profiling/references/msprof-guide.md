@@ -13,7 +13,7 @@
 
 ## 适用场景与分流
 
-先按 `SKILL.md` 的统一路由确定工具。本文件仅适用于外部选择或默认选中 `msprof` 的场景。使用 `msprof` 采集时，首先判断算子是否为 MC² 多 rank 算子：
+先按 `SKILL.md` 的统一路由确定工具。本文件仅适用于外部选择或按「工具选择」规则选中 `msprof` 的场景。使用 `msprof` 采集时，首先判断算子是否为 MC² 多 rank 算子：
 
 | 判定条件 | 采集流程 |
 |---------|---------|
@@ -112,7 +112,7 @@ bash {skill_path}/scripts/msprof_profile_run.sh \
 
 **关键点**：msprof 的 `op_summary.csv` **没有** `Current Freq/Rated Freq` 和逐核 `time(us)` 字段；逐核分析必须依赖 `PROF_Sample` 下的 `aicore.db`。采集落盘目录树见文末 **数据目录结构 → 临时输出**（根路径为 `--output` 下的 `PROF_GROUP_*`）。
 
-`--compare`、`--quick`、`--batch` 是上游兼容入口；需要验收或优化收益比较时，仍以 Step 2A 产物为准。
+`--compare`、`--quick`、`--batch` 是上游兼容入口；需要验收或优化收益比较时，仍以 Step 2A 产物为准。`--quick` / `--compare` 均支持 `--keep-prof` 透传：加上后保留 msprof 原始 PROF 目录（默认在采集后清理），供后续深度分析或可视化工具导入；不需要手工备份 PROF 目录，也不需要切换标准模式重新采集。
 
 ---
 

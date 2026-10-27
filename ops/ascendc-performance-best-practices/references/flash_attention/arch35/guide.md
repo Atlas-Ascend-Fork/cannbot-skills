@@ -22,6 +22,20 @@
 | **mla_prolog_fusion** | Cube+Vector 大融合算子（多路 Matmul + RMSNorm + RoPE + 量化 + cache 写融进单 kernel），非 SCALAR_BOUND 场景 | MLA 前处理及同形态注意力前/后处理融合：需要 CV 流水互相掩盖、多量化模式选路、L1/L0/UB/workspace 内存规划 | 算子融合 + 权重拼接 + 反量化/量化融合 + CV 流水同步（点对点/全核 barrier/稀疏同步）+ Double Buffer + NZ 搬运 + TilingKey 位域编译期特化 | [mla_prolog_fusion_design.md](mla_prolog_fusion_design.md) |
 | **compressor_fusion** | Cube+Vector 大融合的 KV 压缩算子，**decode 单 token(T=1) varlen、权重载入访存受限 + 核欠订**（与 mla_prolog 同族、瓶颈相反：非算力/流水而是带宽+同步）| MLA 风格 KV 压缩（投影 MM + softmax 加权和 + RMSNorm + 半旋 RoPE + cmpKv 写）；小 batch/decode 下核欠订、跨核 K 规约走 GM+SyncAll | K1 shape-adaptive core（消空转核）+ K2 MTE2 权重合并载入 + K3 FULL_LOAD K 轴核并行（摊薄载入）+ K4 静态 tiling 低同步；证伪护栏（权重留 Cube、只看 MTE2 会误判）+ CV-UB 跨核规约 GM+SyncAll 架构下界 | [compressor_fusion_design.md](compressor_fusion_design.md) |
 
+## CANNBot-DSL 实现知识（语言子目录 cannbot-dsl/）
+
+本族的 CANNBot-DSL 实现知识统一收在 [cannbot-dsl/](cannbot-dsl/index.md)，分两层：**optimize/**（数学语义 → 流水建模 → 容量方程，讲 DSL FA 算子怎么优化，SFA 举例）与 **assemble/**（积木模块 + 胶水，讲怎么组装出高性能 FA）。方法链是把优化手段落到 DSL 代码的通用方法论，不绑定具体算子（跨族方法论、编程模型要点与证据纪律见 [CANNBot-DSL 公共实现知识](../../common/arch35/cannbotdsl/index.md)）；SparseFlashAttention（SFA）是当前唯一端到端验证过的完整实例（1.85×、seed 逐位一致、37 步消融），仅作贯穿示例——同构链可拓展，异构链逐层重建。按信号进入对应层：
+
+| 层 | 回答的问题 | 进入信号 | 文档（现以 SFA 实例贯穿） |
+|---|---|---|---|
+| 1. 数学语义 | 算子算什么，哪些数值语义必须保留 | 新变体/新计算链建模起点 | [1-math-semantics](cannbot-dsl/optimize/1-math-semantics.md) |
+| 2. 流水建模 | 数据在 Cube/Vector 两侧如何流动、节拍如何编排 | CUBE busy < AIC 窗口（出洞）或 AIV 断流；AIV SCALAR 贴满但 CUBE <97% | [2-pipeline-modeling](cannbot-dsl/optimize/2-pipeline-modeling.md)（含 AIC+AIV 延迟线通用模板） |
+| 3. 容量方程 | tile 形状、缓冲深度、滞后如何从台账解出 | 需为 AIC+AIV 混合核定 tile/环深/滞后，或调参前缺容量证明 | [3-capacity-equations](cannbot-dsl/optimize/3-capacity-equations.md)（四层法） |
+| 4. 积木模块 | 整类投放的参考实现模块（胶水随类走） | 机制级切片拼装面不可控，需要整类参考实现 | [assemble/](cannbot-dsl/assemble/index.md)（积木 M0-M4 + 胶水，SFA 整类投放件逐模块独立文件） |
+| 5. 胶水模块 | 表达层规则与拼接件 | 拆块拷贝数值错位、双代被同步校验器拒绝、动态 region 报错、链式发射 unit_flag 不明 | [glue-idioms](cannbot-dsl/assemble/glue-idioms.md) / [glue-fragments](cannbot-dsl/assemble/glue-fragments.md) |
+
+上方策略索引只收共同（语言无关/AscendC）优化手段；DSL 条目不再混入策略表，统一由本节与 [cannbot-dsl/index.md](cannbot-dsl/index.md) 索引。
+
 ## 从语义到流水的分层参考资料
 
 在线softmax、Q复用、S2拆分及流水依赖属于FA前向的共同知识。本节直接按计算问题组织阅读；具体数字和代码以当前MLA为实例，按当前case缺少的信息选读：
@@ -33,6 +47,7 @@
 | 3. 常见优化技巧 | [优化条件与选型](common-optimizations.md) | Q驻留完整推导、实际派发、复用分布、tile/预取/PV/mask/FD |
 | 4. 当前工程例子 | [MLA：BSND查询与分页BBND缓存的M96/S112实例](example-mla-m96-s112-bsnd-paged-kv.md) | 完整流程、函数入口、优化触发点、L1/L0/UB/FD容量表 |
 | 4. SFA工程例子 | [SparseFlashAttention token-wise MLA实例](example-sparse-flash-attention-tokenwise-mla.md) | Q/K 576维语义、每token离散gather、64×128基本块、V0→MM1→V1→MM2→V2、504 KiB L1、split-G及10个真机case |
+| 5. SFA DSL 双核流水实例 | [SFA DSL 延迟线流水](cannbot-dsl/optimize/2-pipeline-modeling.md) + [容量方程](cannbot-dsl/optimize/3-capacity-equations.md)（更多见 [DSL 最佳实践库](cannbot-dsl/index.md)） | CANNBot-DSL AIC+AIV 混合核：AIV 直推 L1（无 GM workspace 往返）、延迟线滞后 1/3/4、O 原地累加、四层 tiling 建模、1.85× 实测阶梯与 37 步消融账 |
 
 > **`mla_prolog_fusion` 与本节的关系**：本节四层资料聚焦 FA **前向注意力主体**（QK→softmax→PV 的在线归约与流水）；`mla_prolog_fusion` 聚焦注意力**前处理**（多路 Matmul + RMSNorm + RoPE + 量化 + KV/KR Cache 写的 Cube+Vector 大融合），两者互补，可分别参阅。
 
@@ -76,7 +91,8 @@ BSND/BBND无mask例子用于流程教学；历史设备归约A/B来自TND/PA_NZ�
 | `online_softmax_splitkv` | 数学正反对照验证重缩放/归一化与正确FD权重；历史报告记录同binary允许S2拆分+FD相对禁止拆分，两长KV主例约4.33×且两模式精度通过；不是纯FD耗时或局部VF技巧消融 |
 | `mask_visibility_pipeline` | 保留全可见直通和提前准备的候选方法及边界；本地阅读源码未集成，无新增上板验证 |
 | `mla_prolog_fusion` | 方法论层（源自 MlaPrologV3 设计与实现）：减少 kernel 下发与中间结果 GM 往返、CV 并行掩盖搬运；落地具体 case 后需 profiling 复测 |
-| `compressor_fusion` | 实测（compressor，Ascend950，T=1 varlen decode）：34.012µs → 29.8µs，累计 -12.38% / 1.1413×，strict_pass（cmp_kv 逐字节一致）；K1 -1.845µs、K2 MTE2 -10.22%、K3 累计 1.1244×、K4 累计 1.1413× |
+
+
 
 ## 扩展新 FA 变体
 

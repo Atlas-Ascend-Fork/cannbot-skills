@@ -77,7 +77,7 @@ Step 0 — 算子分类：
 | Broadcast | [broadcast/](broadcast/) | [fallback/](broadcast/fallback/)（显式分代广播模型） | — | — |
 | Scatter | [scatter/](scatter/) | [fallback/](scatter/fallback/)（六路径通用算法：并行划分 + 冲突消解） | — | — |
 | Conversion | [conversion/](conversion/) | [fallback/](conversion/fallback/)（占位） | — | — |
-| FA | [fa/](fa/) | arch22 [A2/A3 FIA 指南](../../../ascendc-performance-best-practices/references/flash_attention/arch22/guide.md) / arch35 [fallback/](fa/fallback/)（占位） | — | 先按目标代际与 FA 变体 |
+| FA | [fa/](fa/) | arch22 [FIA Tiling 建模](fa/arch22/tiling_pipeline_design.md) / arch35 [FA Tiling 建模](fa/arch35/four-layer-derivation.md) | — | 先按目标代际与 FA 变体 |
 
 ### 贡献新算法
 

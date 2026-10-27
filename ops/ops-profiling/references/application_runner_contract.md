@@ -71,6 +71,8 @@ runner 的 probe 入口必须在目标 Device 上分配精确 256 MiB FP16 tenso
 
 ## 执行顺序
 
+DSL/JIT 等需要提前编译/加载时，在每 case 的正式 pair 循环前调用 adapter 的 `prepare_target(inputs)`。纯编译不发射 kernel 时返回空列表；执行 prime/初始化时返回按真实发射顺序排列的全部 kernel 名，写入该 case 的可选 `preparation_kernel_sequence`（schema v5，缺省空列表）。采集器完整映射为 `role=preparation, sample_index=-1` 并核验拓扑，计入 session launch 容量，不计入 target 样本耗时。名字可与 target 相同，依据声明的完整拓扑区分；禁止事后按名称删除记录。准备后 synchronize，再执行原 warmup/target 协议。
+
 1. 启动进程、import 本地目标算子包并设置 Device。
 2. compiled 模式从工程内 asset import `ops_profiling_warmup`；禁止运行时生成或下载 warmup。framework_ops 模式直接使用 probe 已验证的 Max/ArgMax。
 3. 对每个 case 构造输入；构造阶段不得调用与目标或 warmup 同名的算子。

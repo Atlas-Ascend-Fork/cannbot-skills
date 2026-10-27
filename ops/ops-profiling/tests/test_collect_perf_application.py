@@ -405,17 +405,18 @@ class ApplicationCommandTest(unittest.TestCase):
 
             def fake_msprof(command, **_kwargs):
                 manifest = execution_manifest(["1"])
-                (out / "execution-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+                attempt_dir = Path(command[2].split("=", 1)[1])
+                (attempt_dir / "execution-manifest.json").write_text(
+                    json.dumps(manifest), encoding="utf-8"
+                )
                 launches = []
                 for sample in range(10):
-                    launches.extend(
-                        [
-                            ("ArgMax", 100.0),
-                            ("target_a", float(sample + 1)),
-                            ("target_b", 2.0),
-                        ]
-                    )
-                write_op_summary(out / "PROF_1" / "op_summary_1.csv", launches)
+                    launches.extend([
+                        ("ArgMax", 100.0),
+                        ("target_a", float(sample + 1)),
+                        ("target_b", 2.0),
+                    ])
+                write_op_summary(attempt_dir / "PROF_1" / "op_summary_1.csv", launches)
                 return mock.Mock(returncode=0)
 
             with (

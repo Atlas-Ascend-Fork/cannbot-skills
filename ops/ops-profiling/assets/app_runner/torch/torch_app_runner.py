@@ -26,6 +26,7 @@ op_summary is the only time source.
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import sys
@@ -69,6 +70,17 @@ def make_case_inputs(params, seed=10):
     return [torch.rand((m, n), dtype=torch.float32).npu(), torch.rand((m, n), dtype=torch.float32).npu()]
 
 
+def make_confirmation_case_inputs(params, confirmation):
+    """Optional paired adapter: restore the same immutable snapshot for both variants.
+
+    Return (inputs, snapshot_sha256); select the concrete baseline/candidate
+    entrypoint using confirmation['variant'] inside the adapter. Hash the actual
+    restored snapshot, preserve its storage/alias semantics, and do not invent
+    new random inputs per variant. Generic sampling below remains unchanged.
+    """
+    raise ValueError("paired confirmation needs an adapter that restores and hashes shared inputs")
+
+
 def invoke_target(inputs):
     """One target invocation.  All kernels it launches must be covered by
     TARGET_KERNEL_SEQUENCE.  Standalone Add example; a real project binding
@@ -77,6 +89,14 @@ def invoke_target(inputs):
     x, y = inputs
     return torch.add(x, y)
 
+
+def prepare_target(inputs):
+    """Compile/load before sampling. Return exact names of any preparation launches.
+
+    DSL adapters can use cbd.compile without launching, or explicitly prime a
+    program and declare every resulting launch here. No Python time is scored.
+    """
+    return []
 
 # ---------------------------------------------------------------------------
 # END TARGET ADAPTER (generic runner below; do not edit)
@@ -163,6 +183,7 @@ def main():
     parser.add_argument("--warmup-mode", default=None, choices=[None, "framework_ops", "compiled"])
     parser.add_argument("--warmup-op", default=None)
     parser.add_argument("--probe-warmup-op", default=None)
+    parser.add_argument("--planned-topology", default=None)
     args = parser.parse_args()
 
     if args.probe_warmup_op is not None:
@@ -188,6 +209,19 @@ def main():
     if missing:
         parser.error(f"unknown case ids: {missing}")
     selected = requested if requested else order
+    plan = None
+    plan_sha = None
+    planned_cases = {}
+    if args.planned_topology:
+        with open(args.planned_topology, "rb") as stream:
+            contents = stream.read()
+        plan_sha = hashlib.sha256(contents).hexdigest()
+        plan = json.loads(contents)
+        if plan.get("schema_version") != 1 or plan.get("samples_per_case") != 10:
+            parser.error("planned topology requires schema 1 and samples_per_case 10")
+        planned_cases = {str(run["case_id"]): run for run in plan["case_runs"]}
+        if any(case_id not in planned_cases for case_id in selected):
+            parser.error("selected case missing from planned topology")
 
     device = "npu"
     torch_npu.npu.set_device(int(os.getenv("NPU_DEVICE_ID", os.getenv("ASCEND_DEVICE_ID", "0"))))
@@ -204,7 +238,19 @@ def main():
 
     case_runs = []
     for case_id in selected:
-        inputs = make_case_inputs(cases[case_id])
+        confirmation = planned_cases.get(case_id, {}).get("confirmation")
+        if confirmation is not None:
+            inputs, input_sha = make_confirmation_case_inputs(cases[case_id], confirmation)
+            if input_sha != confirmation.get("input_sha256"):
+                raise ValueError("actual restored input snapshot SHA mismatch")
+        else:
+            inputs = make_case_inputs(cases[case_id])
+        torch.npu.synchronize()
+        preparation_sequence = prepare_target(inputs)
+        if not isinstance(preparation_sequence, list) or any(
+            not isinstance(name, str) or not name for name in preparation_sequence
+        ):
+            raise ValueError("prepare_target must return exact preparation kernel names")
         torch.npu.synchronize()
         for _ in range(args.samples):
             if args.warmup_mode == "framework_ops":
@@ -214,14 +260,15 @@ def main():
             torch.npu.synchronize()
             invoke_target(inputs)
             torch.npu.synchronize()
-        case_runs.append(
-            {
-                "case_id": case_id,
-                "warmup_kernel_sequence": warmup_sequence,
-                "target_kernel_sequence": TARGET_KERNEL_SEQUENCE,
-                "iteration_kernel_sequence": warmup_sequence + TARGET_KERNEL_SEQUENCE,
-            }
-        )
+        case_runs.append({
+            "case_id": case_id,
+            "preparation_kernel_sequence": preparation_sequence,
+            "warmup_kernel_sequence": warmup_sequence,
+            "target_kernel_sequence": TARGET_KERNEL_SEQUENCE,
+            "iteration_kernel_sequence": warmup_sequence + TARGET_KERNEL_SEQUENCE,
+        })
+        if confirmation is not None:
+            case_runs[-1]["confirmation"] = dict(confirmation)
         print(f"[torch-app-runner] case={case_id} pairs={args.samples} done", flush=True)
 
     manifest = {
@@ -241,6 +288,11 @@ def main():
         },
         "case_runs": case_runs,
     }
+    if plan is not None:
+        with open(args.planned_topology, "rb") as stream:
+            if hashlib.sha256(stream.read()).hexdigest() != plan_sha:
+                raise ValueError("planned topology changed during execution")
+        manifest["planned_topology_sha256"] = plan_sha
     atomic_write_json(args.execution_manifest, manifest)
     print("[torch-app-runner] all cases done; execution manifest written", flush=True)
     return 0

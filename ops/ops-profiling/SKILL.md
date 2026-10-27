@@ -17,7 +17,7 @@ description: NPU 性能采集与分析，支持 msprof application 标准可比�
 | 怎么做标准可比较计时？ | `collect_perf_application.py`：一次 `msprof application` 覆盖完整 case 集，每例固定 10 组 `warmup → target`，取 target 中位数；大 case 集按会话上限自动拆分（详见「使用方式 1」与 [application_runner_contract.md](references/application_runner_contract.md)） |
 | 怎么生成交互式 HTML 性能报告？ | 使用 [msopprof-visualization](msopprof-visualization/SKILL.md)：已有含 `collection_manifest.json` 的采集目录用 `run_pipeline.py --mode visualize` 重渲染；有算子工程用其 `run_pipeline.py` 采集并生成报告。`msprof_profile_run.sh` 的 `PROF_GROUP_*` 归档不能直接用于此渲染链路。 |
 | 怎么做加速比对比？ | `msprof_profile_run.sh --compare`（全量）/ `--quick`（1 轮快速），输出 `performance.json` + markdown 报告即完成，**不**走可视化子技能 |
-| quick / compare 如何保留原始 PROF？ | 在原命令上加 `--keep-prof`，两种模式均支持透传；默认在采集后清理原始 PROF。保留目录本身不需要手工备份或切换标准模式重采。保留已有数据与补采缺失指标是不同需求，不能把重采作为保留目录的前提，也不能承诺标准模式可提供未经确认的逐指令流水数据。 |
+| quick / compare 如何保留原始 PROF？ | 推荐 `--keep-prof` 选项（quick 与 compare 模式均支持透传），作用是保留 msprof 原始 PROF 目录（默认在采集后清理），供后续深度分析或可视化工具导入；**不需要手工备份 PROF 目录，也不需要切换标准模式重新采集**。保留已有数据与补采缺失指标是不同需求，不能把重采作为保留目录的前提，也不能承诺标准模式可提供未经确认的逐指令流水数据。 |
 | MC² / 多 rank（fork）算子用什么采集？ | **必须 `msprof`**，禁止 `msprof op`（详见 msprof-guide.md「MC² 多 rank 算子采集」） |
 | 采集结果如何判定瓶颈？ | 用 `msprof_perf_summary.py` 解析 `PROF_GROUP_*`，输出瓶颈类型与各 pipe 占比，判定规则见 `references/msprof-guide.md`；需要 MBU/MFU/理论上限量化时用 `compute_efficiency.py`（[cost-model-contract.md](references/cost-model-contract.md)） |
 
@@ -31,14 +31,17 @@ description: NPU 性能采集与分析，支持 msprof application 标准可比�
 
 ## 工具选择
 
-工具优先级是"外部输入 > `msprof` > 环境不稳定时的 `msprof op`"：
+选择依据是**外部输入与探测结果**，不得凭固定偏好选路。外部未指定时，**先探测工具可用性**（如 `which msopprof msprof`；必要时核对 `$ASCEND_HOME_PATH` / `$ASCEND_OPP_PATH` 的 CANN 安装完整性），再按探测结果分支：
 
-1. 外部输入显式指定 `msprof` 或 `msprof op`：原样执行。
-2. 外部未指定：优先使用 `msprof`。
-3. `msprof` 不可用，或环境不稳定导致 application 数据无法通过身份、频率、launch 映射或波动门禁：回落到 `msprof op`。必须记录回落原因，不得混合两条路径的数据做前后对比。
-4. 两者都不可用：停止并报告环境缺失。
+1. 外部输入显式指定 `msprof` 或 `msprof op`：原样执行。调用方工作流或其他 skill 给出的 profiler 选择属于外部输入，本 skill 不解析其业务约束，也不覆盖其选择。
+2. **只有 msopprof 可用**（`msprof` 不在）：走 `msprof op`。
+3. **只有 msprof 可用**（`msopprof` 不在）：走 `msprof`。
+4. **两者都可用**：向用户确认，或遵循项目既有约定；未确认前不得默认选定。
+5. **两者都不可用**：停止采集并报告 **CANN / ASCEND_HOME 环境问题**（CANN 未安装或 `$ASCEND_HOME_PATH` / `$ASCEND_OPP_PATH` 未配置），不猜测选路。
 
-环境稳定性必须由实际探测与采集产物判断，不能仅凭工具是否安装推断。调用方工作流或其他 skill 给出的 profiler 选择属于外部输入，本 skill 不解析其业务约束，也不覆盖其选择。
+补充规则：
+- 已选定 `msprof` 后，环境不稳定导致 application 数据无法通过身份、频率、launch 映射或波动门禁：回落到 `msprof op`。必须记录回落原因，不得混合两条路径的数据做前后对比。
+- 环境稳定性必须由实际探测与采集产物判断，不能仅凭工具是否安装推断。
 
 **MC² / 多 rank（fork）算子是硬约束**：算子通过 `fork()` 创建多个子进程绑定不同 NPU 卡、子进程间经 SHMEM UDMA / BarrierAll / CrossCoreFlag 协同通信（如 alltoall_matmul、allgather_matmul、matmul_reducescatter）时，无论外部是否指定，都**必须使用 `msprof`、禁止 `msprof op`**（`msprof op` 对 fork 程序的采集行为未定义）。加载 [`references/msprof-guide.md`](references/msprof-guide.md) 的「MC² 多 rank 算子采集」章节，同时参考 `ascendc-perf-optimize` skill 的 `references/comm-compute/index.md`「性能采集方法」章节。
 
@@ -224,7 +227,7 @@ Markdown 报告包含：
 ## 错误处理
 
 - 外部显式指定的工具不可用：直接报告缺失，不擅自换工具。
-- 默认 `msprof` 路径持续无法通过环境或数据门禁：保存失败证据，记录原因后回落到 `msprof op`。
+- `msprof` 路径持续无法通过环境或数据门禁：保存失败证据，记录原因后回落到 `msprof op`。
 - application launch 映射不完整、乱序或身份不一致：整份 collection 作废，不手工补值。
 
 ---

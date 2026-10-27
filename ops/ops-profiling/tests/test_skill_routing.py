@@ -31,14 +31,22 @@ class ProfilingSkillRoutingTest(unittest.TestCase):
     def test_route_precedence_is_explicit(self) -> None:
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         ordered_phrases = (
+            "先探测工具可用性",
             "外部输入显式指定",
-            "外部未指定：优先使用 `msprof`",
+            "只有 msopprof 可用",
+            "只有 msprof 可用",
+            "两者都可用",
+            "两者都不可用",
         )
         positions = [skill.index(phrase) for phrase in ordered_phrases]
         self.assertEqual(positions, sorted(positions))
-        self.assertIn("外部输入 > `msprof` > 环境不稳定时的 `msprof op`", skill)
+        self.assertIn("不得凭固定偏好选路", skill)
+        self.assertIn("向用户确认，或遵循项目既有约定", skill)
+        self.assertIn("CANN / ASCEND_HOME 环境问题", skill)
         self.assertIn("回落到 `msprof op`", skill)
         self.assertIn("本 skill 不解析其业务约束，也不覆盖其选择", skill)
+        self.assertNotIn("优先使用 `msprof`", skill)
+        self.assertNotIn("默认选中 `msprof`", skill)
 
     def test_new_protocol_is_scoped_to_msprof_application(self) -> None:
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")

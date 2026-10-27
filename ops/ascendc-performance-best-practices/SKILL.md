@@ -1,27 +1,19 @@
 ---
 name: ascendc-performance-best-practices
 description: >-
-  Ascend C 算子性能优化最佳实践库：按算子族组织优化经验与参考代码，供实施阶段查询。
-  当前覆盖 MatMul / Reduction / Scan(Cum) / Gather / Elementwise / Broadcast / Scatter / Conversion / Scalar / RadixSort / SIMT 等算子族；
-  MatMul 与 FlashAttention 同时收录 arch22（A2/A3）和 arch35（A5）知识，
-  以及 FA 家族 fused_infer_attention_score 通用 4 手段（icache 预取/静态 LocalTensor/类成员局部化/TilingData 直读）、
-  SCALAR（S1-S5）与 SCALARLDST（MR1-MR5）scalar bound 优化、QSFA A5 启动头开销优化、
-  sparse attention/SCFA 批量读取优化，及 FA 前向设计（含 MLA）、Q驻留选型与 FlashDecode 归约。
-  matmul 族含统一性能建模与 Bound 判定（真/假 MTE2、VF Bound）及 unitflag/k_tail_stepwise_copyout/l1_bank_conflict/weightnz/grouped_matmul 等策略；
-  公共能力含 CV 融合（Cube-Vector 协同）编程模型与数据通路选型（__mix__(1,2)、GM 中转、L0C→UB 直通、CrossCore 同步纪律）。
-  Gather 路径选择必须区分框架层物理 Transpose、kernel 内 Transpose、
-  PER_ELEMENT small-GD tiled full-load 和 Scalar/SIMT，并同时执行能力门控、UB 容量建模、搬运成本门控与代表 case A/B；
-  `dim != last` 不是进入 Transpose 的充分条件，Transpose 放不下也不代表 Scalar 一定优于 SIMT。
-  触发：查询某类算子的性能优化参考实现、实施某项优化，或判断 Gather 等路径时需加载对应优化经验；
-  arch35 目标编写或改造 Reg VF 前应先查询跨算子族 VF 范例库。
+  AscendC / CANNBot-DSL 算子性能优化最佳实践库:按算子族、芯片代际、语言组织优化经验与参考代码，供实施阶段查询。
+  触发：查询某类算子的性能优化参考实现、实施某项优化需加载对应优化经验；
 ---
 
-# Ascend C 算子性能优化最佳实践
+# 算子性能优化最佳实践
+
+
 
 ## P0：CANN SDK 安装目录只读
 
 Agent 不得修改 `$ASCEND_HOME_PATH`、`$ASCEND_OPP_PATH` 及任意 `Ascend/cann-*` SDK 安装目录，包括编辑、覆盖、删除、移动、重命名、修改权限或创建文件。
 
+arch35 目标编写或改造 Reg VF 前应先查询跨算子族 VF 范例库。
 DAV_3510 目标的 Reg/MicroAPI 实施先按 [VF 范例库](references/common/arch35/regbase/README.md) 与 `ascendc-regbase-best-practice` 的开源算子表检索相似实现。命中任意一边即可，但必须实际打开代码；两边均无时记录检索结果后再实现。改代码前按 [模板与构建契约](references/common/template_usage.md) 完成真实构建预检。首次编译/集成失败才完整读取 [CANN / Reg VF 编译问题 FAQ](references/common/arch35/regbase/cann_version_compat_faq.md)；API 或精度问题按需查 `ascendc-regbase-best-practice` 的 API 或 pitfalls 索引，不预读其 design/paradigm 部分。不得修改 SDK。
 
 ## 先按目标代际筛选
@@ -32,13 +24,13 @@ DAV_3510 目标的 Reg/MicroAPI 实施先按 [VF 范例库](references/common/ar
 
 ## 算子分类体系
 
-按 **算子族（operator family）** 组织优化知识，同一族内所有变体共享同一份文档（如 `matmul`、`matmul_mxfp4`、`batch_matmul`、`matmul_a16w16` 等均归入 `matmul` 族；`matmul_all_reduce`、`allgather_matmul`、`matmul_reducescatter`、`alltoall_matmul` 等均归入 `mc2` 族）。
+按 **算子族（operator family）** 组织优化知识，同一族内所有变体共享同一份文档（如 `matmul`、`matmul_mxfp4`、`batch_matmul`、`matmul_a16w16` 等均归入 `matmul` 族；`matmul_all_reduce`、`allgather_matmul`、`matmul_reducescatter`、`alltoall_matmul` 等均归入 `mc2` 族）。如果该算子存在多个代际，则代际目录在算子族目录之下。如果某个代际存在多种实现方式，则语言目录在代际目录之下。
 
 | 类别 | 典型算子 | 适用架构 | 优化设计指南 |
 |------|---------|---------|------------|
-| MatMul 矩阵乘类 | MatMul, BatchMatMul, GroupMatMul, GroupedMatmul, MatMul_MXFP4, MatMul_A16W16 | arch22（DAV_2201 / A2/A3）；arch35（DAV_3510 / A5） | ✅ [A2/A3 性能优化指南](references/matmul/arch22/guide.md)（含检视判据） · [A5 性能建模](references/matmul/arch35/performance_modeling.md) · [A5 基本块](references/matmul/arch35/basic_block_design.md) · [A5 性能优化指南](references/matmul/arch35/guide.md) · [A5 Blaze 路线评估](references/matmul/arch35/blaze_design.md) |
+| MatMul 矩阵乘类 | MatMul, BatchMatMul, GroupMatMul, GroupedMatmul, MatMul_MXFP4, MatMul_A16W16 | arch22（DAV_2201 / A2/A3）；arch35（DAV_3510 / A5） | ✅ [A2/A3 性能优化指南](references/matmul/arch22/guide.md)（含检视判据） · [A5 性能建模](references/matmul/arch35/performance_modeling.md) · [A5 基本块](references/matmul/arch35/basic_block_design.md) · [A5 性能优化指南](references/matmul/arch35/guide.md) · [A5 Blaze 路线评估](references/matmul/arch35/blaze_design.md) · [常量折叠策略](references/matmul/constant_folding_design.md)（TCubeTiling → 编译期 MatmulApiStaticTiling） |
 | MC² 通算融合类 | matmul_all_reduce, allgather_matmul, matmul_reducescatter, alltoall_matmul | arch35（DAV_3510 / A5） | ✅ [性能优化指南](references/mc2/guide.md) |
-| FlashAttention 注意力类 | FusedInferAttentionScore, FlashAttention, FlashMlaWithKvcache, KvQuantSparseFlashAttention, SparseFlashAttention, SCFA | arch22（DAV_2201 / A2/A3）；arch35（DAV_3510 / A5） | ✅ [A2/A3 性能优化指南](references/flash_attention/arch22/guide.md)（含检视判据） · [A5 性能优化指南](references/flash_attention/arch35/guide.md)（含 FIA 跨子类通用 4 手段与 SCALAR / SCALARLDST 子类决策、QSFA 启动头、稀疏注意力元数据，以及 FA 语义→流水→优化→实例；附源码阅读材料、数学验证脚本和历史实验摘要） |
+| FlashAttention 注意力类 | FusedInferAttentionScore, FlashAttention, FlashMlaWithKvcache, KvQuantSparseFlashAttention, SparseFlashAttention, SCFA | arch22（DAV_2201 / A2/A3）；arch35（DAV_3510 / A5） | ✅ [A2/A3 性能优化指南](references/flash_attention/arch22/guide.md)（含检视判据） · [A5 性能优化指南](references/flash_attention/arch35/guide.md)（含 FIA 跨子类通用 4 手段与 SCALAR / SCALARLDST 子类决策、QSFA 启动头、稀疏注意力元数据，以及 FA 语义→流水→优化→实例；附源码阅读材料、数学验证脚本和历史实验摘要） · [CANNBot-DSL 最佳实践库](references/flash_attention/arch35/cannbot-dsl/index.md)（查 DSL 优化手段先到这里：流水排布 / tilingdata 结构 / 积木模块 / 胶水四维组织，SFA 实例含四层 tiling 建模、延迟线流水与 37 步消融） |
 | RadixSort 基数排序类 | TopK, KthValue, Sort, ArgSort, ArgMax/Min | arch22：A2 实测、A3 待验证；arch35：TopK | ✅ [A2 性能经验](references/sort/arch22/radix_sort.md) · [A5 TopK](references/sort/arch35/templates/usage_guide.md) |
 | Scalar 编码与诊断 | 任意 ScalarBound 算子 | 通用（arch22 / arch35）；硬件参数按目标核验 | ✅ [性能优化指南](references/common/scalar/guide.md) |
 | Reduction 归约类 | ReduceSum, Softmax, LayerNorm, RMSNorm, ArgMax | arch35（DAV_3510 / A5） | ✅ [实现索引](references/reduce/guide.md) · [模板代码与使用指南](references/reduce/templates/usage_guide.md) · [State Resident](references/reduce/templates/state_resident_design.md) |
@@ -82,6 +74,7 @@ FA按[分层参考资料](references/flash_attention/arch35/guide.md#从语义�
 | **CV 融合（Cube-Vector 协同）** | arch35；Cube（MMAD）与 Vector（激活/Cast/量化/归约）需协同的融合算子：选数据通路（分离/GM中转/L0C→UB直通）、`__mix__(1,2)` 编程模型、CrossCore 同步纪律、双 AIV 分工 | ✅ [CV融合设计](references/common/arch35/cv_fusion_design.md) |
 | **Reg VF 编译与兼容** | arch35 独占；构建模式、模板适配、版本兼容或编译诊断 | [CANN / Reg VF 编译问题 FAQ](references/common/arch35/regbase/cann_version_compat_faq.md) |
 | **Reg VF 范例库** | arch35 独占；按计算模式、前置条件及 readiness 查询 | [VF 范例库与机器可读目录](references/common/arch35/regbase/README.md) |
+| **CANNBot-DSL 公共实现知识** | arch35 独占；跨算子族的 DSL 五段链方法论、编程模型要点、证据纪律与建库规则 | [cannbotdsl 公共库](references/common/arch35/cannbotdsl/index.md)（族级 DSL 实现知识在 `<族>/arch35/cannbot-dsl/`，如 [FA 族](references/flash_attention/arch35/cannbot-dsl/index.md)） |
 
 ## 查询方式
 
@@ -91,7 +84,7 @@ FA按[分层参考资料](references/flash_attention/arch35/guide.md#从语义�
 | 算子名 | 是 | 如 `matmul` / `matmul_mxfp4` / `batch_matmul` |
 | 优化类型 | 否 | 如 `pingpong` / `swat` / `streamk` / `fullload` / `scale_coalescing` / `mte2_preload`；不提供则加载目标代际适用部分 |
 
-查询流程：**精确目标与代际 → 算子名 → 拆解内部计算单元 → 映射到算子族 → 读取目标适用的指南与模板 → 完成族级选路、模板和 Tiling 方案 → arch35 按计算模式查询 VF 范例库 → 判断选定实现是否使用 SIMT → 必要时进入 SIMT 进阶优化**。算子族映射规则：精确匹配族名直接命中；以族名为前缀或核心词（如 `matmul_mxfp4`、`batch_matmul`）归入该族；其他形态由调用方按功能显式指定。融合算子要为每个内嵌计算单元记录独立的族、数据流和实现路线。DAV_3510 case 的热点若是向量计算、归约、寄存器重排或 Cast/Pack，即使当前源码没有 Reg/MicroAPI，也必须查询一次 [VF 范例库](references/common/arch35/regbase/README.md)；查询不等于选中，仍须满足条目前置条件和 readiness 门禁。
+查询流程：**算子名 → 拆解内部计算单元 → 映射到算子范式 → 按目标代际读取该范式代际目录的 guide.md 与公共优化经验（代际文件夹第一层）→ 需要特定语言实现时进入第一层内的语言子目录（如 `cannbot-dsl/`）→ 完成族级选路、模板和 Tiling 方案 → arch35 按计算模式查询 VF 范例库 → 判断选定实现是否使用 SIMT → 必要时进入 SIMT 进阶优化**。算子族映射规则：精确匹配族名直接命中；以族名为前缀或核心词（如 `matmul_mxfp4`、`batch_matmul`）归入该族；其他形态由调用方按功能显式指定。融合算子要为每个内嵌计算单元记录独立的族、数据流和实现路线。DAV_3510 case 的热点若是向量计算、归约、寄存器重排或 Cast/Pack，即使当前源码没有 Reg/MicroAPI，也必须查询一次 [VF 范例库](references/common/arch35/regbase/README.md)；查询不等于选中，仍须满足条目前置条件和 readiness 门禁。
 
 ### 融合算子内嵌 MatMul 路由（arch35）
 
@@ -167,6 +160,7 @@ SIMT 是编程模型层的进阶优化，不能替代算子族选型。按以下
 1. 创建 `references/<family>/` 目录（以族名命名，非单个变体）
 2. 判断族性质：优化型 → 按 A 写优化设计文档；实现指导型 → 按 B 写总览、分册和必要的范式源码
 3. 更新本 SKILL.md 分类表格，并按代际范围参考登记适用架构、来源与实际验证范围
+4. 需要沉淀特定语言知识时，在对应代际目录第一层下建语言子目录（如 `references/<family>/arch35/cannbot-dsl/`，按五段链自包含建库），并由该代际 `guide.md` 索引；共同机制修改族级原文并链接语言实例，语言专有机制进语言子目录，不维护相同算法的平行手册
 
 ## 内容形态
 

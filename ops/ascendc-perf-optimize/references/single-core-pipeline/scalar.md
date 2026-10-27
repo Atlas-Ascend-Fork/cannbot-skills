@@ -25,6 +25,20 @@
 | 标量 round-trip（GetValue/SetValue、V_S/S_V 同步） | [vec-04-scalar-roundtrip-vectorize](techniques/vec-04-scalar-roundtrip-vectorize.md) |
 | 外层 for 在 VF 外反复启停 / setup 重复 | [vec-09-loop-sink-into-vf](techniques/vec-09-loop-sink-into-vf.md) |
 | 小定长循环 | [vec-10-small-loop-unroll](techniques/vec-10-small-loop-unroll.md) |
+| **Matmul API 常量折叠**（kernel 使用 `AscendC::Matmul`，TCubeTiling 运行时解析致 aic_scalar 偏高） | 见下方「Matmul API 常量折叠（Scalar Bound 专项）」 |
+
+### Matmul API 常量折叠（Scalar Bound 专项）
+
+**适用门禁（同时满足才推荐实施 Go）**：
+1. Kernel 使用 Matmul API（如 `AscendC::Matmul`）；
+2. `aic_scalar_ratio ≥ 0.15`（Scalar Bound / 小 case 门禁——**只看 scalar 占比是否过阈值，不与其它泳道占比比大小**；即使 MTE2/Vector 占比更高，只要 scalar 过阈值即命中本策略，与访存 Bound 路线可叠加分析）；
+3. shape 可固化或可取上界（调用点能全程 constexpr）。
+
+**手段**：把 `TCubeTiling` 的运行时解析迁移到编译期——用 constexpr `MatmulApiStaticTiling` 作为模板参数，`Init/REGIST` 传 `nullptr` 后再 `SetOrgShape`（顺序不可颠倒）、singleCore 填上界、尾块维度不可常量化，从而降低 `aic_scalar_time`。
+
+**分工边界**：本技能负责策略选择与 tiling 修正建议；逐步改代码的实施细节需参考 `ascendc-performance-best-practices` 的 matmul 族优化指南（[constant_folding_design.md](../../../ascendc-performance-best-practices/references/matmul/constant_folding_design.md)）。
+
+**验证**：改后按完整调用 msprof Task Duration 与 scalar 分段核验收益，精度按原口径复测。
 
 ## Tiling 修正建议
 

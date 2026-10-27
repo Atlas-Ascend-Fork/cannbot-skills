@@ -1,9 +1,9 @@
 ---
 name: ascendc-perf-optimize
-description: Ascend C 算子性能优化策略制定。结合 Tiling 建模与流水分析（仿真图 + profiling 数据），按卡间/核间/核内三层流水制定性能优化策略，并回修 Tiling 参数。触发：算子性能调优、流水分析、Tiling 修正、bound 诊断、MC² 通算融合算子优化、卡间流水配平时。
+description: 算子公共性能诊断与策略制定（语言无关）。结合 Tiling 建模与流水分析（仿真图 + profiling 数据），按卡间/核间/核内三层流水制定性能优化策略，并回修 Tiling 参数；触发：算子性能调优、流水分析、Tiling 修正、bound 诊断、MC² 通算融合算子优化、卡间流水配平时。
 ---
 
-# Ascend C 算子性能优化流水分析
+# 算子公共性能优化流水分析
 
 > **⚠️ 重要**：本技能定义了 **4 步分层流水**优化流程（Step 1 → Step 2 → Step 3 → Step 4），而非简化的 3 步流程。Step 2（卡间流水）、Step 3（核间流水）、Step 4（单核流水）是三个独立的流水分析步骤，各有明确的适用条件、输入输出要求。请勿将它们合并为单一的"流水分析"步骤。
 
@@ -56,11 +56,12 @@ Step 4 — 单核流水优化策略（核内流水分析 + tiling 修正）
 - [ ] 内嵌 MM 的 L1/L0/输出流水：`L1 → L0(A2/B2) → Mmad(Cube) → Fixpipe/DataCopyCO12DstParams`、双缓冲和事件配对
 - [ ] 分支场景覆盖（dtype、shape 大小、对齐）
 
+
 ---
 
-### 内嵌 MatMul 路由（Cube/融合类强制）
+### 内嵌 AscendC MatMul 路由（Cube/融合类强制）
 
-融合算子不能只按外层名称归类。只要计算流程中出现 `mm`/`matmul`/`mmad`，就把它作为独立 MatMul 单元完成 Step 1 建模，并将其 tiling、流水和候选路线写入报告。
+融合算子不能只按外层名称归类。只要计算流程中出现 `mm`/`matmul`/`mmad`，就把它作为独立 MatMul 单元完成 Step 1 建模，并将其 tiling、流水和候选路线写入报告
 
 候选路线按以下顺序评估：
 
@@ -88,7 +89,13 @@ Step 4 — 单核流水优化策略（核内流水分析 + tiling 修正）
 > 1. **TilingData 采集**：从 host 代码打印获取 baseM/baseN/baseK/usedCoreNum。若 host 代码未打印，须在源码副本中启用 PrintTilingData 后重新运行。详见 `comm-compute/index.md` Step 0 和 `comm-compute/pipeline_balancing.md`「TilingData 依赖」章节。
 > 2. **隔离测试**：在 tileCnt=1 下分别注释通信/计算 process，实测 T_comm 和 T_compute，计算 R 值判定 Bound 类型。详见 `comm-compute/bound_diagnosis.md`。
 
-**过程**：加载 `references/comm-compute/`，分析卡间通信与计算的流水重叠，识别通信瓶颈。
+**过程**：加载 `references/comm-compute/`，按「远端卡数据经卡间链路（HCCS/NVLINK）到达本卡 UB，与本卡计算的流水重叠」进行通算演算，识别通信瓶颈。
+
+**报告结构（四项必须逐项出现在报告中；场景数据不全时基于已知 profiling 结论推演、缺失项列为待补采，不得以"仅给出方向"省略任何一项）**：
+1. **输入与适用性**：完整列出 Step 2 的输入——Step 1 的 tiling data、计算流程、仿真图与 profiling 数据；声明适用边界：通信类算子（AllReduce/AllGather/ReduceScatter 等，含纯集合通信与 MC² 融合）必做本步，**非通信类算子跳过此步骤**。
+2. **通算演算（必须实际推演）**：以 profiling 结论为输入，演算「远端卡数据经卡间链路（HCCS/NVLINK）到达本卡 UB」与本卡计算的逐 chunk 重叠关系——通信段/计算段/等待段如何交替、瓶颈在哪一段（隔离测试 T_comm/T_compute/R 值、流水配平、膨胀分析、性能指标核算），不得只列策略清单。
+3. **产出**：卡间流水仿真图分析（分块流水时间轴推演：收 chunk k+1 与算 chunk k 的重叠）、通信/profiling 数据报告、卡间流水优化策略。
+4. **对 Step 1 tiling 策略的修正建议**：给出具体修正项与取值方向（如长块/短块各自独立 tiling data、块大小与 tileCnt 的调整方向及其约束公式），不做纯方向性描述。
 
 **输出**：
 - [ ] 卡间流水仿真图分析
@@ -132,6 +139,17 @@ Step 4 — 单核流水优化策略（核内流水分析 + tiling 修正）
 **输入**：Step 1 的 tiling data + 计算流程 + 仿真图 + profiling 数据 + 前几步的策略输出
 
 **过程**：加载 `references/single-core-pipeline/`，按其两级结构展开——`index.md` 路由判定 bound → 对应诊断页（vec/scalar/memory/no-bound.md）看细分特征 → `techniques/` 取技术卡片实施。采集与指标口径统一见 `metrics.md`（msprof）。
+
+**Bound 判定链（报告必须先完整枚举四类，再写排除过程）**：
+
+| bound 类型 | 判据（仿真图/profiling） | 诊断页 |
+|---|---|---|
+| Scalar Bound / 小 case | scalar 耗时占比高，或计算量小 | scalar.md |
+| 访存 Bound | MTE2/访存单元利用率高，带宽为主要限制 | memory.md |
+| Vec Bound | Vector 单元利用率高，向量指令为主要限制（访存带宽充足、MTE 相对空闲） | vec.md |
+| 无 Bound | 各单元利用率均不高（流水并行不足） | no-bound.md |
+
+枚举后逐类写明排除依据（如「因访存带宽充足排除访存 Bound，命中 Vec Bound」），最后落到命中类型并输出对应诊断页策略；MC² 前置检查与下钻规则见 `single-core-pipeline/index.md`。
 
 **输出**：
 - [ ] 核内流水仿真图分析

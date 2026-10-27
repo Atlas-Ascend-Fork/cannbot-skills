@@ -4,7 +4,7 @@
 
 Reduce 族算子（Softmax、LayerNorm、RMSNorm、ReduceSum、ReduceMax 等）在 Ascend Vector 核心上的高性能实现，沉淀为一组**可复用 Kernel 模板**。本指南是这些模板的入口，介绍每个模板解决的问题、关键技术与适用条件，以及如何适配到同族其他算子（如 Norm）。
 
-跨算子族按计算模式查 VF 时，从 [Reg VF 范例库](../regbase/README.md) 进入；本目录仍是 Reduction 模板代码的唯一来源。
+跨算子族按计算模式查 VF 时，从 [Reg VF 范例库](../common/arch35/regbase/README.md) 进入；本目录仍是 Reduction 模板代码的唯一来源。
 
 > 本指南是**优秀实践目录**，而非选型决策树：每个模板列出其适用条件与解决的问题，由实现者根据实际 shape、UB 容量与带宽情况判断采用。Reduce 族算子形态多样，不存在普适的"唯一最优"，理解各模板的权衡是正确适配的前提。
 
@@ -44,7 +44,7 @@ guide.md（本文件）
     └── state_resident_design.md                    融合算子 UB 状态常驻设计
 ```
 
-**阅读顺序**：先读本指南「通用范式」「公共框架」理解骨架 → 读对应模板 `.md` 了解流程与关键技术 → 落代码时对照同名 `.template`（使用时去掉 `.template` 后缀转成 `.h`，见 [usage_guide.md](templates/usage_guide.md) 第 0 节）→ 集成时读 [usage_guide.md](templates/usage_guide.md) → 在线场景读 `fused_attention_online_softmax_design.md` / `state_resident_design.md`。**遇到多轴交错（A-R 严格交替）布局导致 MTE2 碎读的 Reduce 场景**，先读本指南「多轴交错归约模式族」，再读两个 `euclidean_norm_interleaved_contiguous_*.md`。**遇到大 R + 小 A（切 A/行用不满核）的 Reduce 场景**，先读本指南「R 轴分核归约模式族（group / BlockSplitR）」，再读 [euclidean_norm_group_block_split_r.md](templates/euclidean_norm_group_block_split_r.md)。
+**阅读顺序**：先读本指南「通用范式」「公共框架」理解骨架 → 读对应模板 `.md` 了解流程与关键技术 → 落代码时对照同名 `.template`（使用时去掉 `.template` 后缀转成 `.h`，**拷贝到项目 `op_kernel/` 目录使用，禁止从零重写**，见 [usage_guide.md](templates/usage_guide.md) 第 0 节）→ 集成时读 [usage_guide.md](templates/usage_guide.md) → 在线场景读 `fused_attention_online_softmax_design.md` / `state_resident_design.md`。**遇到多轴交错（A-R 严格交替）布局导致 MTE2 碎读的 Reduce 场景**，先读本指南「多轴交错归约模式族」，再读两个 `euclidean_norm_interleaved_contiguous_*.md`。**遇到大 R + 小 A（切 A/行用不满核）的 Reduce 场景**，先读本指南「R 轴分核归约模式族（group / BlockSplitR）」，再读 [euclidean_norm_group_block_split_r.md](templates/euclidean_norm_group_block_split_r.md)。
 
 > ⚠️ **集成前必读**：[usage_guide.md](templates/usage_guide.md) 说明了如何将模板集成到实际项目中，包括构建配置、kernel 入口写法、host 调用方式、常见编译问题及解决方案。
 

@@ -8,7 +8,7 @@
 
 `templates/` 下的所有源码模板均以 `.template` 为后缀（如 `softmax_v2_base.template`）。这些是**参考模板**，不是可直接编译的源码。
 
-**使用时必须将 `.template` 重命名/复制为对应的 `.h`（或 `.cpp`）文件**，否则最终工程里的 `#include` 引用的是 `.h`，代码不易读也无法编译。转换规则很简单，去掉 `.template` 后缀并按文件头 `\file` 注释中标注的名字落地：
+**使用时必须将 `.template` 重命名/复制为对应的 `.h`（或 `.cpp`）文件，并拷贝到项目 `op_kernel/` 目录使用**（与算子 kernel 源码同级，即构建脚本 `ascendc_library` 的源码目录，见下文 CMake 示例），否则最终工程里的 `#include` 引用的是 `.h`，代码不易读也无法编译。转换规则很简单，去掉 `.template` 后缀并按文件头 `\file` 注释中标注的名字落地：
 
 | 模板文件 | 转换后落地文件 |
 |----------|---------------|
@@ -37,6 +37,8 @@ done
 ```
 
 > **架构目录说明**：Kernel 模板位于 `dav310/` 子目录（对应目标架构 `dav-3510`/Ascend950），`kernel_utils.template` 也在 `dav310/` 下，与其它 Kernel 模板同级。
+
+> **禁止从零重写**：模板已包含实测验证过的结构与参数组合，查到匹配模板后必须**复用**——转换成同名 `.h` 拷贝到项目 `op_kernel/` 目录直接集成/裁剪，不得凭模板思路从零重写 kernel；只有模板确实不覆盖的场景才新增/改造模板，并按消融纪律重新验证。
 
 ## 1. 文件清单
 
@@ -163,7 +165,7 @@ SoftmaxV2AR<bfloat16_t, bfloat16_t> op_bf16(&pipe);
 
 ## 9. 构建方式
 
-改代码前先运行 `scripts/vf_preflight.py` 判断最终构建契约；契约不同/未知时先做最小编译探针。首次探针、编译或集成失败后，再阅读 [CANN / Reg VF 编译问题 FAQ](../../regbase/cann_version_compat_faq.md)。目标工程为 `xasc_combined` 时，不得直接套用后文 device-only、`.asc` 或 `ascendc_library` 的声明位置和构建约束。
+改代码前先运行 `scripts/vf_preflight.py` 判断最终构建契约；契约不同/未知时先做最小编译探针。首次探针、编译或集成失败后，再阅读 [CANN / Reg VF 编译问题 FAQ](../../common/arch35/regbase/cann_version_compat_faq.md)。目标工程为 `xasc_combined` 时，不得直接套用后文 device-only、`.asc` 或 `ascendc_library` 的声明位置和构建约束。
 
 ### 方式零：`.cpp -xasc` 直调
 

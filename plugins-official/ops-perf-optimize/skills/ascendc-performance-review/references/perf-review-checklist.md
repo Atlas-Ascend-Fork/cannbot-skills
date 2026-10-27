@@ -75,8 +75,8 @@ arch22 专项编号依目标库的 MatMul、FlashAttention 族级指南进入对
 
 | ID | 名称 | 适用范围 | 知识点文件 | status |
 |---|---|---|---|---|
-| PRC-FA-001 | S2/M 切分与 workspace 联合求解 | arch22 FlashAttention/FIA；host/tiling 侧 | [FA Tiling 与流水](skill:ascendc-performance-best-practices) `reference/flash_attention/arch22/tiling_pipeline_design.md#prc-fa-001` | ready |
-| PRC-FA-002 | 多级 buffer 深度与事件 ID 共同闭合 | arch22 FlashAttention/FIA；kernel 侧 | [FA Tiling 与流水](skill:ascendc-performance-best-practices) `reference/flash_attention/arch22/tiling_pipeline_design.md#prc-fa-002` | ready |
+| PRC-FA-001 | S2/M 切分与 workspace 联合求解 | arch22 FlashAttention/FIA；host/tiling 侧 | [FA Tiling 与流水](skill:ascendc-perf-optimize) `references/tiling/fa/arch22/tiling_pipeline_design.md#prc-fa-001` | ready |
+| PRC-FA-002 | 多级 buffer 深度与事件 ID 共同闭合 | arch22 FlashAttention/FIA；kernel 侧 | [FA Tiling 与流水](skill:ascendc-perf-optimize) `references/tiling/fa/arch22/tiling_pipeline_design.md#prc-fa-002` | ready |
 | PRC-FA-003 | 启动与热循环 Scalar 减载 | arch22 FlashAttention/FIA；kernel 侧 | [FA Scalar 与启动开销](skill:ascendc-performance-best-practices) `reference/flash_attention/arch22/scalar_overhead_design.md#prc-fa-003` | ready |
 
 ### VEC——MemBase 矢量计算

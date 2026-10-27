@@ -104,6 +104,13 @@ MC² 通算融合算子采用 AIC（计算核）+ AIV（向量核）分离架构
 
 > 详见 [pipeline_balancing.md](pipeline_balancing.md) 的 AIC/AIV 分离架构章节。
 
+### 报告结构（卡间流水分析必须逐项覆盖；数据不全时基于已知 profiling 结论推演、缺失项列为待补采，不得以"仅给出方向"省略）
+
+1. **输入与适用性**：完整列出输入——Step 1 的 tiling data、计算流程、仿真图与 profiling 数据；本流程适用于通信类算子（AllReduce/AllGather/ReduceScatter 等，含纯集合通信与 MC² 融合），**非通信类算子跳过此步骤**。
+2. **通算演算（必须实际推演）**：以 profiling 结论为输入，演算远端卡数据经卡间链路（HCCS/NVLINK）到达本卡 UB 与本卡计算的逐 chunk 重叠关系——通信段/计算段/等待段如何交替、瓶颈段定位（隔离测试 T_comm/T_compute/R 值 → 流水配平 → 膨胀分析 → 性能指标核算），不得只列策略框架。
+3. **产出**：卡间流水仿真图分析（分块流水时间轴推演：收 chunk k+1 与算 chunk k 的重叠）、通信/profiling 数据报告、卡间流水优化策略。
+4. **对 Step 1 tiling 策略的修正建议**：给出具体修正项与取值方向（长块/短块各自独立 tiling data、块大小与 tileCnt 的调整方向及其约束公式），不做纯方向性描述。
+
 ---
 
 ## 分析流程
