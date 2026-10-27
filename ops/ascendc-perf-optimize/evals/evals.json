@@ -98,8 +98,8 @@
         ],
         "eval_mode": "text"
       },
-      "prompt": "我的一个 Ascend C Vec 算子性能不达标，profiling 报告显示 Vector 单元利用率很高、向量指令是主要瓶颈，访存带宽充足。请按 ascendc-perf-optimize 技能的单核流水优化流程诊断瓶颈并给出优化思路。不需要执行任何工具调用。",
-      "expected_output": "1. 回复应说明 Step 4 单核流水优化适用于所有算子，并说明该步通过仿真图或 profiling 数据判定 bound 类型；结合本例「Vector 单元利用率高、向量指令为主要限制、访存带宽充足」判定为 Vec Bound。\n2. 回复应给出按 bound 类型路由的判定链：Scalar Bound/小 case、访存 Bound、Vec Bound、无 Bound 四类，并说明本例因访存带宽充足而排除访存 Bound、命中 Vec Bound 并对应 VEC Bound 优化策略。\n3. 回复应给出核内流水优化策略（如 UB 融合、减少 Cast/类型转换、VMULA/VMULS/VMADD 等融合指令、深度 VEC Bound 时用 LUT+插值减少计算量、检查 DoubleBuffer）以及对该算子 tiling 参数的修正建议（如增大 tile 尺寸减少循环次数、使能 DoubleBuffer 时可用 UB 需除以 2 重算）。",
+      "prompt": "我的一个 Ascend C Vec 算子性能不达标，profiling 报告显示 Vector 单元利用率很高、向量指令是主要瓶颈，访存带宽充足。请先加载 ascendc-perf-optimize 技能并阅读其 SKILL.md 与 references/single-core-pipeline/ 下的文档后回答（不需要实际执行 profiling 或修改代码）：按单核流水优化流程诊断瓶颈并给出优化思路。",
+      "expected_output": "1. 回复应说明该步通过仿真图或 profiling 数据判定 bound 类型；结合本例「Vector 单元利用率高、向量指令为主要限制、访存带宽充足」判定为 Vec Bound。\n2. 回复应说明本例的 bound 判定依据（访存带宽充足/MTE 未饱和 → 排除访存 Bound，Vector 占主导 → 命中 Vec Bound）并对应给出 VEC Bound 优化策略。\n3. 回复应给出核内流水优化策略（如 UB 融合、减少 Cast/类型转换、融合指令、深度 VEC Bound 时减少计算量、检查 DoubleBuffer）以及对该算子 tiling 参数的修正建议（如增大 tile 尺寸减少循环次数、使能 DoubleBuffer 时可用 UB 需除以 2 重算）。",
       "expectations": [],
       "files": []
     },
@@ -144,7 +144,7 @@
         "eval_mode": "text"
       },
       "prompt": "我在优化一个普通 MatMul 算子，msprof 显示 aic_scalar_ratio=0.42，aic_mte2_ratio=0.55，kernel 使用 AscendC::Matmul 并从 GM 加载 TCubeTiling。请先加载 ascendc-perf-optimize 技能并阅读其 SKILL.md 与 references/single-core-pipeline/ 下的文档后回答（不需要实际执行 profiling 或修改代码）：1）这个普通 MatMul 在技能的 4 步流程中依次执行哪些步骤、跳过哪些步骤？2）按 references/single-core-pipeline/scalar.md 的策略表，Matmul API 常量折叠属于哪一类策略、适用条件是什么、本例是否满足、应给出什么结论？3）该策略的手段是什么，逐步改代码的实施应参考哪个技能？",
-      "expected_output": "1. 回复应说明普通 MatMul（非通信类、非多核间同步）在 4 步流程中的路径：执行 Step 1 Tiling 理论建模后跳过 Step 2 与 Step 3，进入 Step 4 单核流水优化。\n2. 回复应指出 Matmul API 常量折叠是本技能 `references/single-core-pipeline/scalar.md`（Scalar Bound / 小 case）中的优化策略，适用条件为 Kernel 使用 Matmul API 且 `aic_scalar_ratio` ≥ 0.15、shape 可固化或可取上界；本例使用 `AscendC::Matmul` 且 0.42 ≥ 0.15，应给出推荐实施（Go）的结论。\n3. 回复应说明常量折叠的手段是把 `TCubeTiling` 解析迁移到编译期以降低 `aic_scalar_time`，并指出本技能负责策略与 tiling 修正建议、逐步改代码的实施细节需参考 `ascendc-performance-best-practices` 的 matmul 族优化指南。",
+      "expected_output": "1. 回复应说明普通 MatMul（非通信类、非多核间同步）在 4 步流程中的路径：执行 Step 1 Tiling 理论建模后跳过 Step 2 与 Step 3，进入 Step 4 单核流水优化。\n2. 回复应指出 Matmul API 常量折叠属于 `references/single-core-pipeline/scalar.md`（Scalar Bound / 小 case）方向的优化策略（如归入冗余 scalar / 去封装开销一类），并说明其适用前提：Kernel 使用 Matmul API、scalar 占比高，且 shape 可固化或可分桶/取上界（动态 shape 不适用）；本例 shape 是否可固化未给出，给出条件式结论（可固化则实施、动态则不适用并改用其他手段）或先核实再下结论均可。\n3. 回复应说明常量折叠的手段是把 `TCubeTiling` 解析迁移到编译期（静态/常量 Tiling）以降低 scalar 开销，并指出逐步改代码的实施可参考的相关技能（如 `ascendc-performance-best-practices` 的 matmul 族优化指南、`ascendc-tiling-design` 的静态 Tiling API、`ascendc-api-best-practices` 的 Matmul API 用法，任一即可）。",
       "expectations": [],
       "files": []
     }

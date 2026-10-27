@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------------------------------------
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
 # This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-# CANN Open Software License Version 2.0 (the "License").
+# CANN Open Software License Agreement Version 2.0 (the "License").
 # Please refer to the License for details. You may not use this file except in compliance with the License.
 # THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
@@ -19,7 +19,7 @@ AI agent 每次执行 skill 时，直接调用本模块的函数，不再需要�
     case 分类、tiling 布局、模板集合、模式识别、输入校验、候选硬约束、
     硬件常量、可调宏和 vendor 包由当次针对目标仓生成的
     references/profiles/<op_name>/ 提供。
-    执行层仍有固定输入 ABI、canonical tiling 字段和 vendor/JIT 模型；新算子必须
+    执行层仍有 vendor/JIT 模型；新算子必须
     先通过 references/operator-guide.md 的兼容性审计，不能仅凭存在算子档案就
     视为已支持。
 
@@ -27,7 +27,7 @@ AI agent 每次执行 skill 时，直接调用本模块的函数，不再需要�
     load_profile("<op_name>")   # 显式指定算子（可选，见下）
 
     validate_case_csv / extract_all_params / extract_shape_params 会按 CSV 行的
-    op_name 自动 load_profile（全部行必须同一算子），SKILL.md 工作流无需显式调用；
+    op_name 自动 load_profile（全部行必须同一算子），solver.md 工作流无需显式调用；
     其余 per-op 入口（allowed_templates / check_candidate / generate_ranking_block /
     扫参脚本生成等）要求已有活跃档案，未加载时报错指路 load_profile。
 
@@ -61,6 +61,7 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import struct
 import subprocess
 import sys
@@ -123,7 +124,9 @@ def _apply_op_paths(op_name: str, profile: dict) -> None:
     KERNEL_META_DIR = f"{TTK_DIR}/kernel_meta"
 
 
-def configure_paths(op=None, op_base=None, ttk_dir=None, run_dir=None, case_dir=None) -> dict:
+def configure_paths(
+    op=None, op_base=None, ttk_dir=None, run_dir=None, case_dir=None
+) -> dict:
     """
     设置部署路径并持久化到 sidecar（本模块同目录 paths.json），跨进程生效。
 
@@ -136,7 +139,11 @@ def configure_paths(op=None, op_base=None, ttk_dir=None, run_dir=None, case_dir=
     ttk_dir/run_dir/case_dir 为跨算子共享的全局配置。
     """
     cfg = _load_paths()
-    for key, val in (("ttk_dir", ttk_dir), ("run_dir", run_dir), ("case_dir", case_dir)):
+    for key, val in (
+        ("ttk_dir", ttk_dir),
+        ("run_dir", run_dir),
+        ("case_dir", case_dir),
+    ):
         if val:
             cfg[key] = val
     raw_base = cfg["op_base"]
@@ -195,21 +202,11 @@ _ACTIVE_OP_NAME: Optional[str] = None
 # vendor 包名映射（模板名/normal → 安装侧 vendor 包目录名，derive 见 _derive_vendor_packages）
 VENDOR_PACKAGES: dict = {}
 
-# KERNELTYPE(bits 8-15) → 模板名 联合反查表：档案全部 quant_modes 的
-# kernel_type_map 汇聚（跨模式同名同值：KT0/1=swat/afull[mx 与 w8a8 等价]、
-# KT2/3=mix/mix_afull[pertoken 与 doublescale-mix]、KT4=perblock、KT9=l0cpp、
-# KT11=streamk[mx 与 doublescale-streamk]）。用于 baseline/锚点日志的模板标注
-# （唯一可靠源是 tiling key），不做 sed 路由（路由按 mode×template 查 kernel_files）。
-_KT_TO_TEMPLATE: dict[int, str] = {}
-
 # TUNE_ 宏名映射（候选字段名 → #define 宏名；derive 见 _derive_macro_map）
 MACRO_MAP: dict = {}
 
 # skill 规定的每模板最少候选数（档案 constraints.required_candidates_per_template）
 REQUIRED_CANDIDATES_PER_TEMPLATE: Optional[int] = None
-
-# 惰性构建: u32 槽数 → 布局名（load_profile 换档案时重置）
-_LAYOUT_BY_SLOTS: Optional[dict] = None
 
 
 def _available_profiles() -> list:
@@ -273,7 +270,8 @@ def _derive_vendor_packages(profile: dict) -> dict:
                 if m:
                     if normal != m.group(1):
                         raise RuntimeError(
-                            f"档案 stub 模式 kernel_files 指向多个 normal 包（{normal} / {m.group(1)}）——声明不自洽"
+                            f"档案 stub 模式 kernel_files 指向多个 normal 包"
+                            f"（{normal} / {m.group(1)}）——声明不自洽"
                         )
     pkgs["normal"] = normal
     return pkgs
@@ -304,18 +302,26 @@ def _derive_macro_map(profile: dict) -> dict:
     for m_cfg in profile["quant_modes"].values():
         assign_texts.append(m_cfg.get("tuning_block_template") or "")
     for text in assign_texts:
-        for field, macro in _TUNE_ASSIGN_RE.findall(text):
-            prev = macro_to_field.setdefault(macro, field)
-            if prev != field:
-                raise RuntimeError(f"档案 TUNE 宏 {macro} 映射到多个字段（{prev} / {field}）——tuning 块声明不自洽")
+        for field_name, macro in _TUNE_ASSIGN_RE.findall(text):
+            prev = macro_to_field.setdefault(macro, field_name)
+            if prev != field_name:
+                raise RuntimeError(
+                    f"档案 TUNE 宏 {macro} 映射到多个字段（{prev} / {field_name}）——tuning 块声明不自洽"
+                )
     declared: set = set()
     for t_cfg in (profile.get("templates") or {}).values():
-        declared |= set(_TUNE_DEFINE_RE.findall(t_cfg.get("tune_macro_define_block") or ""))
+        declared |= set(
+            _TUNE_DEFINE_RE.findall(t_cfg.get("tune_macro_define_block") or "")
+        )
     for m_cfg in profile["quant_modes"].values():
-        declared |= set(_TUNE_DEFINE_RE.findall(m_cfg.get("tune_macro_define_block") or ""))
+        declared |= set(
+            _TUNE_DEFINE_RE.findall(m_cfg.get("tune_macro_define_block") or "")
+        )
     unmatched = declared - set(macro_to_field)
     if unmatched:
-        raise RuntimeError(f"档案声明了无字段赋值对应的 TUNE 宏: {sorted(unmatched)}——define 块与 tuning 块不自洽")
+        raise RuntimeError(
+            f"档案声明了无字段赋值对应的 TUNE 宏: {sorted(unmatched)}——define 块与 tuning 块不自洽"
+        )
     return {field: macro for macro, field in macro_to_field.items()}
 
 
@@ -323,7 +329,8 @@ def _validate_profile(profile: dict, op_name: str) -> None:
     """校验执行层实际依赖的算子档案结构，避免缺字段在长任务中途才暴露。"""
     if profile.get("_scaffold") is True:
         raise RuntimeError(
-            f"算子 '{op_name}' 的算子档案仍是草稿。请完成所有必填项、补齐源码 evidence，并删除顶层 _scaffold 后再加载。"
+            f"算子 '{op_name}' 的算子档案仍是草稿。请完成所有必填项、"
+            "补齐源码 evidence，并删除顶层 _scaffold 后再加载。"
         )
     required = {
         "schema",
@@ -346,7 +353,8 @@ def _validate_profile(profile: dict, op_name: str) -> None:
         raise RuntimeError(f"算子 '{op_name}' 的算子档案缺少必需字段: {missing}")
     if profile["identity"].get("op_name") != op_name:
         raise RuntimeError(
-            f"算子档案目录名 '{op_name}' 与 identity.op_name={profile['identity'].get('op_name')!r} 不一致"
+            f"算子档案目录名 '{op_name}' 与 identity.op_name="
+            f"{profile['identity'].get('op_name')!r} 不一致"
         )
 
     for section in ("case_classes", "struct_layouts", "quant_modes"):
@@ -359,8 +367,9 @@ def _validate_profile(profile: dict, op_name: str) -> None:
         "l0b_size",
         "l0c_size",
         "data_size_l0c",
-        "mx_group_size",
     }
+    if "mx_group_size" in profile["soc"]:
+        runtime_soc_keys.add("mx_group_size")
     bad_soc = sorted(
         key
         for key in runtime_soc_keys
@@ -369,34 +378,71 @@ def _validate_profile(profile: dict, op_name: str) -> None:
         or profile["soc"][key] <= 0
     )
     if bad_soc:
-        raise RuntimeError(f"算子档案字段 soc 缺少执行器所需的正数常量或值非法: {bad_soc}")
+        raise RuntimeError(
+            f"算子档案字段 soc 缺少执行器所需的正数常量或值非法: {bad_soc}"
+        )
+
+    core_query = profile["soc"].get("core_query")
+    if core_query is not None and (
+        not isinstance(core_query, dict)
+        or not all(
+            isinstance(core_query.get(key), str) and core_query[key].strip()
+            for key in ("core_type", "spec_key", "evidence")
+        )
+    ):
+        raise RuntimeError("soc.core_query 必须声明 core_type/spec_key/evidence")
+
+    for dtype, size in profile.get("dtype_sizeof", {}).items():
+        if (
+            isinstance(size, bool)
+            or not isinstance(size, (int, float))
+            or size <= 0
+            or not isinstance(profile.get("dtype_evidence", {}).get(dtype), str)
+            or not profile["dtype_evidence"][dtype].strip()
+        ):
+            raise RuntimeError(
+                f"dtype_sizeof.{dtype} 必须为正数字节数并附 dtype_evidence"
+            )
 
     required_candidates = profile["constraints"].get("required_candidates_per_template")
-    if isinstance(required_candidates, bool) or not isinstance(required_candidates, int) or required_candidates <= 0:
-        raise RuntimeError("算子档案字段 constraints.required_candidates_per_template 必须是正整数")
+    if (
+        isinstance(required_candidates, bool)
+        or not isinstance(required_candidates, int)
+        or required_candidates <= 0
+    ):
+        raise RuntimeError(
+            "算子档案字段 constraints.required_candidates_per_template 必须是正整数"
+        )
 
     key_decl = profile.get("tiling_key")
-    if key_decl is None and profile.get("schema") != "v2":
+    if key_decl is None:
         raise RuntimeError(f"算子 '{op_name}' 的算子档案缺少 tiling_key 位段声明")
     if key_decl is not None:
         shift = key_decl.get("kernel_type_shift")
         bits = key_decl.get("kernel_type_bits")
-        if not isinstance(shift, int) or shift < 0 or not isinstance(bits, int) or not 1 <= bits <= 32:
-            raise RuntimeError(f"算子 '{op_name}' 的 tiling_key.kernel_type_shift/bits 非法: {shift}/{bits}")
+        if (
+            not isinstance(shift, int)
+            or shift < 0
+            or not isinstance(bits, int)
+            or not 1 <= bits <= 32
+        ):
+            raise RuntimeError(
+                f"算子 '{op_name}' 的 tiling_key.kernel_type_shift/bits 非法: "
+                f"{shift}/{bits}"
+            )
 
-    slots = {}
     for name, spec in profile["struct_layouts"].items():
         n_slots = spec.get("u32_slots")
         if not isinstance(n_slots, int) or n_slots <= 0:
             raise RuntimeError(f"struct_layouts.{name}.u32_slots 必须是正整数")
-        if not name.startswith("_") and n_slots in slots:
-            raise RuntimeError(f"可解析布局 {slots[n_slots]!r}/{name!r} 使用相同槽位数 {n_slots}，运行时无法判别")
-        if not name.startswith("_"):
-            slots[n_slots] = name
+        when = spec.get("when", {})
+        if not isinstance(when, dict):
+            raise RuntimeError(f"struct_layouts.{name}.when 必须是上下文匹配条件对象")
         byte_size = spec.get("byte_size")
         if byte_size is not None and byte_size != n_slots * 4:
             raise RuntimeError(
-                f"struct_layouts.{name}: byte_size={byte_size}，但 u32_slots={n_slots} 应对应 {n_slots * 4} 字节"
+                f"struct_layouts.{name}: byte_size={byte_size}，但 u32_slots={n_slots} "
+                f"应对应 {n_slots * 4} 字节"
             )
 
     for section, exports in (
@@ -408,53 +454,101 @@ def _validate_profile(profile: dict, op_name: str) -> None:
         if absent:
             raise RuntimeError(f"算子档案字段 {section}.exports 缺少 {absent}")
 
+    scheduling = profile.get("scheduling")
+    if scheduling is not None:
+        if not isinstance(scheduling, dict) or not all(
+            isinstance(scheduling.get(key), str) and scheduling[key].strip()
+            for key in ("model", "evidence")
+        ):
+            raise RuntimeError("scheduling 必须声明调度模型与源码 evidence，或省略该节")
+        if "derive_schedule" not in profile["recognition"].get("exports", []):
+            raise RuntimeError("调度模型需要 recognition.exports 声明 derive_schedule")
+
     package_files = profile["package_gate"].get("required_files")
     if not isinstance(package_files, list) or not package_files:
-        raise RuntimeError("算子档案字段 package_gate.required_files 必须列出至少一个会影响算子发现/注册的安装产物")
+        raise RuntimeError(
+            "算子档案字段 package_gate.required_files 必须列出至少一个会影响算子发现/注册的安装产物"
+        )
     for idx, item in enumerate(package_files):
         path = item.get("path") if isinstance(item, dict) else None
         scope = item.get("package_scope", "all") if isinstance(item, dict) else None
-        if not isinstance(path, str) or not path or os.path.isabs(path) or ".." in path.split(os.sep):
-            raise RuntimeError(f"算子档案 package_gate.required_files[{idx}].path 必须是 vendor 包内安全相对路径")
+        if (
+            not isinstance(path, str)
+            or not path
+            or os.path.isabs(path)
+            or ".." in path.split(os.sep)
+        ):
+            raise RuntimeError(
+                f"算子档案 package_gate.required_files[{idx}].path 必须是 vendor 包内安全相对路径"
+            )
         unexpanded = path.replace("{package}", "").replace("{op_name}", "")
         if "{" in unexpanded or "}" in unexpanded:
             raise RuntimeError(
-                f"算子档案 package_gate.required_files[{idx}].path 只能使用 {{package}}/{{op_name}} 占位符"
+                f"算子档案 package_gate.required_files[{idx}].path 只能使用 "
+                "{package}/{op_name} 占位符"
             )
         try:
             path.format(package="vendor", op_name=op_name)
         except (KeyError, ValueError) as e:
             raise RuntimeError(
-                f"算子档案 package_gate.required_files[{idx}].path 只能使用 {{package}}/{{op_name}} 占位符"
+                f"算子档案 package_gate.required_files[{idx}].path 只能使用 "
+                "{package}/{op_name} 占位符"
             ) from e
         if scope not in ("all", "normal", "forced"):
-            raise RuntimeError(f"算子档案 package_gate.required_files[{idx}].package_scope 非法: {scope!r}")
+            raise RuntimeError(
+                f"算子档案 package_gate.required_files[{idx}].package_scope 非法: {scope!r}"
+            )
         contains = item.get("contains", [])
-        if not isinstance(contains, list) or not contains or not all(isinstance(s, str) and s for s in contains):
-            raise RuntimeError(f"算子档案 package_gate.required_files[{idx}].contains 必须是非空字符串列表")
+        if (
+            not isinstance(contains, list)
+            or not contains
+            or not all(isinstance(s, str) and s for s in contains)
+        ):
+            raise RuntimeError(
+                f"算子档案 package_gate.required_files[{idx}].contains 必须是非空字符串列表"
+            )
+        if item.get("contains_match", "whitespace") not in ("whitespace", "literal"):
+            raise RuntimeError(
+                f"算子档案 package_gate.required_files[{idx}].contains_match 仅支持 whitespace/literal"
+            )
         if item.get("syntax") not in (None, "python"):
-            raise RuntimeError(f"算子档案 package_gate.required_files[{idx}].syntax 仅支持 python")
+            raise RuntimeError(
+                f"算子档案 package_gate.required_files[{idx}].syntax 仅支持 python"
+            )
 
-    kt_seen = {}
     for mode, mode_cfg in profile["quant_modes"].items():
         kernel_files = mode_cfg.get("kernel_files", {})
-        for case_class, templates in mode_cfg.get("templates_by_case_class", {}).items():
+        for case_class, templates in mode_cfg.get(
+            "templates_by_case_class", {}
+        ).items():
             table = kernel_files.get(case_class, {})
-            missing_entries = sorted(normalize_template(t) for t in templates if normalize_template(t) not in table)
+            missing_entries = sorted(
+                normalize_template(t)
+                for t in templates
+                if normalize_template(t) not in table
+            )
             if missing_entries:
-                raise RuntimeError(f"quant_modes.{mode}.kernel_files.{case_class} 缺少模板: {missing_entries}")
-        for template, kernel_type in mode_cfg.get("kernel_type_map", {}).items():
-            tmpl = normalize_template(template)
-            try:
-                kt = int(kernel_type)
-            except (TypeError, ValueError) as e:
-                raise RuntimeError(f"quant_modes.{mode}.kernel_type_map.{template} 不是整数: {kernel_type!r}") from e
-            previous = kt_seen.setdefault(kt, tmpl)
-            if previous != tmpl:
                 raise RuntimeError(
-                    f"kernel type {kt} 在同一算子档案中同时映射到 "
-                    f"{previous!r}/{tmpl!r}，引擎无法仅凭 tiling key 反查模板"
+                    f"quant_modes.{mode}.kernel_files.{case_class} 缺少模板: "
+                    f"{missing_entries}"
                 )
+        tables = {"default": mode_cfg.get("kernel_type_map", {})}
+        tables.update(mode_cfg.get("kernel_type_map_by_case_class", {}))
+        for case_class, table in tables.items():
+            kt_seen = {}
+            for template, kernel_type in table.items():
+                tmpl = normalize_template(template)
+                try:
+                    kt = int(kernel_type)
+                except (TypeError, ValueError) as e:
+                    raise RuntimeError(
+                        f"{mode}/{case_class}/{template}: kernel type 不是整数"
+                    ) from e
+                previous = kt_seen.setdefault(kt, tmpl)
+                if previous != tmpl:
+                    raise RuntimeError(
+                        f"{mode}/{case_class}: kernel type {kt} 同时映射到 {previous}/{tmpl}"
+                    )
 
 
 def load_profile(op_name: str) -> dict:
@@ -464,7 +558,7 @@ def load_profile(op_name: str) -> dict:
     - 读取 references/profiles/<op_name>/profile.json（相对本文件目录）
     - 经 importlib 自同目录动态加载 recognition/constraints 适配器（文件名由档案
       recognition/constraints 节声明）
-    - 派生引擎侧缓存：VENDOR_PACKAGES / _KT_TO_TEMPLATE / MACRO_MAP /
+    - 派生引擎侧缓存：VENDOR_PACKAGES / MACRO_MAP /
       REQUIRED_CANDIDATES_PER_TEMPLATE / 布局槽位表
     - 按 paths.json 的 per-op op_base（或默认 /workspace/ops-nn/<repo_rel>）解析
       OP_BASE/PLUGIN_DIR/KERNEL_META_DIR
@@ -473,10 +567,12 @@ def load_profile(op_name: str) -> dict:
     供调用方内省）。未知算子抛 RuntimeError（列出可用档案并指向
     operator-guide.md 接入程序）。
     """
-    global _ACTIVE_OP_NAME, _KT_TO_TEMPLATE, VENDOR_PACKAGES, MACRO_MAP
-    global REQUIRED_CANDIDATES_PER_TEMPLATE, _LAYOUT_BY_SLOTS
+    global _ACTIVE_OP_NAME, VENDOR_PACKAGES, MACRO_MAP
+    global REQUIRED_CANDIDATES_PER_TEMPLATE
 
-    if not op_name or not os.path.isfile(os.path.join(_PROFILE_ROOT, str(op_name), "profile.json")):
+    if not op_name or not os.path.isfile(
+        os.path.join(_PROFILE_ROOT, str(op_name), "profile.json")
+    ):
         raise RuntimeError(
             f"未找到算子 '{op_name}' 的算子档案"
             f"（references/profiles/{op_name}/profile.json 不存在）。"
@@ -501,20 +597,21 @@ def load_profile(op_name: str) -> dict:
     profile = _PROFILE_CACHE[op_name]
 
     if op_name not in _RECOGNITION_CACHE:
-        _RECOGNITION_CACHE[op_name] = _import_profile_module(op_name, profile["recognition"]["module"], "recognition")
+        _RECOGNITION_CACHE[op_name] = _import_profile_module(
+            op_name, profile["recognition"]["module"], "recognition"
+        )
     if op_name not in _CONSTRAINTS_CACHE:
-        _CONSTRAINTS_CACHE[op_name] = _import_profile_module(op_name, profile["constraints"]["module"], "constraints")
+        _CONSTRAINTS_CACHE[op_name] = _import_profile_module(
+            op_name, profile["constraints"]["module"], "constraints"
+        )
 
     # ---- 设为当前档案并派生算子档案驱动的缓存 ----
     _ACTIVE_OP_NAME = op_name
-    _KT_TO_TEMPLATE = {}
-    for mode_cfg in profile["quant_modes"].values():
-        for t, kt in (mode_cfg.get("kernel_type_map") or {}).items():
-            _KT_TO_TEMPLATE.setdefault(int(kt), normalize_template(t))
     VENDOR_PACKAGES = _derive_vendor_packages(profile)
     MACRO_MAP = _derive_macro_map(profile)
-    REQUIRED_CANDIDATES_PER_TEMPLATE = int(profile["constraints"]["required_candidates_per_template"])
-    _LAYOUT_BY_SLOTS = None  # 布局槽位表按新档案惰性重建
+    REQUIRED_CANDIDATES_PER_TEMPLATE = int(
+        profile["constraints"]["required_candidates_per_template"]
+    )
     _apply_op_paths(op_name, profile)
     return profile
 
@@ -548,7 +645,7 @@ def _constraints_ctx() -> dict:
     profile = _require_profile()
     return {
         "soc": profile["soc"],  # 容量/对齐/分组常量（替代引擎旧硬编码）
-        "dtype_sizeof": DTYPE_SIZEOF,  # 引擎 dtype 字节表
+        "dtype_sizeof": _dtype_sizes(),  # 标准类型与档案声明的扩展尺寸
         "quant_modes": profile["quant_modes"],
         "case_classes": profile["case_classes"],
     }
@@ -576,7 +673,9 @@ def allowed_templates(case_class: str, quant_mode: str = "mx") -> list[str]:
     return mode_cfg["templates_by_case_class"].get(case_class, [])
 
 
-def injectable_templates(case_class: str, quant_mode: str = "mx", natural_template: str = "") -> list[str]:
+def injectable_templates(
+    case_class: str, quant_mode: str = "mx", natural_template: str = ""
+) -> list[str]:
     """返回当前 case 可实际改写 TUNE_ 宏的模板。
 
     templates_by_case_class 描述 host 可达性；kernel_files 中
@@ -611,9 +710,26 @@ def _all_templates() -> set:
     }
 
 
-def _kernel_entry_to_path(entry) -> str:
-    """档案 kernel_files 值归一化：mx 节为纯字符串路径，pertoken 节为 {install, repo_rel} 字典。"""
-    return entry["install"] if isinstance(entry, dict) else entry
+def _vendor_package_for_template(template: str, quant_mode: str) -> str:
+    """选择扫参运行与 kernel 安装路径共同使用的 vendor 包。"""
+    if _require_profile()["quant_modes"][quant_mode].get("tune_macro_define_block"):
+        return VENDOR_PACKAGES["normal"]
+    tmpl = normalize_template(template)
+    if tmpl in VENDOR_PACKAGES:
+        return VENDOR_PACKAGES[tmpl]
+    if "swat" in VENDOR_PACKAGES:
+        return VENDOR_PACKAGES["swat"]
+    raise KeyError(
+        f"模板 '{tmpl}' 无 vendor 包声明（VENDOR_PACKAGES: {sorted(VENDOR_PACKAGES)}）"
+    )
+
+
+def _kernel_entry_to_path(entry, package: str) -> str:
+    """绝对路径直接使用；包内相对路径从 vendor 包安装目录解析。"""
+    path = entry["install"] if isinstance(entry, dict) else entry
+    if os.path.isabs(path):
+        return path
+    return os.path.join(os.path.dirname(VENDOR_CONFIG), package, path)
 
 
 # ============================================================================
@@ -621,17 +737,43 @@ def _kernel_entry_to_path(entry) -> str:
 # ============================================================================
 
 
-# tbe 平台接口所在路径（glob 找，兼容 cann-9.x 版本目录变化）
-def _tbe_site_packages() -> str:
-    import glob as _glob
+def _tbe_site_packages(cann_path: str = "") -> str:
+    """使用显式 CANN 路径、当前环境或 Python 已选包，不按目录名猜版本。"""
 
-    candidates = sorted(_glob.glob("/usr/local/Ascend/cann-*/python/site-packages"))
-    if not candidates:
-        raise RuntimeError(
-            "未找到 CANN 安装目录（/usr/local/Ascend/cann-*/python/site-packages）。"
-            "NPU 核数探测需要 tbe 平台接口，请确认 CANN 安装路径。"
+    def resolve(root):
+        root = os.path.realpath(root)
+        site = (
+            root
+            if os.path.isdir(os.path.join(root, "tbe"))
+            else os.path.join(root, "python", "site-packages")
         )
-    return candidates[-1]  # 取最高版本
+        if not os.path.isdir(os.path.join(site, "tbe")):
+            raise RuntimeError(
+                f"当前 CANN 路径没有 tbe 包: {root}，请检查环境或 cann_path"
+            )
+        return os.path.realpath(site)
+
+    if cann_path:
+        return resolve(cann_path)
+    roots = {
+        os.path.realpath(os.environ[key])
+        for key in ("ASCEND_HOME_PATH", "ASCEND_TOOLKIT_HOME")
+        if os.environ.get(key)
+    }
+    if len(roots) > 1:
+        raise RuntimeError(
+            f"当前 CANN 环境变量指向不同安装: {sorted(roots)}，请先对齐环境"
+        )
+    if roots:
+        return resolve(next(iter(roots)))
+    spec = importlib.util.find_spec("tbe")
+    locations = list(spec.submodule_search_locations or []) if spec else []
+    sites = {os.path.realpath(os.path.dirname(path)) for path in locations}
+    if len(sites) == 1:
+        return resolve(next(iter(sites)))
+    raise RuntimeError(
+        "无法唯一确定当前 CANN：请加载目标版本 set_env.sh 或传 cann_path"
+    )
 
 
 def get_soc_version(result_csv_path: str = "") -> str:
@@ -645,7 +787,8 @@ def get_soc_version(result_csv_path: str = "") -> str:
     path = result_csv_path or _latest_result_csv()
     if not path or not os.path.exists(path):
         raise FileNotFoundError(
-            f"result CSV 不存在（{path}）。请先执行 Step 1 baseline（生成 *_result.csv）再调用 get_soc_version()。"
+            f"result CSV 不存在（{path}）。请先执行 Step 1 baseline（生成 *_result.csv）"
+            f"再调用 get_soc_version()。"
         )
     with open(path) as f:
         for row in csv.DictReader(f):
@@ -665,26 +808,42 @@ def _latest_result_csv() -> str:
     return max(paths, key=os.path.getmtime)
 
 
-def get_aic_num(soc_version: str) -> int:
-    """
-    用 tbe 平台接口确定性获取 AI Core 核数。
+def get_aic_num(soc_version: str, cann_path: str = "") -> int:
+    """按档案声明的核类型与规格键查询目标 SoC；不将通用 CORE_NUM 当作固定口径。
 
-    实测链路：set_current_compile_soc_info(soc, "AiCore") → CORE_NUM。
-    任何失败都抛异常，禁止静默 fallback 到默认值——核数错误的估算
-    （多核利用率/tail 负载均衡/streamKCnt）比没有估算危害更大。
+    soc.core_query 的 core_type/spec_key/evidence 由 agent 从当前 host 调度与
+    平台接口确认。查询的是平台编译规格，不代表实时空闲核数。
     """
-    site = _tbe_site_packages()
+    query = _require_profile()["soc"].get("core_query", {})
+    if not all(
+        isinstance(query.get(key), str) and query[key].strip()
+        for key in ("core_type", "spec_key", "evidence")
+    ):
+        raise RuntimeError(
+            "核数查询需要 soc.core_query 的 core_type/spec_key/evidence，不能猜核数口径"
+        )
+    site = _tbe_site_packages(cann_path)
     if site not in sys.path:
         sys.path.insert(0, site)
     try:
-        import tbe.common.platform as tbe_platform
+        tbe_platform = importlib.import_module("tbe.common.platform")
     except ImportError as e:
-        raise RuntimeError(f"无法导入 tbe 平台接口（{site}）: {e}")
-
-    tbe_platform.set_current_compile_soc_info(soc_version, "AiCore")
-    core_num = int(tbe_platform.get_soc_spec("CORE_NUM"))
+        raise RuntimeError(f"无法导入当前 CANN 的 tbe 平台接口（{site}）: {e}") from e
+    loaded_path = os.path.realpath(tbe_platform.__file__)
+    if os.path.commonpath([site, loaded_path]) != site:
+        raise RuntimeError(
+            f"tbe 已从其他 CANN 加载: {loaded_path}；请在目标版本环境的新进程重试"
+        )
+    tbe_platform.set_current_compile_soc_info(soc_version, query["core_type"])
+    core_num = int(tbe_platform.get_soc_spec(query["spec_key"]))
     if core_num <= 0:
-        raise RuntimeError(f"SoC {soc_version} 探测到异常核数 {core_num}")
+        raise RuntimeError(
+            f"SoC {soc_version} 的 {query['spec_key']} 返回异常核数 {core_num}"
+        )
+    print(
+        f"[core_probe] CANN={site}, SoC={soc_version}, "
+        f"core_type={query['core_type']}, spec_key={query['spec_key']}, count={core_num}"
+    )
     return core_num
 
 
@@ -698,72 +857,61 @@ def get_aic_num(soc_version: str) -> int:
 # ============================================================================
 
 
-@dataclass
 class TilingData:
-    """标准化 tiling data 表示"""
+    """保留档案实际解出的字段；不补不存在的通用参数。"""
 
-    base_m: int = 0
-    base_n: int = 0
-    base_k: int = 0
-    k_a_l1: int = 0
-    k_b_l1: int = 0
-    scale_k_l1: int = 0
-    n_buffer_num: int = 0
-    db_l0c: int = 0
-    weight_must_hit_l2: int = 1
-    # streamK 额外字段
-    single_core_k: int = 0
-    k_l1: int = 0
-    # 元信息
-    is_bias: int = 0
-    m: int = 0
-    n: int = 0
-    k: int = 0
+    def __init__(self, **values):
+        self._values = dict(values)
+
+    def __getattr__(self, name):
+        try:
+            return self._values[name]
+        except KeyError as e:
+            raise AttributeError(f"tiling data 没有字段 {name!r}") from e
 
     def to_dict(self) -> dict:
-        d = {
-            "baseM": self.base_m,
-            "baseN": self.base_n,
-            "baseK": self.base_k,
-            "kAL1": self.k_a_l1,
-            "kBL1": self.k_b_l1,
-            "scaleKL1": self.scale_k_l1,
-            "nBufferNum": self.n_buffer_num,
-            "dbL0C": self.db_l0c,
-            "weightMustHitL2": self.weight_must_hit_l2,
-        }
-        if self.single_core_k > 0:
-            d["singleCoreK"] = self.single_core_k
-            d["kL1"] = self.k_l1
-        return d
+        return dict(self._values)
 
 
 @dataclass
 class BaselineResult:
-    """baseline 执行结果"""
+    """baseline 执行结果；tiling_data 字典在构造时转换为 TilingData。"""
 
     template: str = ""  # op_host 选中的模板: swat/afull/l0cpp/streamk
     perf_us: float = 0.0  # DYN_PERF (微秒)
-    tiling_data: TilingData = field(default_factory=TilingData)
+    tiling_data: TilingData | dict = field(default_factory=TilingData)
     precision_status: str = "UNKNOWN"  # PASS / FAIL / COMPARE_FAILURE / UNKNOWN
     # tiling 解析失败原因（空串=解析成功）。perf 与模板名不受解析失败影响：
     # 模板按 dyn_tiling_key 独立反查（布局解析失败不连坐模板检测），
     # perf 恒保留——tiling 不可解析只降级 tiling_data 本身。
     tiling_parse_error: str = ""
 
+    def __post_init__(self):
+        if isinstance(self.tiling_data, dict):
+            self.tiling_data = TilingData(**self.tiling_data)
+
 
 @dataclass
 class CandidateResult:
-    """候选执行结果"""
+    """候选执行结果；tiling_data 字典在构造时转换为 TilingData。"""
 
     template: str = ""
-    tiling_data: TilingData = field(default_factory=TilingData)
+    tiling_data: TilingData | dict = field(default_factory=TilingData)
     perf_us: float = 0.0
-    status: str = "ok"  # ok / timeout / precision_fail / template_mismatch / template_unverified
-    precision: Optional[str] = (
-        None  # 原始 PRECISION_STATUS（PASS/FAIL/COMPARE_FAILURE）；None=未测得。timeout 恒 None（精度未完成测量，不冒充 FAIL）
+    status: str = (
+        "ok"  # ok / timeout / precision_fail / template_mismatch / template_unverified
     )
-    candidate: dict = field(default_factory=dict)  # 原始可注入字段，供非 QBMM 算子档案的榜单完整渲染
+    precision: Optional[str] = (
+        None  # 原始 PRECISION_STATUS（PASS/FAIL/COMPARE_FAILURE）；
+    )
+    # None=未测得。timeout 恒 None（精度未完成测量，不冒充 FAIL）
+    candidate: dict = field(
+        default_factory=dict
+    )  # 原始可注入字段，供非 QBMM 算子档案的榜单完整渲染
+
+    def __post_init__(self):
+        if isinstance(self.tiling_data, dict):
+            self.tiling_data = TilingData(**self.tiling_data)
 
 
 # ============================================================================
@@ -814,6 +962,23 @@ DTYPE_SIZEOF = {
 }
 
 
+def _dtype_sizes() -> dict:
+    return {**DTYPE_SIZEOF, **_require_profile().get("dtype_sizeof", {})}
+
+
+def _dtype_size(dtype: str) -> float:
+    sizes = _dtype_sizes()
+    if dtype not in sizes:
+        raise ValueError(
+            f"未知 dtype {dtype!r} 的字节数；请从当前类型定义确认 dtype_sizeof/dtype_evidence，"
+            "不能默认按 1 字节计算。"
+        )
+    size = sizes[dtype]
+    if isinstance(size, bool) or not isinstance(size, (int, float)) or size <= 0:
+        raise ValueError(f"dtype {dtype!r} 的字节数非法: {size!r}")
+    return size
+
+
 def _parse_output_dtype(raw: str) -> str:
     """解析 TTK 的 output_dtypes；拒绝会被其 field_parser 当成变量的裸字符串。"""
     text = (raw or "").strip()
@@ -821,7 +986,8 @@ def _parse_output_dtype(raw: str) -> str:
         value = ast.literal_eval(text)
     except (ValueError, SyntaxError) as e:
         raise ValueError(
-            f"output_dtypes={text!r} 不是合法 Python 字面量；标量 dtype 也必须加引号，例如 'float16'"
+            f"output_dtypes={text!r} 不是合法 Python 字面量；标量 dtype 也必须加引号，"
+            "例如 'float16'"
         ) from e
     if isinstance(value, tuple):
         if len(value) != 1:
@@ -841,10 +1007,9 @@ def validate_case_csv(csv_path: str) -> bool:
     2. 包含必需的列名
     3. op_name：全部行同一算子，且已接入（按首行 op_name load_profile，
        逐行对照档案 identity.op_name）
-    4. is_enabled 为启用状态（新版用 "1" 或 "1.0"，老版用 "True"）
-    5. 每行能解析出 M/N/K/dtype/transpose（通过 extract_shape_params 验证）
-    6. attributes 包含必需的 dtype 字段
-    7. input_dtypes 第 6 项（pertoken_scale）在 MX 场景下为 float8_e8m0
+    4. is_enabled 为启用状态（"1"、"1.0" 或不区分大小写的 "true"）
+    5. 每行能解析出适配器声明的形状、类型、转置和模式事实
+    6. 输入槽位、属性和可选输入规则由当前算子的 validate_case 验证
 
     返回 True 表示格式合格。
     """
@@ -855,7 +1020,7 @@ def validate_case_csv(csv_path: str) -> bool:
     with open(csv_path) as f:
         reader = csv.DictReader(f)
         if not reader.fieldnames:
-            print(f"[validate] CSV 无列名")
+            print("[validate] CSV 无列名")
             return False
 
         missing = [c for c in REQUIRED_CSV_COLUMNS if c not in reader.fieldnames]
@@ -865,13 +1030,13 @@ def validate_case_csv(csv_path: str) -> bool:
 
         # 老格式有 network_name 列但新格式没有——如果检测到 network_name 提示用户转换
         if "network_name" in reader.fieldnames:
-            print(f"[validate] 检测到老格式列 'network_name'，请转换为新版 ttk CSV 格式")
+            print("[validate] 检测到老格式列 'network_name'，请转换为新版 ttk CSV 格式")
             return False
 
         rows = list(reader)
 
     if not rows:
-        print(f"[validate] CSV 无数据行")
+        print("[validate] CSV 无数据行")
         return False
 
     # ---- op_name 自动推导：按首行加载档案，全部行对照档案 identity.op_name ----
@@ -884,11 +1049,13 @@ def validate_case_csv(csv_path: str) -> bool:
 
     for i, row in enumerate(rows):
         if row.get("op_name") != expected_op:
-            print(f"[validate] 行 {i + 1}: op_name={row.get('op_name')}，期望 {expected_op}")
+            print(
+                f"[validate] 行 {i + 1}: op_name={row.get('op_name')}，期望 {expected_op}"
+            )
             return False
 
-        enabled_val = row.get("is_enabled", "").strip()
-        if enabled_val not in ("1", "1.0", "True"):
+        enabled_val = row.get("is_enabled", "").strip().casefold()
+        if enabled_val not in ("1", "1.0", "true"):
             print(f"[validate] 行 {i + 1}: is_enabled={enabled_val}，期望 1 或 True")
             return False
 
@@ -904,32 +1071,13 @@ def validate_case_csv(csv_path: str) -> bool:
             print(f"[validate] 行 {i + 1}: {e}")
             return False
 
-        import ast
-
-        attrs = ast.literal_eval(row["attributes"])
-        if "dtype" not in attrs:
-            print(f"[validate] 行 {i + 1}: attributes 缺少必需字段 'dtype'")
+        try:
+            ctx = _case_context(row)
+            ctx.update(params)
+            err = _recognition_module().validate_case(ctx, profile["input_rules"])
+        except Exception as e:
+            print(f"[validate] 行 {i + 1}: 输入校验失败: {e}")
             return False
-
-        input_dtypes = ast.literal_eval(row["input_dtypes"])
-        if len(input_dtypes) >= 6 and input_dtypes[2] == "float8_e8m0" and input_dtypes[5] is None:
-            print(
-                f"[validate] 行 {i + 1}: MX 场景下 pertoken_scale (input_dtypes[5]，x1 的 scale) 应为 'float8_e8m0'，实际为 None"
-            )
-            return False
-
-        # ---- 多 batch 校验（规则来自活跃档案 input_rules，识别适配器执行）----
-        err = _recognition_module().validate_case(
-            {
-                "input_shapes": ast.literal_eval(row["input_shapes"]),
-                "input_dtypes": input_dtypes,
-                "case_class": params.get("case_class"),
-                "bias": params["bias"],
-                "batch_count": params["batch_count"],
-                "case_classes": _require_profile()["case_classes"],
-            },
-            _require_profile()["input_rules"],
-        )
         if err:
             print(f"[validate] 行 {i + 1}: {err}")
             return False
@@ -938,96 +1086,76 @@ def validate_case_csv(csv_path: str) -> bool:
     return True
 
 
+def _case_context(row: dict) -> dict:
+    """解析 CSV 原始列，不解释输入位置或算子属性语义。"""
+    profile = _require_profile()
+    return {
+        "row": dict(row),
+        "input_shapes": ast.literal_eval(row["input_shapes"]),
+        "input_dtypes": ast.literal_eval(row["input_dtypes"]),
+        "input_formats": ast.literal_eval(row["input_formats"]),
+        "attributes": ast.literal_eval(row["attributes"]),
+        "y_dtype": _parse_output_dtype(row["output_dtypes"]),
+        "fold_rule": profile["fold_rule"],
+        "quant_modes": profile["quant_modes"],
+        "input_rules": profile["input_rules"],
+        "case_classes": profile["case_classes"],
+    }
+
+
 def extract_shape_params(row: dict) -> dict:
+    """解析 CSV；所有输入、维度、转置、格式和模式事实由识别适配器推导。
+
+    适配器返回现有执行接口需要的事实，并可添加算子特有事实；引擎不从固定
+    输入槽位或固定属性名补值。返回键契约见 references/operator-guide.md。
     """
-    从 CSV 行解析出 M/N/K/dtype/transpose/bias/format/batch 等参数。
-
-    适配新版 ttk CSV 格式：
-    - output_dtypes 为 scalar（如 'float16'），老格式为 tuple（如 "('float16',)"）
-    - input_data_ranges 为 single tuple（如 ((-3,3),)），per-input ranges 不再提供
-
-    多 batch 泛化：
-    - x1/x2 支持 3D~6D：M/N/K 取尾两维（与 host mSize/nSize/kSize 同口径），前缀维为 batch
-    - 按活跃档案的 fold_rule 判定 host 是否会把 x1 的 batch 折叠进 M：
-      折叠成立 → case_class='without_batch'，M = M_orig * x1_batch（与 host mSize 一致）
-      不成立且 batchC>1 → case_class='with_batch'，M 为 per-batch 口径，batch_count=batchC
-
-    per-op 部分（facts 词汇表计算 / fold 判定 / 量化模式识别）委托活跃档案包的
-    recognition.derive_facts（ctx 契约见该模块 docstring）；本函数只做通用 CSV
-    列解析与 params 拼装。行内 op_name 与活跃档案不一致时自动 load_profile
-    （SKILL.md 工作流允许不显式 load_profile）。
-    """
-    # op_name 自动对齐活跃档案（CSV 行自带算子名）
     row_op = row.get("op_name")
     if row_op and row_op != _ACTIVE_OP_NAME:
         load_profile(row_op)
+    ctx = _case_context(row)
+    facts = _recognition_module().derive_facts(ctx)
+    required = {
+        "M",
+        "N",
+        "K",
+        "x1_dtype",
+        "x2_dtype",
+        "scale_dtype",
+        "bias",
+        "trans_a",
+        "trans_b",
+        "x1_format",
+        "x2_format",
+        "case_class",
+        "batch_count",
+        "quant_mode",
+    }
+    if not isinstance(facts, dict):
+        raise ValueError("recognition.derive_facts 必须返回事实字典")
+    missing = sorted(required - facts.keys())
+    if missing:
+        raise ValueError(f"recognition.derive_facts 缺少执行接口事实: {missing}")
 
-    input_shapes = ast.literal_eval(row["input_shapes"])
-    input_dtypes = ast.literal_eval(row["input_dtypes"])
-    attributes = ast.literal_eval(row["attributes"])
-
-    profile = _require_profile()
-    facts = _recognition_module().derive_facts(
-        {
-            "input_shapes": input_shapes,
-            "input_dtypes": input_dtypes,
-            "attributes": attributes,
-            "fold_rule": profile["fold_rule"],
-            "quant_modes": profile["quant_modes"],
-        }
-    )
-
-    # ---- 通用列解析（与 per-op 无关）----
-    bias_shape = input_shapes[4] if len(input_shapes) > 4 else None
-    bias_dtype = input_dtypes[4] if len(input_dtypes) > 4 else None
-    # 输入序（def 文件声明）：idx0=x1, idx1=x2, idx2=scale(x2 侧), idx3=offset,
-    # idx4=bias, idx5=pertoken_scale(x1 侧；MX 模式下即 x1 的 E8M0 scale)
-    x1_dtype = input_dtypes[0]
-    x2_dtype = input_dtypes[1]
-    scale_dtype = input_dtypes[2]
-    trans_b = attributes.get("transpose_x2", False)
-
-    y_dtype = _parse_output_dtype(row["output_dtypes"])
-
-    bias = "none" if bias_shape is None or bias_dtype is None or bias_dtype == "None" else bias_dtype
-
-    formats = ast.literal_eval(row["input_formats"]) if "input_formats" in row else ("ND", "ND")
-    x1_format = formats[0] if len(formats) >= 1 else "ND"
-    x2_format = formats[1] if len(formats) > 1 else "ND"
+    for dtype in (facts["x1_dtype"], facts["x2_dtype"], ctx["y_dtype"]):
+        _dtype_size(dtype)
+    for dtype in (facts["scale_dtype"], facts["bias"]):
+        if dtype is not None and dtype != "none":
+            _dtype_size(dtype)
 
     try:
-        tol = ast.literal_eval(row["precision_tolerances"]) if row.get("precision_tolerances") else None
+        tol = (
+            ast.literal_eval(row["precision_tolerances"])
+            if row.get("precision_tolerances")
+            else None
+        )
         ptol = float(tol[0][1]) if tol and tol[0] and len(tol[0]) > 1 else 0.001
     except (ValueError, IndexError, TypeError):
         ptol = 0.001
-
     return {
+        **facts,
         "testcase_name": row.get("testcase_name", ""),
-        "M": facts["M"],
-        "N": facts["N"],
-        "K": facts["K"],
-        "x1_dtype": x1_dtype,
-        "x2_dtype": x2_dtype,
-        "scale_dtype": scale_dtype,
-        "y_dtype": y_dtype,
-        "bias": bias,
-        "trans_a": attributes.get("transpose_x1", False),
-        "trans_b": trans_b,
-        "x1_format": x1_format,
-        "x2_format": x2_format,
+        "y_dtype": ctx["y_dtype"],
         "ptol": ptol,
-        # 多 batch 泛化新增字段（derive_facts 产出）
-        "case_class": facts["case_class"],  # without_batch（含折叠）/ with_batch
-        "folded": facts["folded"],  # host 是否把 x1 batch 折进 M
-        "batch_count": facts["batch_count"],  # 调度侧 batch 数（with_batch=batchC，否则 1）
-        "M_orig": facts["M_orig"],  # 折叠前的 per-batch M
-        "x1_batch": facts["x1_batch"],  # x1 前缀维连乘
-        "x2_batch": facts["x2_batch"],  # x2 前缀维连乘
-        "b_broadcast": facts["b_broadcast"],  # x2 batch 广播（host 会强制 weightMustHitL2=1）
-        "pertoken_mode": facts["pertoken_mode"],  # host isPertoken 终值（fold_rule 声明的输入；MX 恒 False）
-        "quant_mode": facts["quant_mode"],  # 二维路由第二维，模板集/布局/kernel 文件/死字段按它查 quant_modes
-        "x2_quant_mode": facts["x2_quant_mode"],  # x2 侧模式（perchannel 时 L1 记账含 scale 项）
-        "x1_quant_mode": facts["x1_quant_mode"],  # x1 侧模式（None=槽位缺失；报告/记账用）
     }
 
 
@@ -1036,7 +1164,7 @@ def extract_all_params(csv_path: str) -> list[dict]:
     从多行 CSV 提取所有 case 的参数。
 
     op_name 自动推导：全部行必须同一算子（混合报错），按首行 op_name
-    load_profile——SKILL.md 工作流无需显式 load_profile。
+    load_profile——solver.md 工作流无需显式 load_profile。
 
     返回 params dict 列表，每个 dict 含 testcase_name + M/N/K/dtype/transpose/bias 等。
     """
@@ -1048,7 +1176,7 @@ def extract_all_params(csv_path: str) -> list[dict]:
     op_names = {r.get("op_name") for r in rows}
     if len(op_names) > 1:
         raise ValueError(
-            f"CSV 含多个 op_name（{sorted(map(str, op_names))}）：一个 CSV 只能含"
+            f"CSV 含多个 op_name（{sorted(str(name) for name in op_names)}）：一个 CSV 只能含"
             f"一个算子的 case，请先 split_csv 拆分或分文件组织。"
         )
     load_profile(rows[0].get("op_name"))
@@ -1090,12 +1218,12 @@ def split_csv(csv_path: str, output_dir: str = "") -> list[str]:
 
 def calc_timeout(m: int, n: int, k: int, batch_count: int = 1) -> tuple[int, int]:
     """
-    根据 shape 规模计算 npu-timeout 和 proc-timeout（秒）。
+    根据 shape 规模计算 npu-timeout（毫秒）和 proc-timeout（秒）。
 
     batch_count: with_batch case 的调度 batch 数（M 为 per-batch 口径）；
     without_batch（含折叠）M 已含 batch、batch_count=1。
 
-    返回 (npu_timeout, proc_timeout)。
+    返回 (npu_timeout_ms, proc_timeout_seconds)。
     """
     flops = m * n * k * batch_count
     if k > 20000:
@@ -1104,10 +1232,12 @@ def calc_timeout(m: int, n: int, k: int, batch_count: int = 1) -> tuple[int, int
         npu_timeout, proc_timeout = 60, 1200
     else:
         npu_timeout, proc_timeout = 30, 600
-    return npu_timeout, proc_timeout
+    return npu_timeout * 1000, proc_timeout
 
 
-def estimate_baseline_eta(m: int, n: int, k: int, n_cases: int = 1, batch_count: int = 1) -> int:
+def estimate_baseline_eta(
+    m: int, n: int, k: int, n_cases: int = 1, batch_count: int = 1
+) -> int:
     """估算 baseline 总耗时（秒）"""
     eta_per_case = 60
     if m * n * k * batch_count > 1e9:
@@ -1117,7 +1247,9 @@ def estimate_baseline_eta(m: int, n: int, k: int, n_cases: int = 1, batch_count:
     return eta_per_case * n_cases
 
 
-def estimate_scan_eta(m: int, n: int, k: int, n_candidates: int, batch_count: int = 1) -> int:
+def estimate_scan_eta(
+    m: int, n: int, k: int, n_candidates: int, batch_count: int = 1
+) -> int:
     """估算扫参总耗时（秒）"""
     if m * n * k * batch_count > 1e9 and k > 20000:
         eta_per = 95
@@ -1149,9 +1281,17 @@ def _require_runtime_paths() -> None:
         "OP_BASE": OP_BASE,
         "PLUGIN_DIR": PLUGIN_DIR,
     }
-    invalid = [f"{name}={path!r}" for name, path in checks.items() if not path or not os.path.isdir(path)]
+    invalid = [
+        f"{name}={path!r}"
+        for name, path in checks.items()
+        if not path or not os.path.isdir(path)
+    ]
     if invalid:
-        raise RuntimeError("部署路径未配置或不存在: " + ", ".join(invalid) + "。请先调用 configure_paths(...)。")
+        raise RuntimeError(
+            "部署路径未配置或不存在: "
+            + ", ".join(invalid)
+            + "。请先调用 configure_paths(...)。"
+        )
     expected_commit = profile.get("version_anchor", {}).get("op_repo_commit")
     if not expected_commit:
         raise RuntimeError("算子档案字段 version_anchor.op_repo_commit 缺失")
@@ -1185,7 +1325,8 @@ def validate_vendor_package_gate(
     - path: vendor 包根目录内的相对路径，可含 {package}/{op_name} 占位符；
     - package_scope: all / normal / forced（缺省 all）；
     - syntax: python 时用 ast.parse 做无副作用语法检查；
-    - contains: 必须出现的字符串列表，如 REG_OP 或算子注册名。
+    - contains: 必须出现的字符串列表，如 REG_OP 或算子注册名；
+    - contains_match: 缺省 whitespace，合并换行/缩进并去除续行；literal 为逐字符匹配。
 
     templates 为空时校验算子档案中的全部强制模板包；有值时只校验对应模板。
     output_path 非空时先写临时文件并原子替换 report，再按 strict 决定是否抛错，
@@ -1193,12 +1334,20 @@ def validate_vendor_package_gate(
     """
     _require_runtime_paths()
     profile = _require_profile()
-    requested = [normalize_template(t) for t in templates] if templates is not None else sorted(_all_templates())
+    requested = (
+        [normalize_template(t) for t in templates]
+        if templates is not None
+        else sorted(_all_templates())
+    )
     roles = {"normal": VENDOR_PACKAGES["normal"]}
     for tmpl in requested:
         if tmpl in VENDOR_PACKAGES:
             roles[tmpl] = VENDOR_PACKAGES[tmpl]
-    unsafe = sorted(package for package in roles.values() if not package or os.path.basename(package) != package)
+    unsafe = sorted(
+        package
+        for package in roles.values()
+        if not package or os.path.basename(package) != package
+    )
     if unsafe:
         raise RuntimeError(f"算子档案中的 vendor_install_dir 不是安全目录名: {unsafe}")
 
@@ -1225,7 +1374,20 @@ def validate_vendor_package_gate(
                         content = f.read()
                     if rule.get("syntax") == "python":
                         ast.parse(content, filename=path)
-                    missing_text = [s for s in rule.get("contains", []) if s not in content]
+                    if rule.get("contains_match", "whitespace") == "literal":
+                        contains = rule.get("contains", [])
+                        missing_text = [s for s in contains if s not in content]
+                    else:
+
+                        def normalize(text):
+                            return " ".join(re.sub(r"\\\r?\n", "", text).split())
+
+                        normalized = normalize(content)
+                        missing_text = [
+                            s
+                            for s in rule.get("contains", [])
+                            if normalize(s) not in normalized
+                        ]
                     if missing_text:
                         rec["ok"] = False
                         rec["error"] = f"missing content: {missing_text}"
@@ -1236,7 +1398,12 @@ def validate_vendor_package_gate(
             if not rec["ok"]:
                 errors.append(f"{role}: {rule['path']}: {rec['error']}")
 
-    report = {"op_name": _ACTIVE_OP_NAME, "packages": roles, "checks": checks, "ok": not errors}
+    report = {
+        "op_name": _ACTIVE_OP_NAME,
+        "packages": roles,
+        "checks": checks,
+        "ok": not errors,
+    }
     if output_path:
         _ensure_parent(output_path)
         tmp_path = f"{output_path}.tmp.{os.getpid()}"
@@ -1258,7 +1425,9 @@ def validate_vendor_package_gate(
 # ============================================================================
 
 
-def get_kernel_file_path(template: str, case_class: str = "without_batch", quant_mode: str = "mx") -> str:
+def get_kernel_file_path(
+    template: str, case_class: str = "without_batch", quant_mode: str = "mx"
+) -> str:
     """
     获取安装目录 kernel .h 文件路径（按 模板 x case_class x quant_mode，来自
     活跃档案 quant_modes）。pertoken 打 qbmm_mix_* 文件（BLAZE MIX 变体），
@@ -1269,7 +1438,9 @@ def get_kernel_file_path(template: str, case_class: str = "without_batch", quant
     quant_modes = _require_profile()["quant_modes"]
     mode_cfg = quant_modes.get(quant_mode)
     if mode_cfg is None:
-        raise KeyError(f"量化模式 '{quant_mode}' 未在档案 quant_modes 声明（已接入: {sorted(quant_modes)}）。")
+        raise KeyError(
+            f"量化模式 '{quant_mode}' 未在档案 quant_modes 声明（已接入: {sorted(quant_modes)}）。"
+        )
     table = mode_cfg["kernel_files"].get(case_class)
     entry = table.get(tmpl) if table else None
     if entry is None:
@@ -1283,11 +1454,14 @@ def get_kernel_file_path(template: str, case_class: str = "without_batch", quant
             f"模板 '{tmpl}' 在 case_class '{case_class}' × quant_mode '{quant_mode}' 下"
             "没有可验证的 TUNE_ 宏注入点，不可扫参。"
         )
-    return _kernel_entry_to_path(entry)
+    return _kernel_entry_to_path(entry, _vendor_package_for_template(tmpl, quant_mode))
 
 
 def update_kernel_macros(
-    template: str, tiling_data: TilingData | dict, case_class: str = "without_batch", quant_mode: str = "mx"
+    template: str,
+    tiling_data: TilingData | dict,
+    case_class: str = "without_batch",
+    quant_mode: str = "mx",
 ) -> None:
     """
     更新安装目录 kernel .h 文件顶部的 #define TUNE_* 宏值。
@@ -1302,7 +1476,10 @@ def update_kernel_macros(
     td = dict(td)  # 剔除死字段时不改调用方对象
     _validate_candidate_fields(td, "update_kernel_macros")
 
-    dead_fields = set(_require_profile()["quant_modes"].get(quant_mode, {}).get("dead_fields", {}) or {})
+    dead_fields = set(
+        _require_profile()["quant_modes"].get(quant_mode, {}).get("dead_fields", {})
+        or {}
+    )
     for df in dead_fields:
         if td.get(df) is not None:
             _warn_dead_field_once(quant_mode, df, td[df])
@@ -1331,7 +1508,8 @@ def update_kernel_macros(
             content, count = re.subn(pattern, replacement, content)
             if count != 1:
                 raise RuntimeError(
-                    f"{kernel_file}: 宏 {macro} 命中 {count} 次（应为 1）；安装侧文件与算子档案的注入声明不一致"
+                    f"{kernel_file}: 宏 {macro} 命中 {count} 次（应为 1）；"
+                    "安装侧文件与算子档案的注入声明不一致"
                 )
             changed.append((macro, value))
 
@@ -1365,7 +1543,12 @@ def _warn_dead_field_once(quant_mode: str, field: str, value) -> None:
 def clear_kernel_meta() -> None:
     """清理 kernel_meta 缓存（每次跑 ttk 前必须执行）"""
     _require_runtime_paths()
-    for root, names in ((KERNEL_META_DIR, os.listdir(KERNEL_META_DIR) if os.path.isdir(KERNEL_META_DIR) else []),):
+    for root, names in (
+        (
+            KERNEL_META_DIR,
+            os.listdir(KERNEL_META_DIR) if os.path.isdir(KERNEL_META_DIR) else [],
+        ),
+    ):
         for name in names:
             path = os.path.join(root, name)
             if os.path.isdir(path) and not os.path.islink(path):
@@ -1386,77 +1569,74 @@ def clear_kernel_meta() -> None:
 # ============================================================================
 
 
-def _clean_ttk_workdir() -> None:
+def _clean_ttk_cache() -> None:
     """
-    清理上次运行残留：TTK_DIR 下 kernel_meta/dyn_op_* 与 *.ttk。
+    清理 TTK_DIR 下的 dyn_op 缓存与 ttk 产物（目录与文件通配删除）。
     """
     for pattern in ("kernel_meta/dyn_op_*", "*.ttk"):
         for path in glob.glob(os.path.join(TTK_DIR, pattern)):
             if os.path.isdir(path):
                 shutil.rmtree(path, ignore_errors=True)
             else:
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
-
-
-_SELF_PATH = os.path.abspath(__file__)
-
-
-def _wipe_dir_contents(target_dir: str) -> None:
-    """
-    删除 target_dir 的全部一级条目（目录递归、含隐藏项）。
-    """
-    if not os.path.isdir(target_dir):
-        return
-    for name in os.listdir(target_dir):
-        path = os.path.join(target_dir, name)
-        if os.path.isdir(path) and not os.path.islink(path):
-            shutil.rmtree(path, ignore_errors=True)
-        else:
-            try:
                 os.remove(path)
-            except OSError:
-                pass
 
 
-def _clean_ttk_artifacts(kernel_meta_dir: str, ttk_dir: str) -> None:
+def _cache_cleanup_command() -> str:
     """
-    生成脚本每轮迭代调用的缓存清理：
-    清空 kernel_meta_dir 全部一级条目，并删除 ttk_dir 一级的 dyn_op_* 与 *.ttk。
+    生成后台脚本内嵌的缓存清理命令（python glob 删除，不依赖 shell 递归强删）。
     """
-    _wipe_dir_contents(kernel_meta_dir)
-    if not os.path.isdir(ttk_dir):
-        return
-    for name in os.listdir(ttk_dir):
-        if name.startswith("dyn_op_") or name.endswith(".ttk"):
-            path = os.path.join(ttk_dir, name)
-            if os.path.isdir(path) and not os.path.islink(path):
-                shutil.rmtree(path, ignore_errors=True)
-            else:
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
+    patterns = ", ".join(
+        json.dumps(os.path.join(base, tail))
+        for base, tail in (
+            (KERNEL_META_DIR, "*"),
+            (TTK_DIR, "dyn_op_*"),
+            (TTK_DIR, "*.ttk"),
+        )
+        if base
+    )
+    return (
+        "python3 -c 'import glob, os, shutil\n"
+        f"for pat in ({patterns}):\n"
+        "    for p in glob.glob(pat):\n"
+        "        try:\n"
+        "            if os.path.islink(p) or os.path.isfile(p):\n"
+        "                os.remove(p)\n"
+        "            else:\n"
+        "                shutil.rmtree(p)\n"
+        "        except OSError:\n"
+        "            pass'"
+    )
 
 
 def build_ttk_command(
     case_csv: str,
     npu_timeout: int,
     proc_timeout: int,
-) -> list:
+) -> list[str]:
     """
     构造 ttk 标准命令参数列表（--compare=close 开启精度校验，golden 由 --plugin 提供）。
+
+    外层 timeout 命令负责进程级超时（秒）；npu_timeout 单位为毫秒。
+    工作目录由调用方以 cwd=TTK_DIR 指定。
     """
     _require_runtime_paths()
     return [
-        "timeout", str(proc_timeout),
-        "python3", "-m", "ttk", "kernel",
-        "-i", case_csv, "-d",
-        "--compare=close", "--pc=1", "--run=20",
-        "--npu-timeout", str(npu_timeout),
-        "--plugin", PLUGIN_DIR,
+        "timeout",
+        str(proc_timeout),
+        "python3",
+        "-m",
+        "ttk",
+        "kernel",
+        "-i",
+        case_csv,
+        "-d",
+        "--compare=close",
+        "--pc=1",
+        "--run=20",
+        "--npu-timeout",
+        str(npu_timeout),
+        "--plugin",
+        PLUGIN_DIR,
     ]
 
 
@@ -1492,13 +1672,15 @@ def parse_precision_status(output: str) -> Optional[str]:
     return None
 
 
-def parse_observed_template(output: str) -> str:
+def parse_observed_template(output: str, context: Optional[dict] = None) -> str:
     """从 TTK 日志的 Tiling Key 反查实际 kernel 模板。
 
     返回 unknown 表示日志缺少可解码 key，不允许据此产生性能推荐。
     """
     match = re.search(r"(?m)^Tiling Key:\s+\d+\s+\((0x[0-9a-fA-F]+)\)", output or "")
-    return _detect_template_from_key_str(match.group(1)) if match else "unknown"
+    return (
+        _detect_template_from_key_str(match.group(1), context) if match else "unknown"
+    )
 
 
 def run_ttk_single(
@@ -1514,7 +1696,8 @@ def run_ttk_single(
     失败或超时返回 None。
     """
     npu_timeout, proc_timeout = calc_timeout(m, n, k, batch_count)
-    _clean_ttk_workdir()
+    _require_runtime_paths()
+    _clean_ttk_cache()
     cmd = build_ttk_command(case_csv, npu_timeout, proc_timeout)
     # subprocess timeout = proc_timeout + 30s margin
     try:
@@ -1538,7 +1721,9 @@ def run_ttk_single(
 #   纯字面量:  (1, 8, 0, ...)
 #   numpy repr: (np.int32(1), np.int32(8), ...)   ← numpy 2.x 环境下出现
 # 用 ast.literal_eval（非 eval，不执行任意代码），numpy 前缀先做文本规范化剥掉。
-_NUMPY_SCALAR_RE = re.compile(r"np\.(?:u?int(?:8|16|32|64)|float(?:16|32|64)|bool)\(([^()]*)\)")
+_NUMPY_SCALAR_RE = re.compile(
+    r"np\.(?:u?int(?:8|16|32|64)|float(?:16|32|64)|bool)\(([^()]*)\)"
+)
 
 
 def _parse_tiling_data(td_str: str) -> list:
@@ -1571,64 +1756,75 @@ def _layout_fields(layout_name: str) -> dict:
     return fields
 
 
-def _layout_by_slot_count(n: int) -> str:
-    """按 dyn_tiling_data 的 u32 槽数选布局（活跃档案 struct_layouts 声明）。16/38/42 分别对应三类 case。"""
-    global _LAYOUT_BY_SLOTS
-    if _LAYOUT_BY_SLOTS is None:
-        _LAYOUT_BY_SLOTS = {
-            spec["u32_slots"]: name
-            for name, spec in _require_profile()["struct_layouts"].items()
-            if not name.startswith("_")
-        }
-    if n not in _LAYOUT_BY_SLOTS:
-        raise ValueError(f"Unknown tiling_data layout: {n} values（档案声明: {sorted(_LAYOUT_BY_SLOTS)} 槽位）")
-    return _LAYOUT_BY_SLOTS[n]
+def _tiling_context(key_str: str, context: Optional[dict] = None) -> dict:
+    ctx = dict(context or {})
+    ctx["key_str"] = key_str
+    ctx["template"] = _detect_template_from_key_str(key_str, ctx)
+    try:
+        ctx["kernel_type"] = _decode_kernel_type(key_str)
+    except (KeyError, TypeError, ValueError):
+        ctx["kernel_type"] = None
+    return ctx
+
+
+def _result_context(row: dict, context: Optional[dict] = None) -> dict:
+    if context is not None:
+        return {**row, **context}
+    columns = {
+        "input_shapes",
+        "input_dtypes",
+        "input_formats",
+        "attributes",
+        "output_dtypes",
+    }
+    return {**row, **extract_shape_params(row)} if columns <= row.keys() else dict(row)
+
+
+def _select_layout(
+    n: int, context: Optional[dict] = None, include_documented: bool = False
+) -> str:
+    """按槽位数及 agent 从源码声明的上下文条件选择唯一布局。"""
+    ctx = context or {}
+    matches = []
+    for name, spec in _require_profile()["struct_layouts"].items():
+        if spec["u32_slots"] != n or (name.startswith("_") and not include_documented):
+            continue
+        if all(
+            key in ctx and ctx[key] in (value if isinstance(value, list) else [value])
+            for key, value in spec.get("when", {}).items()
+        ):
+            matches.append(name)
+    if len(matches) != 1:
+        raise ValueError(
+            f"tiling 布局无法唯一确定: {n} 槽位，匹配={matches}。"
+            "请根据当前结构体与分发源码补齐 struct_layouts.*.when 或调用上下文。"
+        )
+    return matches[0]
 
 
 def _parse_struct_fields(values: list, layout_name: str) -> dict:
     """u32 数组 → 按布局声明的字节偏移+fmt 解出字段字典。"""
     raw = struct.pack(f"<{len(values)}I", *values)
     return {
-        name: struct.unpack_from(f"<{fmt}", raw, off)[0] for name, (off, fmt) in _layout_fields(layout_name).items()
+        name: struct.unpack_from(f"<{fmt}", raw, off)[0]
+        for name, (off, fmt) in _layout_fields(layout_name).items()
     }
 
 
-def _td_from_values(values: list, key_str: str = "") -> tuple[TilingData, str]:
-    """
-    u32 值列表 + tiling key → (TilingData, template_name)。
-
-    布局按槽位数从档案选：16=without_batch 紧凑结构体(64B)、
-    38=with_batch 全量结构体(152B)、42=streamK 扩展(168B)。
-    模板判定以 tiling key 的 KERNELTYPE 位段为准（唯一可靠源）；
-    key 缺失时 42 值用 singleCoreK 值嗅探兜底（旧日志兼容），
-    38 值的 td[32] 是 mTailTile，严禁值嗅探（会误判 streamK）。
-    """
-    layout_name = _layout_by_slot_count(len(values))
+def _td_from_values(
+    values: list, key_str: str = "", context: Optional[dict] = None
+) -> tuple[TilingData, str]:
+    """u32 值列表与 key/用例上下文 → (TilingData, template_name)。"""
+    layout_name = _select_layout(len(values), _tiling_context(key_str, context))
     f = _parse_struct_fields(values, layout_name)
-    td = TilingData(
-        m=f.get("m", 0),
-        n=f.get("n", 0),
-        k=f.get("k", 0),
-        base_m=f.get("baseM", 0),
-        base_n=f.get("baseN", 0),
-        base_k=f.get("baseK", 0),
-        k_a_l1=f.get("kAL1", 0),
-        k_b_l1=f.get("kBL1", 0),
-        scale_k_l1=f.get("scaleKL1", 0),
-        n_buffer_num=f.get("nBufferNum", 0),
-        is_bias=f.get("isBias", 0),
-        db_l0c=f.get("dbL0C", 0),
-        weight_must_hit_l2=f.get("weightMustHitL2", 1),
-        single_core_k=f.get("singleCoreK", 0),
-        k_l1=f.get("kL1", 0),
-    )
-    template = _detect_template_from_key_str(key_str)
-    if template == "unknown" and len(values) == 42 and 0 < td.single_core_k < td.k:
-        template = "streamk"  # key 缺失的旧日志兜底
+    td = TilingData(**f)
+    template = _detect_template_from_key_str(key_str, context)
     return td, template
 
 
-def extract_baseline_tiling(result_csv_path: str, testcase_name: str = "") -> tuple[TilingData, str]:
+def extract_baseline_tiling(
+    result_csv_path: str, testcase_name: str = "", context: Optional[dict] = None
+) -> tuple[TilingData, str]:
     """
     从 result CSV 提取指定 case 的 baseline tiling data（布局档案驱动）。
 
@@ -1644,9 +1840,11 @@ def extract_baseline_tiling(result_csv_path: str, testcase_name: str = "") -> tu
             key_str = row.get("dyn_tiling_key", "")
             break
         else:
-            raise ValueError(f"testcase_name '{testcase_name}' not found in {result_csv_path}")
+            raise ValueError(
+                f"testcase_name '{testcase_name}' not found in {result_csv_path}"
+            )
 
-    return _td_from_values(td, key_str)
+    return _td_from_values(td, key_str, _result_context(row, context))
 
 
 def _decode_kernel_type(key_str: str) -> int:
@@ -1654,61 +1852,62 @@ def _decode_kernel_type(key_str: str) -> int:
     match = re.search(r"0x([0-9a-fA-F]+)", key_str or "")
     if match is None:
         raise ValueError(f"无法解析 tiling key: {key_str!r}")
-    # schema v2 的固定布局为低 8 bit 转置/batch、随后 8 bit kernel type。
-    # 现行算子档案必须通过 tiling_key 显式声明。
-    decl = _require_profile().get("tiling_key", {"kernel_type_shift": 8, "kernel_type_bits": 8})
+    decl = _require_profile()["tiling_key"]
     shift = decl["kernel_type_shift"]
     bits = decl["kernel_type_bits"]
     return (int(match.group(1), 16) >> shift) & ((1 << bits) - 1)
 
 
-def _detect_template_from_key_str(key_str: str) -> str:
-    """
-    从 tiling_key 字符串判断模板。
-
-    kernel type 位段由算子档案的 `tiling_key` 声明；值到模板名的映射按当前档案
-    quant_modes.<mode>.kernel_type_map 联合反查
-    （_KT_TO_TEMPLATE，load_profile 时汇聚；跨模式同名同值无冲突）：
-    - 0: swat (NO_VEC_EPILOGUE_WITH_MMAPI；mx 与 w8a8 cube 同名等价)
-    - 1: afull (NO_VEC_EPILOGUE_CUSTOM_GMTOAL1_WITH_MMAPI)
-    - 2: mix (VEC_EPILOGUE_WITH_MMAPI；MIX_ASW 高阶 API)
-    - 3: mix_afull (VEC_EPILOGUE_CUSTOM_GMTOAL1_WITH_MMAPI)
-    - 4: perblock (VEC_EPILOGUE_WITH_CUSTOM_MM)
-    - 9: l0cpp (NO_VEC_EPILOGUE_WITH_MMAPI_MX_L0C_PINGPONG)
-    - 11: streamK (VEC_EPILOGUE_STREAMK_WITH_MMAPI；mx 与 doublescale 同名等价)
-
-    返回: 模板语义名（不在联合表内的 KT 返回 'unknown'）
-    """
-    _require_profile()  # _KT_TO_TEMPLATE 由 load_profile 从活跃档案派生
+def _detect_template_from_key_str(key_str: str, context: Optional[dict] = None) -> str:
+    """按源码声明的 key 位段、模式及用例类别反查；缺证据或有歧义返回 unknown。"""
+    profile = _require_profile()
     try:
-        return _KT_TO_TEMPLATE.get(_decode_kernel_type(key_str), "unknown")
+        kt = _decode_kernel_type(key_str)
     except (KeyError, TypeError, ValueError):
         return "unknown"
+    ctx = context or {}
+    modes = profile["quant_modes"]
+    if ctx.get("quant_mode") is not None:
+        modes = {ctx["quant_mode"]: modes.get(ctx["quant_mode"], {})}
+    matches = set()
+    case_class = ctx.get("case_class")
+    for mode_cfg in modes.values():
+        table = mode_cfg.get("kernel_type_map", {})
+        by_case = mode_cfg.get("kernel_type_map_by_case_class", {})
+        tables = (
+            [by_case.get(case_class, table)]
+            if case_class
+            else [table, *by_case.values()]
+        )
+        allowed = mode_cfg.get("templates_by_case_class", {}).get(case_class)
+        for mapping in tables:
+            for template, kernel_type in mapping.items():
+                tmpl = normalize_template(template)
+                if int(kernel_type) == kt and (
+                    allowed is None or tmpl in map(normalize_template, allowed)
+                ):
+                    matches.add(tmpl)
+    return next(iter(matches)) if len(matches) == 1 else "unknown"
 
 
-def extract_anchor(scan_log_path: str, templates: Optional[list[str]] = None) -> dict:
+def extract_anchor(
+    scan_log_path: str,
+    templates: Optional[list[str]] = None,
+    context: Optional[dict] = None,
+) -> dict:
     """
     从扫参日志（或任意含 ttk 输出的日志）提取各 forced 包的锚点 tiling（Step 1.5）。
 
     锚点 = forced 包 host 为该 shape 自算的 tiling（TILING TUNING BLOCK 覆盖前的
     dyn_tiling_data 值）+ blockDim。候选参数与锚点的偏离分析是约束体系的输入。
 
-    解析每个 SCAN_START 块内的：
-    - "Tiling Data Parsed Dict" 行 → 9 主字段 + 6 尾块派生字段（swat/afull/l0cpp 16 值
-      布局）或 streamk 42 值布局（提取 9 主字段 + singleCoreK/kL1）
-    - "BlockDim" 行 → blockDim（host 按锚点网格定的 launch 核数，候选不可改）
-
-    同一模板取第一个出现的块（扫参脚本按模板分组，组内所有块同锚点）。
-
-    templates: 需提取的模板列表，默认全部四模板。
-
-    返回: {"swat": {...}, "afull": {...}, ...}
-      每项含 baseM/baseN/baseK/kAL1/kBL1/scaleKL1/nBufferNum/dbL0C/weightMustHitL2
-      + blockDim + (swat/afull/l0cpp: mTailTile/nTailTile/mBaseTailSplitCnt/
-      nBaseTailSplitCnt/mTailMain/nTailMain; streamk: singleCoreK/kL1)
+    按当前档案布局解析 SCAN_START 块的全部字段，再补日志中的 blockDim 和
+    布局名。每个模板取第一个探测块；未知布局或路由不一致不产生锚点。
     """
     if templates is None:
-        templates = sorted(_all_templates())  # 档案模板并集（含非 MX 的 mix/mix_afull/perblock）
+        templates = sorted(
+            _all_templates()
+        )  # 档案模板并集（含非 MX 的 mix/mix_afull/perblock）
     templates = list(templates)
 
     with open(scan_log_path, errors="replace") as f:
@@ -1716,17 +1915,25 @@ def extract_anchor(scan_log_path: str, templates: Optional[list[str]] = None) ->
 
     anchors: dict[str, dict] = {}
     for tmpl in templates:
-        m = re.search(rf"===== SCAN_START {tmpl} 0 =====(.*?)===== SCAN_END {tmpl} 0 =====", full_log, re.S)
+        m = re.search(
+            rf"===== SCAN_START {tmpl} 0 =====(.*?)===== SCAN_END {tmpl} 0 =====",
+            full_log,
+            re.S,
+        )
         if m is None and len(templates) == 1:
             # 单模板调用时兼容无 SCAN 标记的探测日志。多模板时绝不能把同一个
             # baseline 块复制成多个模板锚点，否则会制造看似完整的错误 anchors。
-            m = re.search(rf"(Tiling Data Parsed Dict:.*?)(?=Tiling Data Parsed Dict|$)", full_log, re.S)
+            m = re.search(
+                r"(Tiling Data Parsed Dict:.*?)(?=Tiling Data Parsed Dict|$)",
+                full_log,
+                re.S,
+            )
         if m is None:
             print(f"[anchor] {tmpl}: 未找到带模板标记的锚点块，跳过")
             continue
         block = m.group(1)
 
-        observed = parse_observed_template(block)
+        observed = parse_observed_template(block, context)
         if observed != normalize_template(tmpl):
             print(f"[anchor] {tmpl}: 实际模板为 {observed}，不记录该锚点")
             continue
@@ -1735,43 +1942,28 @@ def extract_anchor(scan_log_path: str, templates: Optional[list[str]] = None) ->
         if pm is None:
             continue
         # np.int32(x) 包装优先（numpy 2.x 环境）；剥壳失败再退回裸数字
-        vals = [int(x) for x in re.findall(r"np\.int(?:8|16|32|64)\((-?\d+)\)", pm.group(1))]
+        wrapped = re.findall(r"np\.int(?:8|16|32|64)\((-?\d+)\)", pm.group(1))
+        vals = [int(x) for x in wrapped]
         if not vals:
             vals = [int(x) for x in re.findall(r"-?\d+", pm.group(1))]
 
-        bd_m = re.search(r"^BlockDim: (\d+)", block, re.m)
+        bd_m = re.search(r"^BlockDim: (\d+)", block, re.M)
         block_dim = int(bd_m.group(1)) if bd_m else None
 
         anchor: dict = {"blockDim": block_dim}
-        # 布局档案驱动：16=without_batch 紧凑 / 38=with_batch 全量 / 42=streamK 扩展
         try:
-            layout_name = _layout_by_slot_count(len(vals))
-        except ValueError:
-            print(f"[anchor] {tmpl}: 未知 tiling 布局长度 {len(vals)}，跳过")
+            key_match = re.search(
+                r"(?m)^Tiling Key:\s+\d+\s+\((0x[0-9a-fA-F]+)\)", block
+            )
+            key_str = key_match.group(1) if key_match else ""
+            layout_name = _select_layout(len(vals), _tiling_context(key_str, context))
+        except ValueError as e:
+            print(f"[anchor] {tmpl}: {e}，跳过")
             continue
         f = _parse_struct_fields(vals, layout_name)
-        for key in (
-            "baseM",
-            "baseN",
-            "baseK",
-            "kAL1",
-            "kBL1",
-            "scaleKL1",
-            "nBufferNum",
-            "dbL0C",
-            "weightMustHitL2",
-            "mTailTile",
-            "nTailTile",
-            "mBaseTailSplitCnt",
-            "nBaseTailSplitCnt",
-            "mTailMain",
-            "nTailMain",
-            "singleCoreK",
-            "kL1",
-        ):
-            if key in f:
-                anchor[key] = f[key]
-        anchor["layout"] = layout_name  # 锚点对账：校验布局声明与实测一致
+        anchor.update(f)
+        anchor["blockDim"] = block_dim
+        anchor["layout"] = layout_name
         anchors[tmpl] = anchor
 
     return anchors
@@ -1810,17 +2002,27 @@ def generate_baseline_script(
     done_flag: str = None,
     log_tag: str = "",
     batch_count: int = 1,
+    all_params: Optional[list[dict]] = None,
 ) -> str:
     """
     生成 baseline 执行的 bash 脚本。支持单行或多行 CSV。
 
-    M/N/K 用于计算 timeout，多 case 场景传入最大的 M*N*K。
+    单用例由 M/N/K 计算 timeout；多用例传 all_params，NPU 超时取最大值，
+    整个 TTK 进程的超时为各用例进程预算之和。
     batch_count: with_batch case 的调度 batch 数（M 为 per-batch 口径）。
     路径解析：显式传入的 output_log/progress_log/done_flag 优先；
     缺省时用 baseline_paths(log_tag) 派生（log_tag 为空即无 tag 的默认路径）。
     """
     _require_runtime_paths()
-    npu_timeout, proc_timeout = calc_timeout(m, n, k, batch_count)
+    if all_params is None:
+        npu_timeout, proc_timeout = calc_timeout(m, n, k, batch_count)
+    else:
+        limits = [
+            calc_timeout(p["M"], p["N"], p["K"], p.get("batch_count", 1))
+            for p in all_params
+        ]
+        npu_timeout = max(npu for npu, _ in limits)
+        proc_timeout = sum(proc for _, proc in limits)
     paths = baseline_paths(log_tag)
     script_path = paths["script"]
     output_log = output_log or paths["output"]
@@ -1835,8 +2037,8 @@ set -e
 # 切换到 normal 包
 printf '%s' {q("load_priority=" + VENDOR_PACKAGES["normal"])} > {q(VENDOR_CONFIG)}
 
-# 清缓存（清空 kernel_meta 并删除 ttk 运行残留，见 ttk_runner.py --clean-artifacts）
-python3 {q(_SELF_PATH)} --clean-artifacts {q(KERNEL_META_DIR)} {q(TTK_DIR)}
+# 清缓存
+{_cache_cleanup_command()}
 
 # 跑 ttk baseline
 cd {q(TTK_DIR)}
@@ -1849,7 +2051,10 @@ touch {q(done_flag)}
 """
     with open(script_path, "w") as f:
         f.write(script)
-    os.chmod(script_path, 0o755)
+    os.chmod(
+        script_path,
+        stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
+    )
     return script_path
 
 
@@ -1877,7 +2082,11 @@ def _runner_script_alive(script_path: str) -> bool:
                 argv = f.read().split(b"\0")
         except (FileNotFoundError, PermissionError, OSError):
             continue
-        if len(argv) >= 2 and argv[0].endswith(b"bash") and argv[1].decode(errors="replace") == script_path:
+        if (
+            len(argv) >= 2
+            and argv[0].endswith(b"bash")
+            and argv[1].decode(errors="replace") == script_path
+        ):
             return True
     return False
 
@@ -1918,7 +2127,10 @@ def check_task_done(done_flag: str = "/tmp/baseline_done.flag") -> bool:
             _script_from_tag_pointer(ANCHOR_LAST_TAG_FILE, "anchor"),
         ]
     else:
-        scripts = [f"/tmp/run_scan{name[len('scan_done') :]}.sh", _script_from_tag_pointer(SCAN_LAST_TAG_FILE, "scan")]
+        scripts = [
+            f"/tmp/run_scan{name[len('scan_done') :]}.sh",
+            _script_from_tag_pointer(SCAN_LAST_TAG_FILE, "scan"),
+        ]
     alive = any(_runner_script_alive(s) for s in scripts if s)
     if not alive:
         print(
@@ -1935,12 +2147,14 @@ def start_baseline(
     k: int,
     log_tag: str = "",
     batch_count: int = 1,
+    all_params: Optional[list[dict]] = None,
 ) -> int:
     """
     生成 baseline 脚本并在后台启动。
 
     batch_count: with_batch case 传 batchC（M 为 per-batch 口径）；without_batch
     （含折叠）M 已含 batch、保持默认 1。
+    all_params: 多行 CSV 的各用例事实，用于计算整批超时与预计时长。
 
     返回预估耗时（秒），AI 据此决定轮询间隔（建议预估时长的 1/4）。
     AI 用 check_task_done("/tmp/baseline_done.flag") 轮询
@@ -1963,7 +2177,16 @@ def start_baseline(
         f.write(log_tag)
 
     script_path = generate_baseline_script(
-        case_csv, m, n, k, output_log, progress_log, done_flag, batch_count=batch_count
+        case_csv,
+        m,
+        n,
+        k,
+        output_log,
+        progress_log,
+        done_flag,
+        log_tag=log_tag,
+        batch_count=batch_count,
+        all_params=all_params,
     )
     with open(output_log, "w") as log_fd:
         subprocess.Popen(
@@ -1974,8 +2197,19 @@ def start_baseline(
             start_new_session=True,
         )
 
-    eta = estimate_baseline_eta(m, n, k, batch_count=batch_count)
-    print(f"[baseline] 已后台启动，预计 {eta}s，建议每 {max(eta // 4, 30)}s 检查一次 done flag: {done_flag}")
+    eta = (
+        estimate_baseline_eta(m, n, k, batch_count=batch_count)
+        if all_params is None
+        else sum(
+            estimate_baseline_eta(
+                p["M"], p["N"], p["K"], batch_count=p.get("batch_count", 1)
+            )
+            for p in all_params
+        )
+    )
+    print(
+        f"[baseline] 已后台启动，预计 {eta}s，建议每 {max(eta // 4, 30)}s 检查一次 done flag: {done_flag}"
+    )
     return eta
 
 
@@ -2014,7 +2248,9 @@ def collect_baseline(case_csv: str, log_tag: str = "") -> BaselineResult:
             try:
                 with open(result_csv) as f:
                     row = next(csv.DictReader(f), {})
-                template = _detect_template_from_key_str(row.get("dyn_tiling_key", ""))
+                template = _detect_template_from_key_str(
+                    row.get("dyn_tiling_key", ""), _result_context(row)
+                )
             except Exception:
                 template = "unknown"
     else:
@@ -2065,22 +2301,19 @@ def start_baseline_batch(
     批量 baseline：一次跑整个 CSV 的所有 case。
 
     all_params 是每个 case 的 extract_shape_params 结果列表。
-    用最大的有效计算量（M*N*K*batch_count，folded 的 M 已含 batch）计算 timeout。
+    NPU timeout 取各用例预算最大值，proc timeout 和 ETA 按各用例预算求和。
     """
-
-    def _eff_flops(p: dict) -> int:
-        return p["M"] * p["N"] * p["K"] * p.get("batch_count", 1)
-
-    max_flops = max(_eff_flops(p) for p in all_params)
-    max_m = max(p["M"] for p in all_params)
-    max_k = max(p["K"] for p in all_params)
-    max_bc = 1
-    for p in all_params:
-        if _eff_flops(p) == max_flops:
-            max_m, max_k, max_bc = p["M"], p["K"], p.get("batch_count", 1)
-            break
-
-    eta = start_baseline(csv_path, max_m, max(p["N"] for p in all_params), max_k, batch_count=max_bc)
+    if not all_params:
+        raise ValueError("批量 baseline 的 all_params 不能为空")
+    first = all_params[0]
+    eta = start_baseline(
+        csv_path,
+        first["M"],
+        first["N"],
+        first["K"],
+        batch_count=first.get("batch_count", 1),
+        all_params=all_params,
+    )
     print(f"[baseline_batch] {len(all_params)} cases, eta={eta}s")
     return eta
 
@@ -2109,7 +2342,9 @@ def collect_baseline_batch(
         case_name = params.get("testcase_name", "")
         row = result_rows.get(case_name)
         if row is None:
-            print(f"[baseline_batch] case {i + 1} '{case_name}' not found in result CSV")
+            print(
+                f"[baseline_batch] case {i + 1} '{case_name}' not found in result CSV"
+            )
             results.append(BaselineResult())
             continue
 
@@ -2119,22 +2354,30 @@ def collect_baseline_batch(
         prec_str = (row.get("precision_status") or "").strip()
 
         try:
-            perf = float(perf_str) if perf_str and perf_str.replace(".", "").isdigit() else 0.0
+            perf = (
+                float(perf_str)
+                if perf_str and perf_str.replace(".", "").isdigit()
+                else 0.0
+            )
         except ValueError:
             perf = 0.0
 
         tiling_parse_error = ""
         try:
             td = _parse_tiling_data(td_str)
-            tiling_data, template = _td_from_values(td, key_str)
+            tiling_data, template = _td_from_values(
+                td, key_str, _result_context(row, params)
+            )
         except Exception as e:
             # 解析失败只降级 tiling_data，perf 保留；模板按 key 独立反查不被连坐
             # （例：legacy 96 值结构布局解析失败，但 KT=2 仍可反查出 mix——
             # 模板名与 tiling 解析是两个独立失败域，见 BaselineResult.tiling_parse_error）
-            print(f"[baseline_batch] case {i + 1} '{case_name}' tiling 解析失败: {e}，原始片段: {td_str[:80]}")
+            print(
+                f"[baseline_batch] case {i + 1} '{case_name}' tiling 解析失败: {e}，原始片段: {td_str[:80]}"
+            )
             tiling_data = TilingData()
             try:
-                template = _detect_template_from_key_str(key_str)
+                template = _detect_template_from_key_str(key_str, params)
             except Exception:
                 template = "unknown"
             tiling_parse_error = f"{type(e).__name__}: {e}"
@@ -2148,12 +2391,17 @@ def collect_baseline_batch(
                 tiling_parse_error=tiling_parse_error,
             )
         )
-        print(f"[baseline_batch] case {i + 1} '{case_name}': {template}, {perf} us, precision={prec_str or 'UNKNOWN'}")
+        print(
+            f"[baseline_batch] case {i + 1} '{case_name}': {template}, {perf} us, "
+            f"precision={prec_str or 'UNKNOWN'}"
+        )
 
     return results
 
 
-def verify_layout_coverage(result_csv_path: str, verbose: bool = True) -> dict:
+def verify_layout_coverage(
+    result_csv_path: str, verbose: bool = True, all_params: Optional[list[dict]] = None
+) -> dict:
     """
     档案推导闭环校验（Step A 档案完成后必跑）：逐行核对 result CSV 实测
     dyn_tiling_data 槽数 vs 活跃档案 struct_layouts 声明，堵"推导漏登记
@@ -2173,18 +2421,14 @@ def verify_layout_coverage(result_csv_path: str, verbose: bool = True) -> dict:
     "parse_error" 键归入字符串级解析失败；kt_undeclared 以 "key_parse_error"
     键归入 key 解析失败）。
     """
-    profile = _require_profile()
-    parseable_slots = {
-        spec["u32_slots"]: name
-        for name, spec in profile["struct_layouts"].items()
-        if not name.startswith("_")
+    _require_profile()
+    contexts = {p["testcase_name"]: p for p in (all_params or [])}
+    result: dict = {
+        "parseable": {},
+        "declared_unparseable": {},
+        "undeclared": {},
+        "kt_undeclared": {},
     }
-    doc_only_slots = {
-        spec["u32_slots"]: name
-        for name, spec in profile["struct_layouts"].items()
-        if name.startswith("_")
-    }
-    result: dict = {"parseable": {}, "declared_unparseable": {}, "undeclared": {}, "kt_undeclared": {}}
     with open(result_csv_path) as f:
         for row in csv.DictReader(f):
             case = row.get("testcase_name", "")
@@ -2195,15 +2439,26 @@ def verify_layout_coverage(result_csv_path: str, verbose: bool = True) -> dict:
                 vals = None
             if vals is not None:
                 n = len(vals)
-                if n in parseable_slots:
-                    result["parseable"].setdefault(n, []).append(case)
-                elif n in doc_only_slots:
-                    result["declared_unparseable"].setdefault(n, []).append(case)
-                else:
+                try:
+                    ctx = _tiling_context(
+                        row.get("dyn_tiling_key", ""),
+                        _result_context(row, contexts.get(case)),
+                    )
+                    layout = _select_layout(n, ctx, include_documented=True)
+                    if layout.startswith("_"):
+                        result["declared_unparseable"].setdefault(n, []).append(case)
+                    else:
+                        _parse_struct_fields(vals, layout)
+                        result["parseable"].setdefault(n, []).append(case)
+                except (ValueError, KeyError, struct.error):
                     result["undeclared"].setdefault(n, []).append(case)
             try:
                 kt = _decode_kernel_type(row.get("dyn_tiling_key", ""))
-                if kt not in _KT_TO_TEMPLATE:
+                ctx = _result_context(row, contexts.get(case))
+                if (
+                    _detect_template_from_key_str(row.get("dyn_tiling_key", ""), ctx)
+                    == "unknown"
+                ):
                     result["kt_undeclared"].setdefault(kt, []).append(case)
             except Exception:
                 result["kt_undeclared"].setdefault("key_parse_error", []).append(case)
@@ -2217,9 +2472,11 @@ def verify_layout_coverage(result_csv_path: str, verbose: bool = True) -> dict:
         for n, cases in sorted(result["declared_unparseable"].items()):
             print(
                 f"[verify_layout_coverage] 提示: 槽位 {n} 为已登记不可解析路径"
-                f"（{doc_only_slots[n]}，{len(cases)} case）"
+                f"（{len(cases)} case）"
             )
-        for kt, cases in sorted(result["kt_undeclared"].items(), key=lambda x: str(x[0])):
+        for kt, cases in sorted(
+            result["kt_undeclared"].items(), key=lambda x: str(x[0])
+        ):
             print(
                 f"[verify_layout_coverage] 警告: KT={kt} 未在 kernel_type_map 登记"
                 f"（{len(cases)} case: {', '.join(cases[:3])}{'…' if len(cases) > 3 else ''}）"
@@ -2249,11 +2506,11 @@ def output_baseline_info(
     """
     跑完 baseline 后，将 baseline 结果 + shape 参数输出为 JSON 供 AI 阅读生成候选。
 
-    AI 读取此 JSON；调优 `quant_batch_matmul_v3` 时再读 references/qbmm-guide.md，
+    AI 结合此 JSON 与 references/matmul-tiling-theory.md 中的通用切分原理，
     生成 candidates JSON（格式见 load_candidates 的输入）。
 
     aic_num: AI Core 实测核数（get_aic_num() 的返回值）。多核利用率/尾块负载均衡
-    按实测核数计算。传 0 时抛异常——估算必须基于真实核数。
+    由当前档案的 derive_schedule 按实测核数计算。传 0 时抛异常。
 
     返回 output_path。
     """
@@ -2291,61 +2548,104 @@ def output_baseline_info(
         },
         "baseline": {
             "template": baseline.template,
+            "aic_num": aic_num,
+            "core_query": _require_profile().get("soc", {}).get("core_query"),
             "perf_us": baseline.perf_us,
             "precision_status": baseline.precision_status,
-            "tiling_data": td.to_dict() if td.base_m > 0 else None,
+            "tiling_data": td.to_dict() or None,
             # tiling_data 为 null 时给出可追溯原因（布局未收录/CSV 缺失等），
             # 避免下游把"没解析到"误读成"值为 0"
             "tiling_parse_error": baseline.tiling_parse_error or None,
         },
     }
 
-    if td.base_m > 0:
-        sizeof_a = DTYPE_SIZEOF.get(params["x1_dtype"], 1)
-        sizeof_b = DTYPE_SIZEOF.get(params["x2_dtype"], 1)
-        m, n, k = params["M"], params["N"], params["K"]
+    values = td.to_dict()
+    capacity_fields = {
+        "baseM",
+        "baseN",
+        "baseK",
+        "kAL1",
+        "kBL1",
+        "scaleKL1",
+        "nBufferNum",
+        "dbL0C",
+    }
+    missing_capacity_fields = sorted(capacity_fields - values.keys())
+    if not missing_capacity_fields and all(
+        values[key] > 0 for key in ("baseM", "baseN", "baseK")
+    ):
+        sizeof_a = _dtype_size(params["x1_dtype"])
+        sizeof_b = _dtype_size(params["x2_dtype"])
         soc = _require_profile()["soc"]  # 容量/分组常量（档案声明，替代引擎旧硬编码）
 
-        # totalBlockCnt = batchC × mBlockCnt × nBlockCnt（asw tiling 同口径）；
-        # L1/L0 记账全 per-batch（baseM/baseK/kAL1 不乘 B）
-        tiles = math.ceil(m / td.base_m) * math.ceil(n / td.base_n) * batch_count
-        l0c_util = td.base_m * td.base_n * soc["data_size_l0c"] * td.db_l0c / soc["l0c_size"]
-        l1_k_reuse = td.k_a_l1 / td.base_k if td.base_k > 0 else 0
-        k_loop = math.ceil(k / td.base_k)
-        l0a_util = td.base_m * td.base_k * sizeof_a * 2 / soc["l0a_size"]
-        l0b_util = td.base_n * td.base_k * sizeof_b * 2 / soc["l0b_size"]
+        l0c_util = (
+            td.baseM * td.baseN * soc["data_size_l0c"] * td.dbL0C / soc["l0c_size"]
+        )
+        l1_k_reuse = td.kAL1 / td.baseK if td.baseK > 0 else 0
+        l0a_util = td.baseM * td.baseK * sizeof_a * 2 / soc["l0a_size"]
+        l0b_util = td.baseN * td.baseK * sizeof_b * 2 / soc["l0b_size"]
 
-        a_usage = td.base_m * td.k_a_l1 * sizeof_a * td.n_buffer_num
-        b_usage = td.base_n * td.k_b_l1 * sizeof_b * td.n_buffer_num
-        a_scale = td.base_m * math.ceil(td.scale_k_l1 / soc["mx_group_size"]) * td.n_buffer_num
-        b_scale = td.base_n * math.ceil(td.scale_k_l1 / soc["mx_group_size"]) * td.n_buffer_num
-        sizeof_bias = DTYPE_SIZEOF.get(params["bias"], 0) if params["bias"] != "none" else 0
-        bias_usage = td.base_n * sizeof_bias * 2 if params["bias"] != "none" else 0
+        a_usage = td.baseM * td.kAL1 * sizeof_a * td.nBufferNum
+        b_usage = td.baseN * td.kBL1 * sizeof_b * td.nBufferNum
+        a_scale = b_scale = 0
+        if td.scaleKL1 > 0:
+            group_size = soc.get("mx_group_size")
+            if (
+                isinstance(group_size, bool)
+                or not isinstance(group_size, (int, float))
+                or group_size <= 0
+            ):
+                raise ValueError(
+                    "当前容量模型含 scale 深度，需要有依据的 soc.mx_group_size"
+                )
+            a_scale = td.baseM * math.ceil(td.scaleKL1 / group_size) * td.nBufferNum
+            b_scale = td.baseN * math.ceil(td.scaleKL1 / group_size) * td.nBufferNum
+        sizeof_bias = _dtype_size(params["bias"]) if params["bias"] != "none" else 0
+        bias_usage = td.baseN * sizeof_bias * 2 if params["bias"] != "none" else 0
         l1_total = a_usage + b_usage + a_scale + b_scale + bias_usage
 
-        is_streamk = td.single_core_k > 0
-        if is_streamk:
-            tail_load_balance = None
-        else:
-            remainder = tiles % aic_num
-            working_in_tail = remainder if remainder != 0 else aic_num
-            tail_load_balance = working_in_tail / aic_num
-
         health_dict = {
-            "tiles": tiles,
-            "aic_num": aic_num,
-            "multi_core_util": f"{min(tiles, aic_num) / aic_num:.0%}",
             "l0c_util": f"{l0c_util:.0%}",
             "l1_k_reuse": f"{l1_k_reuse:.1f}x",
-            "k_loop_count": k_loop,
             "l0a_util": f"{l0a_util:.0%}",
             "l0b_util": f"{l0b_util:.0%}",
             "l1_util": f"{l1_total / soc['l1_size']:.0%}",
             "l1_remaining_bytes": soc["l1_size"] - l1_total,
         }
-        if tail_load_balance is not None:
-            health_dict["tail_load_balance"] = f"{tail_load_balance:.0%}"
         info["baseline"]["health"] = health_dict
+    elif values:
+        info["baseline"]["health_unavailable"] = (
+            f"现有容量模型缺少字段 {missing_capacity_fields} 或基础块非正数；"
+            "原始字段已完整保留，按当前算子机制分析。"
+        )
+
+    scheduling = _require_profile().get("scheduling")
+    if scheduling is not None and values:
+        derive_schedule = getattr(_recognition_module(), "derive_schedule", None)
+        if not callable(derive_schedule):
+            raise ValueError("档案声明了 scheduling，但识别适配器没有 derive_schedule")
+        metrics = derive_schedule(
+            {
+                "params": params,
+                "tiling_data": values,
+                "template": baseline.template,
+                "aic_num": aic_num,
+                "core_query": _require_profile().get("soc", {}).get("core_query"),
+                "soc": _require_profile()["soc"],
+            }
+        )
+        if not isinstance(metrics, dict):
+            raise ValueError("recognition.derive_schedule 必须返回调度指标字典")
+        health = info["baseline"].setdefault("health", {})
+        overlap = health.keys() & metrics.keys()
+        if overlap:
+            raise ValueError(f"调度指标覆盖了容量指标: {sorted(overlap)}")
+        health.update(metrics)
+        info["baseline"]["scheduling_model"] = dict(scheduling)
+    else:
+        info["baseline"]["scheduling_unavailable"] = (
+            "未声明有源码依据的调度模型或未解析到切分数据，不估算任务数、尾轮和 K 循环。"
+        )
 
     _ensure_parent(output_path)
     with open(output_path, "w") as f:
@@ -2400,15 +2700,16 @@ def _validate_candidate_fields(candidate: dict, where: str) -> list[str]:
     unknown = sorted(set(candidate) - set(MACRO_MAP) - _CANDIDATE_METADATA)
     if unknown:
         raise ValueError(
-            f"候选 {where} 含不可注入字段 {unknown}；可用字段为 {sorted(MACRO_MAP)}。字段别名不会自动生效。"
+            f"候选 {where} 含不可注入字段 {unknown}；可用字段为 "
+            f"{sorted(MACRO_MAP)}。字段别名不会自动生效。"
         )
     tune_fields = [k for k in MACRO_MAP if k in candidate and candidate[k] is not None]
     if not tune_fields:
         raise ValueError(f"候选 {where} 没有任何可注入字段")
-    for field in tune_fields:
-        value = candidate[field]
+    for field_name in tune_fields:
+        value = candidate[field_name]
         if isinstance(value, bool) or not isinstance(value, int):
-            raise ValueError(f"候选 {where}.{field} 必须是整数，实际为 {value!r}")
+            raise ValueError(f"候选 {where}.{field_name} 必须是整数，实际为 {value!r}")
     return tune_fields
 
 
@@ -2421,14 +2722,19 @@ def _kernel_macro_fields(kernel_file: str) -> set[str]:
         raise RuntimeError(f"kernel 文件不可读: {kernel_file}: {e}") from e
     available = set()
     duplicated = []
-    for field, macro in MACRO_MAP.items():
-        count = len(re.findall(rf"(?m)^\s*#define\s+{re.escape(macro)}\s+[-+]?\d+\s*$", content))
+    for field_name, macro in MACRO_MAP.items():
+        count = len(
+            re.findall(rf"(?m)^\s*#define\s+{re.escape(macro)}\s+[-+]?\d+\s*$", content)
+        )
         if count == 1:
-            available.add(field)
+            available.add(field_name)
         elif count > 1:
-            duplicated.append(f"{field}->{macro}({count}次)")
+            duplicated.append(f"{field_name}->{macro}({count}次)")
     if duplicated:
-        raise RuntimeError(f"kernel 文件宏定义重复，无法安全注入 {kernel_file}: " + ", ".join(duplicated))
+        raise RuntimeError(
+            f"kernel 文件宏定义重复，无法安全注入 {kernel_file}: "
+            + ", ".join(duplicated)
+        )
     return available
 
 
@@ -2455,22 +2761,36 @@ def load_candidates(json_path: str) -> tuple[list[dict], dict]:
         for idx, raw in enumerate(items):
             where = f"{location}[{idx}]"
             if not isinstance(raw, dict):
-                raise ValueError(f"候选 {where} 必须是 JSON object，实际为 {type(raw).__name__}")
+                raise ValueError(
+                    f"候选 {where} 必须是 JSON object，实际为 {type(raw).__name__}"
+                )
             candidate = dict(raw)
             if not candidate.get("template"):
                 raise ValueError(f"候选 {where} 缺少显式 template；不再默认归入 swat")
-            for field in ("reason", "expected"):
-                if not isinstance(candidate.get(field), str) or not candidate[field].strip():
-                    raise ValueError(f"候选 {where} 缺少非空 {field}，无法追溯生成意图")
+            for field_name in ("reason", "expected"):
+                if (
+                    not isinstance(candidate.get(field_name), str)
+                    or not candidate[field_name].strip()
+                ):
+                    raise ValueError(
+                        f"候选 {where} 缺少非空 {field_name}，无法追溯生成意图"
+                    )
             candidate["template"] = normalize_template(candidate["template"])
 
             _validate_candidate_fields(candidate, where)
 
             # reason/expected/risky 是解释元数据，不构成新的实际配置。
-            signature_obj = {k: v for k, v in candidate.items() if k not in ("reason", "expected", "risky")}
+            signature_obj = {
+                k: v
+                for k, v in candidate.items()
+                if k not in ("reason", "expected", "risky")
+            }
             signature = json.dumps(signature_obj, sort_keys=True, ensure_ascii=False)
             if signature in seen:
-                raise ValueError(f"重复候选配置: {where} 与 {seen[signature]} 仅说明文字不同，会浪费扫描预算")
+                raise ValueError(
+                    f"重复候选配置: {where} 与 {seen[signature]} 仅说明文字不同，"
+                    f"会浪费扫描预算"
+                )
             seen[signature] = where
             candidates.append(candidate)
             tmpl = candidate["template"]
@@ -2486,9 +2806,13 @@ def load_candidates(json_path: str) -> tuple[list[dict], dict]:
                 for sub_key, sub_val in value.items():
                     add_group(sub_val, f"$.{key}.{sub_key}")
     else:
-        raise ValueError(f"候选文件根节点必须是 object 或 list，实际为 {type(data).__name__}")
+        raise ValueError(
+            f"候选文件根节点必须是 object 或 list，实际为 {type(data).__name__}"
+        )
 
-    print(f"[load_candidates] 从 {json_path} 加载 {len(candidates)} 个候选: {gen_by_template}")
+    print(
+        f"[load_candidates] 从 {json_path} 加载 {len(candidates)} 个候选: {gen_by_template}"
+    )
     return candidates, gen_by_template
 
 
@@ -2608,10 +2932,14 @@ def generate_anchor_probe_script(
     normalized = list(dict.fromkeys(normalize_template(t) for t in templates))
     if not normalized:
         raise ValueError("锚点探针 templates 不能为空")
-    injectable = set(injectable_templates(case_class, quant_mode, natural_template=baseline_template))
+    injectable = set(
+        injectable_templates(case_class, quant_mode, natural_template=baseline_template)
+    )
     invalid = sorted(set(normalized) - injectable)
     if invalid:
-        raise ValueError(f"锚点模板不在当前 case 可注入集合: {invalid}；可用={sorted(injectable)}")
+        raise ValueError(
+            f"锚点模板不在当前 case 可注入集合: {invalid}；可用={sorted(injectable)}"
+        )
     if uses_stub and not baseline_template:
         raise ValueError("install-stub 模式必须传 baseline_template 后才能探测锚点")
 
@@ -2630,12 +2958,15 @@ def generate_anchor_probe_script(
         elif tmpl in VENDOR_PACKAGES:
             package = VENDOR_PACKAGES[tmpl]
         else:
-            raise KeyError(f"模板 '{tmpl}' 没有 forced vendor 包声明；VENDOR_PACKAGES={sorted(VENDOR_PACKAGES)}")
+            raise KeyError(
+                f"模板 '{tmpl}' 没有 forced vendor 包声明；"
+                f"VENDOR_PACKAGES={sorted(VENDOR_PACKAGES)}"
+            )
         lines.extend(
             [
                 f"printf '%s' {q('load_priority=' + package)} > {q(VENDOR_CONFIG)}",
                 f'echo "===== SCAN_START {tmpl} 0 =====" >> {q(paths["output"])}',
-                f"python3 {q(_SELF_PATH)} --clean-artifacts {q(KERNEL_META_DIR)} {q(TTK_DIR)}",
+                _cache_cleanup_command(),
                 f"cd {q(TTK_DIR)} && timeout {proc_timeout} python3 -m ttk kernel "
                 f"-i {q(case_csv)} -d --compare=close --pc=1 --run=20 "
                 f"--npu-timeout {npu_timeout} --plugin {q(PLUGIN_DIR)} "
@@ -2648,7 +2979,10 @@ def generate_anchor_probe_script(
     lines.append(f"touch {q(paths['done'])}")
     with open(paths["script"], "w") as f:
         f.write("\n".join(lines) + "\n")
-    os.chmod(paths["script"], 0o755)
+    os.chmod(
+        paths["script"],
+        stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
+    )
     return paths["script"]
 
 
@@ -2691,8 +3025,13 @@ def start_anchor_probe(
         stdin=subprocess.DEVNULL,
         start_new_session=True,
     )
-    eta = estimate_baseline_eta(m, n, k, n_cases=len(templates), batch_count=batch_count)
-    print(f"[anchor] {len(templates)} 个模板探针已启动，预计 {eta}s，done flag: {paths['done']}")
+    eta = estimate_baseline_eta(
+        m, n, k, n_cases=len(templates), batch_count=batch_count
+    )
+    print(
+        f"[anchor] {len(templates)} 个模板探针已启动，预计 {eta}s，"
+        f"done flag: {paths['done']}"
+    )
     return eta
 
 
@@ -2707,19 +3046,25 @@ def collect_anchor_probe(
     """收集、落盘并校验锚点；缺模板或约束自检异常默认直接阻断后续扫参。"""
     log_tag = _resolve_log_tag(log_tag, case_csv, ANCHOR_LAST_TAG_FILE)
     expected = list(dict.fromkeys(normalize_template(t) for t in templates))
-    anchors = extract_anchor(anchor_paths(log_tag)["output"], templates=expected)
+    anchors = extract_anchor(
+        anchor_paths(log_tag)["output"], templates=expected, context=params
+    )
     missing = sorted(set(expected) - set(anchors))
     incomplete = sorted(
-        tmpl for tmpl, anchor in anchors.items() if anchor.get("blockDim") is None or not anchor.get("layout")
+        tmpl
+        for tmpl, anchor in anchors.items()
+        if anchor.get("blockDim") is None or not anchor.get("layout")
     )
-    problems = validate_rules_against_anchors(anchors, params)
+    diagnostics = validate_rules_against_anchors(anchors, params)
+    for warning in diagnostics["warnings"]:
+        print(f"[anchor warning] {warning}")
     if save_path is None:
         save_path = f"{RUN_DIR}/anchors/anchors_{log_tag or 'default'}.json"
     save_anchors(anchors, save_path)
     failures = [f"缺少锚点模板: {missing}"] if missing else []
     if incomplete:
         failures.append(f"锚点缺少 blockDim/layout: {incomplete}")
-    failures += list(problems)
+    failures += diagnostics["errors"]
     if strict and failures:
         raise RuntimeError("anchor gate 失败:\n- " + "\n- ".join(failures))
     return anchors, failures
@@ -2768,7 +3113,8 @@ def generate_scan_script(
     uses_stub = bool(mode_cfg.get("tune_macro_define_block"))
     if uses_stub and not baseline_template:
         raise ValueError(
-            f"量化模式 '{quant_mode}' 使用 install-stub，请传入 baseline_template，避免把候选标签误当成 host 实际路由。"
+            f"量化模式 '{quant_mode}' 使用 install-stub，请传入 baseline_template，"
+            "避免把候选标签误当成 host 实际路由。"
         )
     allowed = injectable_templates(case_class, quant_mode, baseline_template)
     if uses_stub and not allowed:
@@ -2776,7 +3122,7 @@ def generate_scan_script(
             f"baseline 模板 '{baseline_template}' 在 case_class '{case_class}' × "
             f"quant_mode '{quant_mode}' 下没有可验证的宏注入点，该 case 不可扫参。"
         )
-    dead_fields = set(mode_cfg.get("dead_fields", {}).keys())
+    dead_fields = set(mode_cfg.get("dead_fields", {}) or {})
 
     q = shlex.quote
     lines = [
@@ -2805,33 +3151,13 @@ def generate_scan_script(
                 f"模板 '{tmpl}' 在 case_class '{case_class}' × quant_mode '{quant_mode}' "
                 f"下不可注入（可扫模板: {allowed}）"
             )
-        if mode_cfg.get("tune_macro_define_block"):
-            # install-stub 模式（档案声明 tune_macro_define_block 的量化模式，
-            # 如 w8a8/pertoken/perblock）一律钉 normal 包：forced 包的 host 补丁里
-            # streamK IsCapable 的强制 true/false 是模式无关的（swat/afull/l0cpp 包
-            # 禁 streamK、streamk 包强推 streamK），任何 forced 包都会扭曲本模式
-            # case 的自然分发；且 host GetKernelType 强制只打 worktree 模式类，
-            # stub 模式模板本就无强制可言（自然分发=锚点）。档案 stub 模式的
-            # kernel_files 也全部指向 normal 包安装侧，sed 目标与运行时包一致。
-            pkg = VENDOR_PACKAGES["normal"]
-        else:
-            # worktree 模式（如 mx / sparse_tdm）：按模板选 forced vendor 包。
-            # 注意不能写 VENDOR_PACKAGES.get(tmpl, VENDOR_PACKAGES["swat"])——
-            # dict.get 的默认值是急切求值的，无 swat 模板的算子档案（非 qbmm）
-            # 会在此 KeyError，即使 tmpl 本身在包表内。
-            if tmpl in VENDOR_PACKAGES:
-                pkg = VENDOR_PACKAGES[tmpl]
-            elif "swat" in VENDOR_PACKAGES:
-                pkg = VENDOR_PACKAGES["swat"]
-            else:
-                raise KeyError(
-                    f"模板 '{tmpl}' 无 vendor 包声明（VENDOR_PACKAGES: {sorted(VENDOR_PACKAGES)}）"
-                    f"——档案 templates.<t> 缺 vendor_install_dir 或模板不在白名单"
-                )
+        pkg = _vendor_package_for_template(tmpl, quant_mode)
         kernel_file = get_kernel_file_path(tmpl, case_class, quant_mode)
         required_fields = _kernel_macro_fields(kernel_file) - dead_fields
         if not required_fields:
-            raise RuntimeError(f"模板 '{tmpl}' 的 kernel 文件没有可注入 TUNE_ 宏: {kernel_file}")
+            raise RuntimeError(
+                f"模板 '{tmpl}' 的 kernel 文件没有可注入 TUNE_ 宏: {kernel_file}"
+            )
 
         lines.append(f"# === {tmpl} 组 ({len(group)} 个候选) ===")
         lines.append(f"printf '%s' {q('load_priority=' + pkg)} > {q(VENDOR_CONFIG)}")
@@ -2840,7 +3166,11 @@ def generate_scan_script(
         for i, c in enumerate(group):
             # 生成 sed 命令更新每个宏（死字段按 quant_mode 过滤，不注入 sed）
             sed_cmds = []
-            live_fields = [key for key in MACRO_MAP if key in c and c[key] is not None and key not in dead_fields]
+            live_fields = [
+                key
+                for key in MACRO_MAP
+                if key in c and c[key] is not None and key not in dead_fields
+            ]
             missing_fields = sorted(required_fields - set(live_fields))
             extra_fields = sorted(set(live_fields) - required_fields)
             if missing_fields or extra_fields:
@@ -2859,23 +3189,28 @@ def generate_scan_script(
                     value = c[key]
                     sed_cmds.extend(
                         [
-                            f"test \"$(grep -Ec '^[[:space:]]*#define[[:space:]]+{macro_re}"
-                            f"[[:space:]]+[-+]?[0-9]+[[:space:]]*$' "
-                            f'{q(kernel_file)})" -eq 1 || '
-                            f"{{ echo 'macro {macro} missing or duplicated' >> {q(output_log)}; exit 2; }}",
-                            f"sed -Ei 's|^[[:space:]]*#define[[:space:]]+{macro_re}"
-                            f"[[:space:]]+[-+]?[0-9]+[[:space:]]*$|"
-                            f"#define {macro} {value}|' {q(kernel_file)}",
-                            f"grep -Eq '^#define[[:space:]]+{macro_re}[[:space:]]+{value}[[:space:]]*$' "
-                            f"{q(kernel_file)} || "
-                            f"{{ echo 'macro {macro} write verification failed' >> {q(output_log)}; exit 2; }}",
+                            (
+                                f"test \"$(grep -Ec '^[[:space:]]*#define[[:space:]]+{macro_re}"
+                                f"[[:space:]]+[-+]?[0-9]+[[:space:]]*$' {q(kernel_file)})\" -eq 1 || "
+                                f"{{ echo 'macro {macro} missing or duplicated' >> {q(output_log)}; exit 2; }}"
+                            ),
+                            (
+                                f"sed -Ei 's|^[[:space:]]*#define[[:space:]]+{macro_re}"
+                                f"[[:space:]]+[-+]?[0-9]+[[:space:]]*$|#define {macro} {value}|' "
+                                f"{q(kernel_file)}"
+                            ),
+                            (
+                                f"grep -Eq '^#define[[:space:]]+{macro_re}"
+                                f"[[:space:]]+{value}[[:space:]]*$' {q(kernel_file)} || "
+                                f"{{ echo 'macro {macro} write verification failed' >> {q(output_log)}; exit 2; }}"
+                            ),
                         ]
                     )
 
             lines.append(f"# 候选 {i + 1}/{len(group)}: {tmpl}")
             lines.append(f'echo "===== SCAN_START {tmpl} {i} =====" >> {q(output_log)}')
             lines.extend(sed_cmds)
-            lines.append(f"python3 {q(_SELF_PATH)} --clean-artifacts {q(KERNEL_META_DIR)} {q(TTK_DIR)}")
+            lines.append(_cache_cleanup_command())
             lines.append(
                 f"cd {q(TTK_DIR)} && "
                 f"timeout {proc_timeout} python3 -m ttk kernel -i {q(case_csv)} -d "
@@ -2883,14 +3218,19 @@ def generate_scan_script(
                 f"--plugin {q(PLUGIN_DIR)} >> {q(output_log)} 2>&1"
             )
             lines.append(f'echo "===== SCAN_END {tmpl} {i} =====" >> {q(output_log)}')
-            lines.append(f'echo "done {tmpl} {i + 1}/{len(group)}" >> {q(progress_log)}')
+            lines.append(
+                f'echo "done {tmpl} {i + 1}/{len(group)}" >> {q(progress_log)}'
+            )
             lines.append("")
 
     lines.append(f"touch {q(done_flag)}")
 
     with open(script_path, "w") as f:
         f.write("\n".join(lines) + "\n")
-    os.chmod(script_path, 0o755)
+    os.chmod(
+        script_path,
+        stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
+    )
     return script_path
 
 
@@ -2969,6 +3309,7 @@ def collect_ttk_scan(
     log_tag: str = "",
     save_path: str = None,
     case_csv: str = None,
+    params: Optional[dict] = None,
 ) -> list[CandidateResult]:
     """
     扫参完成后收集结果：逐个解析 scan_output[_tag].log 中的性能与精度数据。
@@ -2994,6 +3335,9 @@ def collect_ttk_scan(
     log_tag = _resolve_log_tag(log_tag, case_csv, SCAN_LAST_TAG_FILE)
     if save_path is None:
         save_path = f"{RUN_DIR}/results/scan_results_{log_tag or 'default'}.json"
+    if params is None and case_csv:
+        with open(case_csv) as f:
+            params = extract_shape_params(next(csv.DictReader(f)))
     results = []
     records = []
     by_template: dict[str, list[dict]] = {}
@@ -3011,7 +3355,7 @@ def collect_ttk_scan(
     precision_failed: list[tuple[str, int]] = []
     for tmpl, group in by_template.items():
         for i, c in enumerate(group):
-            candidate_values = {k: c[k] for k in MACRO_MAP if k in c and c[k] is not None}
+            candidate_values = {k: c[k] for k in MACRO_MAP if c.get(k) is not None}
             rec = {
                 "template": tmpl,
                 "group_idx": i,
@@ -3038,7 +3382,8 @@ def collect_ttk_scan(
                     )
                 )
                 continue
-            chunk = full_log[start_idx + len(start_marker):end_idx]
+            start = start_idx + len(start_marker)
+            chunk = full_log[start:end_idx]
             perf = parse_ttk_output(chunk)
             if perf is None:
                 rec["status"] = "timeout"
@@ -3052,23 +3397,11 @@ def collect_ttk_scan(
                 )
                 continue
             precision = parse_precision_status(chunk)
-            observed = parse_observed_template(chunk)
+            observed = parse_observed_template(chunk, params)
             rec["perf_us"] = perf
             rec["precision"] = precision
             rec["observed_template"] = observed
-            td = TilingData(
-                base_m=c.get("baseM", 0),
-                base_n=c.get("baseN", 0),
-                base_k=c.get("baseK", 0),
-                k_a_l1=c.get("kAL1", 0),
-                k_b_l1=c.get("kBL1", 0),
-                scale_k_l1=c.get("scaleKL1", 0),
-                n_buffer_num=c.get("nBufferNum", 0),
-                db_l0c=c.get("dbL0C", 0),
-                weight_must_hit_l2=c.get("weightMustHitL2", 1),
-                single_core_k=c.get("singleCoreK", 0),
-                k_l1=c.get("kL1", 0),
-            )
+            td = TilingData(**candidate_values)
             if observed == "unknown":
                 rec["status"] = "template_unverified"
                 records.append(rec)
@@ -3136,7 +3469,11 @@ def collect_ttk_scan(
             f"[scan] 精度未通过 {len(precision_failed)} 个候选（已剔除出推荐榜）: "
             + ", ".join(f"{t}#{i}" for t, i in precision_failed)
         )
-    route_failed = [r for r in records if r["status"] in ("template_mismatch", "template_unverified")]
+    route_failed = [
+        r
+        for r in records
+        if r["status"] in ("template_mismatch", "template_unverified")
+    ]
     if route_failed:
         print(f"[scan] 模板路由未验证 {len(route_failed)} 个候选（已剔除出推荐榜）")
     return results
@@ -3183,7 +3520,9 @@ def run_ttk_scan(
     else:
         print("[scan] 超过最大重试次数，尝试解析已有结果")
 
-    return collect_ttk_scan(candidates, log_tag=log_tag, save_path=save_path, case_csv=case_csv)
+    return collect_ttk_scan(
+        candidates, log_tag=log_tag, save_path=save_path, case_csv=case_csv
+    )
 
 
 # ============================================================================
@@ -3234,16 +3573,18 @@ def generate_ranking(
                     "is_baseline": False,
                 }
             )
-    # baseline tiling 未解析（baseM==0：BASE/legacy 等布局未收录路径）时不渲染
-    # 零字典——"没解析到"必须与"值为 0"在榜单上可区分，并给出可追溯原因
-    baseline_td_valid = baseline.tiling_data.base_m > 0
+    # 未解析与实际字段值为 0 分开表示，保留所有真实字段。
+    baseline_td_valid = bool(baseline.tiling_data.to_dict())
     all_entries.append(
         {
             "template": f"baseline ({baseline.template})",
             "tiling": baseline.tiling_data.to_dict() if baseline_td_valid else None,
             "tiling_note": None
             if baseline_td_valid
-            else (baseline.tiling_parse_error or f"baseline tiling 未解析（模板 {baseline.template}，布局未收录）"),
+            else (
+                baseline.tiling_parse_error
+                or f"baseline tiling 未解析（模板 {baseline.template}，布局未收录）"
+            ),
             "perf": baseline.perf_us,
             "is_baseline": True,
         }
@@ -3270,7 +3611,9 @@ def generate_ranking(
         if entry["tiling"] is None:
             td_str = f"N/A（{entry.get('tiling_note') or 'tiling 未解析'}）"
         else:
-            td_str = "{" + ", ".join(f"{k}:{v}" for k, v in entry["tiling"].items()) + "}"
+            td_str = (
+                "{" + ", ".join(f"{k}:{v}" for k, v in entry["tiling"].items()) + "}"
+            )
         speedup = baseline_perf / entry["perf"] if entry["perf"] > 0 else 0
         arrow = "↑" if speedup > 1.0 else ("↓" if speedup < 1.0 else "")
 
@@ -3279,14 +3622,18 @@ def generate_ranking(
                 f"| **{rank}** | **{entry['template']}** | **{td_str}** | **{entry['perf']:.3f}** | **1.00x** |"
             )
         else:
-            lines.append(f"| {rank} | {entry['template']} | {td_str} | {entry['perf']:.3f} | {speedup:.2f}x {arrow} |")
+            lines.append(
+                f"| {rank} | {entry['template']} | {td_str} | {entry['perf']:.3f} | {speedup:.2f}x {arrow} |"
+            )
 
     best = all_entries[0] if all_entries else None
     if best:
         if best["tiling"] is None:
             best_td = f"N/A（{best.get('tiling_note') or 'tiling 未解析'}）"
         else:
-            best_td = "{" + ", ".join(f"{k}:{v}" for k, v in best["tiling"].items()) + "}"
+            best_td = (
+                "{" + ", ".join(f"{k}:{v}" for k, v in best["tiling"].items()) + "}"
+            )
         best_speedup = baseline_perf / best["perf"] if best["perf"] > 0 else 0
         pct = (best_speedup - 1) * 100
         if best["is_baseline"]:
@@ -3295,23 +3642,31 @@ def generate_ranking(
             lines.append(f"- 性能模板: {baseline.template} (baseline)")
             lines.append(f"- tiling data: {best_td}")
             lines.append(f"- DYN_PERF: {best['perf']:.3f} us")
-            lines.append(f"- 加速比: 1.00x（未找到优于 baseline 的配置，op_host 默认 tiling 已最优）")
+            lines.append(
+                "- 加速比: 1.00x（未找到优于 baseline 的配置，op_host 默认 tiling 已最优）"
+            )
         else:
             lines.append("")
             lines.append("最优推荐（排名第 1）")
             lines.append(f"- 性能模板: {best['template']}")
             lines.append(f"- tiling data: {best_td}")
             lines.append(f"- DYN_PERF: {best['perf']:.3f} us")
-            lines.append(f"- 加速比: {best_speedup:.2f}x（比 baseline 提升 {pct:.1f}%）")
+            lines.append(
+                f"- 加速比: {best_speedup:.2f}x（比 baseline 提升 {pct:.1f}%）"
+            )
 
     ok_count = sum(1 for c in candidates if c.status == "ok")
     precision_fail_count = sum(1 for c in candidates if c.status == "precision_fail")
-    route_fail_count = sum(1 for c in candidates if c.status in ("template_mismatch", "template_unverified"))
+    route_fail_count = sum(
+        1
+        for c in candidates
+        if c.status in ("template_mismatch", "template_unverified")
+    )
     timeout_count = sum(1 for c in candidates if c.status == "timeout")
     total = len(candidates)
 
     lines.append("")
-    lines.append(f"Step 4 执行结果")
+    lines.append("Step 4 执行结果")
     lines.append(f"- 总执行: {total} 组")
     lines.append(f"- 通过（性能+精度）: {ok_count} 组")
     lines.append(f"- 精度未通过（已剔除）: {precision_fail_count} 组")
@@ -3350,9 +3705,15 @@ def generate_ranking_block(
     gen_lines = []
     filter_lines = []
     # 统计键一律使用归一后的模板名，并保留档案声明顺序。
-    declared = allowed_templates(params.get("case_class", "without_batch"), params.get("quant_mode", "mx"))
+    declared = allowed_templates(
+        params.get("case_class", "without_batch"), params.get("quant_mode", "mx")
+    )
     templates = list(
-        dict.fromkeys([normalize_template(t) for t in declared] + list(gen_by_template) + list(filter_by_template))
+        dict.fromkeys(
+            [normalize_template(t) for t in declared]
+            + list(gen_by_template)
+            + list(filter_by_template)
+        )
     )
     for tmpl in templates:
         gen_n = gen_by_template.get(tmpl, 0)
@@ -3394,7 +3755,9 @@ def generate_rankings_md(blocks: list[str], output_path: str) -> str:
 # 引擎不再持有硬编码副本。
 
 
-def check_candidate(candidate: dict, params: dict, anchor: Optional[dict] = None) -> tuple[bool, str]:
+def check_candidate(
+    candidate: dict, params: dict, anchor: Optional[dict] = None
+) -> tuple[bool, str]:
     """
     用硬约束（约束 1-17，判定的 ground truth 见活跃档案包 constraints.md）验证候选。
     不合格返回 (False, reason)。
@@ -3407,7 +3770,9 @@ def check_candidate(candidate: dict, params: dict, anchor: Optional[dict] = None
     有锚点时启用 streamK 安全域（约束 7）、afull 覆盖检查（约束 11）与
     合并尾块 stale 检查（约束 14）；无锚点时这三项降级跳过，其余约束不变。
     """
-    return _constraints_module().check_candidate(candidate, params, anchor, _constraints_ctx())
+    return _constraints_module().check_candidate(
+        candidate, params, anchor, _constraints_ctx()
+    )
 
 
 def filter_candidates(
@@ -3436,7 +3801,9 @@ def filter_candidates(
     return passed, by_template, failed
 
 
-def validate_rules_against_anchors(anchors: Optional[dict], params: dict) -> list[str]:
+def validate_rules_against_anchors(
+    anchors: Optional[dict], params: dict
+) -> dict[str, list[str]]:
     """
     锚点一致性校验（取得模板锚点后调用；判读规则见 skill 工作流）。
 
@@ -3453,9 +3820,15 @@ def validate_rules_against_anchors(anchors: Optional[dict], params: dict) -> lis
 
     判定逻辑在活跃档案包的 constraints 适配器；引擎侧组装 ctx（同 check_candidate）。
 
-    返回违规/提示列表（"template: reason"）；空列表 = 全部通过。
+    返回 {"errors": [...], "warnings": [...]}。只有 errors 阻断严格门禁；
+    warnings 用于规则不适用等提示。兼容旧适配器返回 list[str]，列表仅表示错误。
     """
-    return _constraints_module().validate_rules_against_anchors(anchors, params, _constraints_ctx())
+    result = _constraints_module().validate_rules_against_anchors(
+        anchors, params, _constraints_ctx()
+    )
+    if isinstance(result, list):
+        return {"errors": result, "warnings": []}
+    return {"errors": result.get("errors", []), "warnings": result.get("warnings", [])}
 
 
 def validate_candidate_count(
@@ -3469,7 +3842,7 @@ def validate_candidate_count(
     规则：AI 判定可行并生成了候选的模板，生成数必须 ≥ 档案声明的每模板最少候选数
     （constraints.required_candidates_per_template，load_profile 时同步到模块常量
     REQUIRED_CANDIDATES_PER_TEMPLATE）。判 N/A 的模板（gen_by_template 中不存在）
-    不受约束——但 N/A 判定必须有定量依据（见 SKILL.md Step 2：afull 全载容量、
+    不受约束——但 N/A 判定必须有定量依据（见 solver.md 主流程第 2 节：afull 全载容量、
     streamK 的 7c 全灭域），l0cpp 不允许判 N/A。
 
     校验对象是生成数（gen），不是筛选通过数（filter）——约束筛选淘汰是正常机制。
@@ -3488,22 +3861,16 @@ def validate_candidate_count(
             shortfall[tmpl] = gen_n
 
     if shortfall:
-        detail = ", ".join(f"{t}: {n}/{required}（缺 {required - n}）" for t, n in sorted(shortfall.items()))
+        detail = ", ".join(
+            f"{t}: {n}/{required}（缺 {required - n}）"
+            for t, n in sorted(shortfall.items())
+        )
         raise ValueError(
             f"候选数量不足 skill 要求（每模板 {required} 个）: {detail}。"
             f"请为上述模板补足候选后重新执行 Step 3。"
             f"如需裁剪数量，必须显式传 allow_fewer=True 并在最终报告中注明。"
         )
-    print(f"[validate] 候选数量校验通过: { {t: n for t, n in sorted(gen_by_template.items())} }")
-
-
-if __name__ == "__main__":
-    if len(sys.argv) == 4 and sys.argv[1] == "--clean-artifacts":
-        _clean_ttk_artifacts(sys.argv[2], sys.argv[3])
-        sys.exit(0)
     print(
-        "ttk_runner.py 是 solver 引擎模块，请在工作流中调用；"
-        "仅支持维护子命令: python3 ttk_runner.py --clean-artifacts <kernel_meta_dir> <ttk_dir>",
-        file=sys.stderr,
+        f"[validate] 候选数量校验通过: "
+        f"{ {t: n for t, n in sorted(gen_by_template.items())} }"
     )
-    sys.exit(2)

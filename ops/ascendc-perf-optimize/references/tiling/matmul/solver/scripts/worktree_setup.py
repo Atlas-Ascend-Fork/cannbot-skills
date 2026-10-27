@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------------------------------------
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
 # This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-# CANN Open Software License Version 2.0 (the "License").
+# CANN Open Software License Agreement Version 2.0 (the "License").
 # Please refer to the License for details. You may not use this file except in compliance with the License.
 # THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
@@ -40,13 +40,14 @@ references/operator-guide.md：
    vendor_name=custom_normal
 
 使用方式：
-    python3 worktree_setup.py --op <op_name> [--ops-nn-dir /path/to/ops-nn]
+    python3 worktree_setup.py --op <op_name> --run-dir <RUN_DIR> [--ops-nn-dir /path/to/ops-nn]
                               [--jobs 32] [--no-build] [--dry-run]
 
     --op          算子档案名（候选 = references/profiles/ 下当次生成的档案目录）
     --ops-nn-dir  ops-nn 仓库路径（默认 /workspace/ops-nn）。worktree 创建为
                   其兄弟目录：<仓库目录名><templates.<t>.worktree.path_suffix>
     --jobs        编译并行度（默认 32）
+    --run-dir     本轮独占产物目录（保存环境备份与恢复进度）
     --no-build    只创建 worktree 与校验 vendor，不启动编译
     --dry-run     只打印将要执行的操作，不实际修改文件
 
@@ -54,6 +55,10 @@ references/operator-guide.md：
     python3 worktree_setup.py install-stub --mode pertoken [--op <op_name>] [--dry-run]
     python3 worktree_setup.py restore-stub [--mode pertoken] [--op <op_name>] [--dry-run]
     python3 worktree_setup.py stub-status [--mode pertoken] [--op <op_name>]
+
+环境生命周期（首次修改前 prepare，后台任务全部退出后 cleanup）：
+    python3 worktree_setup.py prepare-run --op <op_name> --ops-nn-dir <OP_REPO> --run-dir <RUN_DIR>
+    python3 worktree_setup.py cleanup-run --run-dir <RUN_DIR>
 
 worktree 创建完成后，脚本自动继续编译安装全部 vendor 包（后台 Popen 启动 +
 每 ETA/4 轮询三态判定 + 失败自动重试，与 ttk_runner.py 相同的后台模式）。
@@ -66,10 +71,14 @@ import json
 import os
 import re
 import shlex
+import shutil
+import stat
 import subprocess
 import sys
 import time
+import uuid
 from dataclasses import dataclass
+from pathlib import Path
 
 # ============================================================================
 # 配置
@@ -109,9 +118,15 @@ def load_profile(op_name: str) -> dict:
     if not os.path.isfile(path):
         available = []
         if os.path.isdir(root):
-            available = sorted(d for d in os.listdir(root) if os.path.isfile(os.path.join(root, d, "profile.json")))
+            available = sorted(
+                d
+                for d in os.listdir(root)
+                if os.path.isfile(os.path.join(root, d, "profile.json"))
+            )
         listing = ", ".join(available) if available else "（无）"
-        raise FileNotFoundError(f"未知算子档案 {op_name!r}：{path} 不存在。可用算子档案: {listing}")
+        raise FileNotFoundError(
+            f"未知算子档案 {op_name!r}：{path} 不存在。可用算子档案: {listing}"
+        )
     with open(path) as f:
         return json.load(f)
 
@@ -122,7 +137,11 @@ def _available_ops() -> list:
     root = os.path.join(skill_dir, "references", "profiles")
     if not os.path.isdir(root):
         return []
-    return sorted(d for d in os.listdir(root) if os.path.isfile(os.path.join(root, d, "profile.json")))
+    return sorted(
+        d
+        for d in os.listdir(root)
+        if os.path.isfile(os.path.join(root, d, "profile.json"))
+    )
 
 
 # ============================================================================
@@ -149,6 +168,7 @@ class WorktreeConfig:
     # 档案 templates.<name> 声明原文（forced_* / tune_macro_define_block /
     # define_block_install / tuning_blocks），_patch_worktree_files 消费
     template_decl: dict = None
+    cleanup_run_dir: str = ""  # 本轮临时工作树的归属记录；旧接口不设置
 
     def __post_init__(self):
         if self.kernel_targets is None:
@@ -169,7 +189,10 @@ def build_worktrees(op: str = DEFAULT_OP) -> list[WorktreeConfig]:
         wtc = tdecl.get("worktree")
         if not wtc:
             continue
-        kts = [(kt["repo_rel"], list(kt["variants"])) for kt in tdecl.get("kernel_targets", [])]
+        kts = [
+            (kt["repo_rel"], list(kt["variants"]))
+            for kt in tdecl.get("kernel_targets", [])
+        ]
         configs.append(
             WorktreeConfig(
                 name=name,
@@ -186,16 +209,215 @@ def build_worktrees(op: str = DEFAULT_OP) -> list[WorktreeConfig]:
     return configs
 
 
-def resolve_worktree_paths(ops_nn_dir: str, op: str = DEFAULT_OP) -> list[WorktreeConfig]:
+def resolve_worktree_paths(
+    ops_nn_dir: str, op: str = DEFAULT_OP, run_dir: str = None
+) -> list[WorktreeConfig]:
     """把 build_worktrees(op) 各项的 path 解析为 ops_nn_dir 的兄弟目录
     （<目录名><path_suffix>）。幂等（每次返回新配置列表）。
     """
     root = os.path.abspath(ops_nn_dir).rstrip("/")
     parent, base = os.path.dirname(root), os.path.basename(root)
     configs = build_worktrees(op)
+    state = _read_environment(run_dir) if run_dir else None
     for wt in configs:
         wt.path = os.path.join(parent, base + wt.path_suffix)
+        if state:
+            wt.path += "_solver_" + state["tag"]
+            wt.branch = ""  # 临时构建采用 detached HEAD，不遗留分支。
+            wt.cleanup_run_dir = str(Path(run_dir).resolve())
     return configs
+
+
+# ============================================================================
+# 单次运行的环境备份与恢复
+# ============================================================================
+
+
+def _environment_file(run_dir) -> Path:
+    return Path(run_dir).resolve() / "build" / "environment.json"
+
+
+def _read_environment(run_dir) -> dict:
+    with _environment_file(run_dir).open() as stream:
+        return json.load(stream)
+
+
+def _write_environment(run_dir, state) -> None:
+    path = _environment_file(run_dir)
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+    temporary.replace(path)
+
+
+def prepare_run_environment(ops_nn_dir: str, run_dir: str, op: str) -> dict:
+    """在首次构建、打桩或切 vendor 前备份本轮会修改的环境。
+
+    重复调用沿用原快照；运行结束后不得用同一目录开启另一轮。
+    """
+    repo = str(Path(ops_nn_dir).resolve())
+    state_file = _environment_file(run_dir)
+    if state_file.exists():
+        state = _read_environment(run_dir)
+        if (
+            state["op"] != op
+            or state["repo"] != repo
+            or state["vendor_base"] != os.path.abspath(VENDOR_BASE)
+            or state["cleaned"]
+        ):
+            raise RuntimeError("运行目录已属于另一环境或已收尾，请为新运行使用独占目录")
+        return state
+
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    backup_root = state_file.parent / "environment_backup"
+    state = {
+        "op": op,
+        "repo": repo,
+        "vendor_base": os.path.abspath(VENDOR_BASE),
+        "tag": uuid.uuid4().hex[:12],
+        "worktrees": [],
+        "resources": [],
+        "cleaned": False,
+    }
+    packages = _package_specs(repo, op)
+    for config in resolve_worktree_paths(repo, op):
+        state["worktrees"].append(
+            {
+                "name": config.name,
+                "path": config.path + "_solver_" + state["tag"],
+                "created": False,
+                "removed": False,
+            }
+        )
+    # config.ini 最后恢复，确保旧配置指向的安装包已还原。
+    resources = [Path(VENDOR_BASE) / spec["install_dir"] for spec in packages]
+    resources += [Path(repo) / "build_out", Path(VENDOR_BASE) / "config.ini"]
+    backup_root.mkdir()  # 已有不完整备份时不覆盖。
+    try:
+        for index, path in enumerate(dict.fromkeys(resources)):
+            if path.is_dir() and backup_root.is_relative_to(path.resolve()):
+                raise RuntimeError(f"运行目录不能位于待备份资源内部: {path}")
+            if path.is_symlink():
+                raise RuntimeError(f"本轮环境备份不支持直接修改符号链接资源: {path}")
+            backup = backup_root / str(index)
+            existed = path.exists()
+            if existed:
+                if path.is_dir():
+                    shutil.copytree(path, backup, symlinks=True)
+                else:
+                    shutil.copy2(path, backup)
+            state["resources"].append(
+                {
+                    "path": str(path),
+                    "backup": str(backup) if existed else None,
+                    "restored": False,
+                }
+            )
+    except Exception:
+        shutil.rmtree(backup_root)
+        raise
+    _write_environment(run_dir, state)
+    return state
+
+
+def _remove_run_path(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+
+
+def cleanup_run_environment(run_dir: str) -> bool:
+    """后台任务全部退出后调用；恢复原环境并回收本轮实际创建的工作树。
+
+    工作树补丁保留在 build/worktree_patches，报告、候选和实测产物不删除。
+    无快照不推测归属；单项失败保留备份与进度，下次可继续恢复。
+    """
+    state = _read_environment(run_dir)
+    if state["cleaned"]:
+        return True
+    errors = []
+    patch_dir = _environment_file(run_dir).parent / "worktree_patches"
+    for item in state["worktrees"]:
+        if not item["created"] or item["removed"]:
+            continue
+        try:
+            registered = subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "core.quotePath=false",
+                    "-C",
+                    state["repo"],
+                    "worktree",
+                    "list",
+                    "--porcelain",
+                ],
+                check=True,
+                capture_output=True,
+            ).stdout.splitlines()
+            if b"worktree " + os.fsencode(item["path"]) in registered:
+                if os.path.exists(item["path"]):
+                    patch_dir.mkdir(exist_ok=True)
+                    patch = subprocess.run(
+                        ["git", "-C", item["path"], "diff", "--binary", "HEAD"],
+                        check=True,
+                        capture_output=True,
+                    ).stdout
+                    (patch_dir / (Path(item["path"]).name + ".patch")).write_bytes(
+                        patch
+                    )
+                subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        state["repo"],
+                        "worktree",
+                        "remove",
+                        "--force",
+                        item["path"],
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+            elif os.path.lexists(item["path"]):
+                raise RuntimeError("路径已不是本仓注册的工作树，保留该目录供核查")
+            item["removed"] = True
+            _write_environment(run_dir, state)
+        except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+            detail = (
+                exc.stderr.decode(errors="replace")
+                if isinstance(exc, subprocess.CalledProcessError) and exc.stderr
+                else str(exc)
+            )
+            errors.append(f"worktree {item['path']}: {detail}")
+    for item in state["resources"]:
+        if item["restored"]:
+            continue
+        try:
+            path = Path(item["path"])
+            if item["backup"] and not Path(item["backup"]).exists():
+                raise FileNotFoundError(f"恢复备份缺失，保留当前资源: {item['backup']}")
+            _remove_run_path(path)
+            if item["backup"]:
+                backup = Path(item["backup"])
+                if backup.is_dir():
+                    shutil.copytree(backup, path, symlinks=True)
+                else:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(backup, path)
+            item["restored"] = True
+            _write_environment(run_dir, state)
+        except OSError as exc:
+            errors.append(f"restore {item['path']}: {exc}")
+    state["cleanup_errors"] = errors
+    state["cleaned"] = not errors
+    _write_environment(run_dir, state)
+    if not errors:
+        shutil.rmtree(_environment_file(run_dir).parent / "environment_backup")
+        print(f"[cleanup] 原环境已恢复，本轮工作树已回收: {run_dir}")
+    else:
+        print("[cleanup] 未完全恢复，保留备份以便重试:\n- " + "\n- ".join(errors))
+    return not errors
 
 
 # ============================================================================
@@ -203,31 +425,38 @@ def resolve_worktree_paths(ops_nn_dir: str, op: str = DEFAULT_OP) -> list[Worktr
 # ============================================================================
 
 
-def patch_forced_return(file_path: str, decl: dict, label: str, dry_run: bool = False) -> bool:
+def patch_forced_return(
+    file_path: str, decl: dict, label: str, dry_run: bool = False
+) -> bool:
     """
     按 forced_get_kernel_type / forced_is_capable 声明做通用 regex 注入：
     在 anchor_regex 命中的函数体 { 后插入 replacement_template
     （<RETURN> 占位符替换为 return_statement）。
 
-    幂等：如果已存在 marker 则跳过。
+    幂等：在同一函数锚点验证完整插入内容，匹配后跳过。
     label 仅用于日志（GetKernelType / IsCapable）。
     """
     with open(file_path) as f:
         content = f.read()
 
-    if decl["marker"] in content:
-        marker_pos = content.index(decl["marker"])
-        block = content[marker_pos:marker_pos + 1000]
-        if decl["return_statement"] not in block:
-            print(f"  [ERROR] {label} marker 存在但 return 声明与算子档案不一致: {file_path}")
-            return False
-        print(f"  [skip] {label} already patched: {file_path}")
-        return True
-
-    replacement = decl["replacement_template"].replace("<RETURN>", decl["return_statement"])
+    replacement = decl["replacement_template"].replace(
+        "<RETURN>", decl["return_statement"]
+    )
     matches = list(re.finditer(decl["anchor_regex"], content))
     if len(matches) != 1:
-        print(f"  [ERROR] {label} anchor matched {len(matches)} times in {file_path}; expected 1")
+        print(
+            f"  [ERROR] {label} anchor matched {len(matches)} times in {file_path}; expected 1"
+        )
+        return False
+    expected = matches[0].expand(replacement)
+    if content.startswith(expected, matches[0].start()):
+        print(f"  [skip] {label} already patched: {file_path}")
+        return True
+    if decl["marker"] in content:
+        print(
+            f"  [ERROR] {label} marker 存在但函数锚点处的强制声明与算子档案不一致: "
+            f"{file_path}"
+        )
         return False
     new_content = re.sub(decl["anchor_regex"], replacement, content, count=1)
 
@@ -239,7 +468,11 @@ def patch_forced_return(file_path: str, decl: dict, label: str, dry_run: bool = 
 
 
 def patch_kernel_macros(
-    file_path: str, template: str, variants=None, dry_run: bool = False, op: str = DEFAULT_OP
+    file_path: str,
+    template: str,
+    variants=None,
+    dry_run: bool = False,
+    op: str = DEFAULT_OP,
 ) -> bool:
     """
     在 kernel .h 中插入 TUNE_ 宏定义块 + 各变体的 TILING TUNING BLOCK。
@@ -272,22 +505,33 @@ def patch_kernel_macros(
         # marker 已存在但声明中的宏不完整时按算子档案补齐。
         fixup = install.get("legacy_scale_kl1_fixup")
         if fixup:
-            fixup_define = re.search(r"#define (\w+)", fixup["define_replacement"]).group(1)
+            fixup_define = re.search(
+                r"#define (\w+)", fixup["define_replacement"]
+            ).group(1)
             if fixup_define not in content:
                 print(f"  [fix] Adding missing {fixup_define} to: {file_path}")
-                content = re.sub(fixup["define_regex"], fixup["define_replacement"], content)
-                content = re.sub(fixup["block_regex"], fixup["block_replacement"], content)
+                content = re.sub(
+                    fixup["define_regex"], fixup["define_replacement"], content
+                )
+                content = re.sub(
+                    fixup["block_regex"], fixup["block_replacement"], content
+                )
     else:
         tune_defines = decl["tune_macro_define_block"]
         # 找到最后一个 #include 行
         matches = list(re.finditer(install["insert_after_last_include_regex"], content))
         if matches:
             insert_pos = matches[-1].end()
-            content = content[:insert_pos] + "\n" + tune_defines + "\n" + content[insert_pos:]
+            content = (
+                content[:insert_pos] + "\n" + tune_defines + "\n" + content[insert_pos:]
+            )
         else:
             # fallback: 在 #pragma once 后插入
             content = re.sub(
-                install["fallback_after_pragma_once_regex"], r"\1\n" + tune_defines + "\n", content, count=1
+                install["fallback_after_pragma_once_regex"],
+                r"\1\n" + tune_defines + "\n",
+                content,
+                count=1,
             )
 
     # ---- 2. 各变体的 TILING TUNING BLOCK（独立幂等）----
@@ -298,13 +542,18 @@ def patch_kernel_macros(
     for variant in variants:
         vdecl = decl.get("tuning_blocks", {}).get(variant)
         if vdecl is None:
-            print(f"  [ERROR] template '{template}' 无 {variant} 变体（host 拒绝 batch）")
+            print(
+                f"  [ERROR] template '{template}' 无 {variant} 变体（host 拒绝 batch）"
+            )
             block_failed = True
             continue
         marker = vdecl["marker"]
         if marker in content:
             if vdecl["block_text"] not in content:
-                print(f"  [ERROR] {variant} tuning block marker 存在但内容与算子档案不一致: {file_path}")
+                print(
+                    f"  [ERROR] {variant} tuning block marker 存在但内容与算子档案不一致: "
+                    f"{file_path}"
+                )
                 block_failed = True
                 continue
             print(f"  [skip] {variant} tuning block already present: {file_path}")
@@ -314,7 +563,12 @@ def patch_kernel_macros(
         if anchor["mode"] == "replace":
             content = re.sub(anchor["regex"], lambda _m: block, content, count=1)
         elif anchor["mode"] == "insert_before":
-            content = re.sub(anchor["regex"], lambda m: block + "\n    " + m.group(0), content, count=1)
+            content = re.sub(
+                anchor["regex"],
+                lambda m: block + "\n    " + m.group(0),
+                content,
+                count=1,
+            )
         else:
             print(f"  [ERROR] 未知 anchor mode {anchor['mode']!r}: {file_path}")
             block_failed = True
@@ -334,22 +588,32 @@ def patch_kernel_macros(
         print(f"  [ERROR] 部分变体块插入失败（见上），该文件 patch 不完整: {file_path}")
         return False
 
-    expected_macros = re.findall(r"#define\s+(TUNE_\w+)", decl["tune_macro_define_block"])
-    bad_macros = [m for m in expected_macros if len(re.findall(rf"(?m)^\s*#define\s+{re.escape(m)}\b", content)) != 1]
+    expected_macros = re.findall(
+        r"#define\s+(TUNE_\w+)", decl["tune_macro_define_block"]
+    )
+    bad_macros = [
+        m
+        for m in expected_macros
+        if len(re.findall(rf"(?m)^\s*#define\s+{re.escape(m)}\b", content)) != 1
+    ]
     missing_markers = [
         decl["tuning_blocks"][v]["marker"]
         for v in variants
         if decl["tuning_blocks"][v]["marker"] not in content
     ]
     if bad_macros or missing_markers:
-        print(f"  [ERROR] patch 后验失败: macros={bad_macros}, markers={missing_markers}")
+        print(
+            f"  [ERROR] patch 后验失败: macros={bad_macros}, markers={missing_markers}"
+        )
         return False
 
     if content != original and not dry_run:
         with open(file_path, "w") as f:
             f.write(content)
     action = "patch" if content != original else "ok"
-    print(f"  [{action}] Kernel TUNE_ macros + TUNING BLOCK ({'+'.join(variants)}): {file_path}")
+    print(
+        f"  [{action}] Kernel TUNE_ macros + TUNING BLOCK ({'+'.join(variants)}): {file_path}"
+    )
     return True
 
 
@@ -358,7 +622,7 @@ def patch_kernel_macros(
 # ============================================================================
 # 生命周期: install-stub → 扫参脚本 sed #define TUNE_* 行 → restore-stub
 #   install: 备份 .orig → 锚点断言（命中次数必须==1，漂移即报错）→ 插入
-#            define 块（最后一个 #include 后，同强制包规则）+ 调参块（按
+#            define 块（文件开头，位于条件编译与 include 之前）+ 调参块（按
 #            insert_mode: replace=锚点行整行替换 / after=锚点行后插入）→
 #            写 manifest（<file>.stub.json，记录占用模式）
 #   restore: cp .orig → 原文件 → 重读比对（必须逐字节一致）→ 清理
@@ -411,9 +675,19 @@ def stub_file_status(path: str) -> str:
 
 
 def install_stub_file(
-    path: str, mode: str, sed_anchor: str, define_block: str, tuning_block: str, insert_mode: str, dry_run: bool = False
+    path: str,
+    mode: str,
+    sed_anchor: str,
+    define_block: str,
+    tuning_block: str,
+    insert_mode: str,
+    dry_run: bool = False,
 ) -> bool:
-    """单文件注入（字节级读写，防非 ASCII 内容损坏）。"""
+    """单文件注入：宏定义放在文件开头，调参块按声明的锚点插入。
+
+    不按 include 决定宏定义位置，避免最后一个 include 位于条件编译分支。
+    字节级读写，保留原文件内容与还原备份。
+    """
     stub_fingerprint = hashlib.sha256(
         json.dumps(
             {
@@ -439,12 +713,21 @@ def install_stub_file(
             print(f"  [ERROR] {path} 已被模式 {owner!r} 占用——先 restore-stub 再注入")
             return False
         if manifest.get("stub_fingerprint") != stub_fingerprint:
-            print(f"  [ERROR] {path} 已注入内容与当前算子档案不一致——先 restore-stub 再重新注入")
+            print(
+                f"  [ERROR] {path} 已注入内容与当前算子档案不一致——"
+                "先 restore-stub 再重新注入"
+            )
             return False
         with open(path, "rb") as f:
             current = f.read()
-        if define_block.encode().rstrip(b"\n") not in current or tuning_block.encode().rstrip(b"\n") not in current:
-            print(f"  [ERROR] {path} 已注入内容不完整——先 restore-stub 再重新注入")
+        if (
+            not current.startswith(define_block.encode().rstrip(b"\n") + b"\n")
+            or tuning_block.encode().rstrip(b"\n") not in current
+        ):
+            print(
+                f"  [ERROR] {path} 已注入内容不完整或宏定义不在文件开头——"
+                "先 restore-stub 再重新注入"
+            )
             return False
         print(f"  [skip] 已注入（mode={mode}）: {path}")
         return True
@@ -470,15 +753,9 @@ def install_stub_file(
         print(f"  [ERROR] {path} 锚点命中 {n_hits} 次（应为 1）: {reason}")
         return False
 
-    # ---- define 块: 最后一个 #include 之后（与强制包 patch_kernel_macros 同规则）----
-    content = original
+    # ---- define 块: 放在所有条件编译与 include 之前，各分支均可见 ----
     define_b = define_block.encode()
-    include_matches = list(re.finditer(rb'((?:#include "[^"]+"\n)+)', content))
-    if include_matches:
-        pos = include_matches[-1].end()
-        content = content[:pos] + b"\n" + define_b.rstrip(b"\n") + b"\n" + content[pos:]
-    else:
-        content = re.sub(rb"(#pragma once\n)", rb"\1\n" + define_b.rstrip(b"\n") + b"\n", content, count=1)
+    content = define_b.rstrip(b"\n") + b"\n\n" + original
 
     # ---- 调参块: 按 insert_mode ----
     block_b = tuning_block.encode()
@@ -496,12 +773,17 @@ def install_stub_file(
     if actual != expected:
         print(f"  [ERROR] {path} 宏计数后验失败: 期望 {expected} 实得 {actual}")
         return False
-    if STUB_DEFINE_MARKER.encode() not in content or STUB_BLOCK_MARKER.encode() not in content:
+    if (
+        STUB_DEFINE_MARKER.encode() not in content
+        or STUB_BLOCK_MARKER.encode() not in content
+    ):
         print(f"  [ERROR] {path} 块标记后验失败（define/tuning block 未落入文件）")
         return False
 
     if dry_run:
-        print(f"  [dry-run] 将注入 mode={mode}: {path}（macros={expected}, insert={insert_mode}）")
+        print(
+            f"  [dry-run] 将注入 mode={mode}: {path}（macros={expected}, insert={insert_mode}）"
+        )
         return True
 
     # ---- 备份 → 写回 → manifest ----
@@ -519,7 +801,9 @@ def install_stub_file(
     }
     with open(path + STUB_MANIFEST_SUFFIX, "w") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=1)
-    print(f"  [stub] mode={mode} 注入 {path}（macros={expected}, insert={insert_mode}）")
+    print(
+        f"  [stub] mode={mode} 注入 {path}（macros={expected}, insert={insert_mode}）"
+    )
     return True
 
 
@@ -555,10 +839,24 @@ def _stub_modes(profile: dict) -> list:
 
     def stubable(cfg) -> bool:
         return any(
-            entry.get("sed_anchor") for tmpls in cfg.get("kernel_files", {}).values() for entry in tmpls.values()
+            isinstance(entry, dict) and entry.get("sed_anchor")
+            for tmpls in cfg.get("kernel_files", {}).values()
+            for entry in tmpls.values()
         )
 
-    return sorted(m for m, cfg in profile.get("quant_modes", {}).items() if stubable(cfg))
+    return sorted(
+        m for m, cfg in profile.get("quant_modes", {}).items() if stubable(cfg)
+    )
+
+
+def _stub_kernel_path(entry) -> str:
+    """install-stub 的包内相对路径归属于 normal 包。"""
+    path = entry["install"] if isinstance(entry, dict) else entry
+    return (
+        path
+        if os.path.isabs(path)
+        else os.path.join(VENDOR_BASE, NORMAL_INSTALL_DIR, path)
+    )
 
 
 def install_stub(mode: str, dry_run: bool = False, op: str = DEFAULT_OP) -> bool:
@@ -569,7 +867,9 @@ def install_stub(mode: str, dry_run: bool = False, op: str = DEFAULT_OP) -> bool
     profile = _load_stub_profile(op)
     qm = profile.get("quant_modes", {})
     if mode == "mx":
-        print("[ERROR] MX 走 worktree 方案（本脚本默认流程 + vendor 包编译），不用 install-stub")
+        print(
+            "[ERROR] MX 走 worktree 方案（本脚本默认流程 + vendor 包编译），不用 install-stub"
+        )
         return False
     if mode not in qm:
         print(f"[ERROR] 未知模式 {mode!r}，档案现有: {sorted(qm)}")
@@ -578,7 +878,9 @@ def install_stub(mode: str, dry_run: bool = False, op: str = DEFAULT_OP) -> bool
     define_block = mode_cfg.get("tune_macro_define_block")
     tuning_block = mode_cfg.get("tuning_block_template")
     if not define_block or not tuning_block:
-        print(f"[ERROR] 模式 {mode} 档案缺 tune_macro_define_block / tuning_block_template 声明")
+        print(
+            f"[ERROR] 模式 {mode} 档案缺 tune_macro_define_block / tuning_block_template 声明"
+        )
         return False
 
     print(f"[stub] install-stub mode={mode} dry_run={dry_run}")
@@ -594,19 +896,21 @@ def install_stub(mode: str, dry_run: bool = False, op: str = DEFAULT_OP) -> bool
                 print(f"  [ERROR] {cc}/{tmpl} 缺 insert_mode 声明（档案不完整）")
                 ok = False
                 continue
-            path = entry["install"]
+            path = _stub_kernel_path(entry)
             if path in seen_paths:
                 continue  # 同物理文件多 entry 共享锚点（实证），一份注入即可
             seen_paths.add(path)
-            if not install_stub_file(path, mode, entry["sed_anchor"], define_block, tuning_block, im, dry_run):
+            if not install_stub_file(
+                path, mode, entry["sed_anchor"], define_block, tuning_block, im, dry_run
+            ):
                 ok = False
     if ok:
-        print(f"[stub] 完成——扫参脚本 sed #define TUNE_* 行生效；跑完必须 restore-stub")
+        print("[stub] 完成——扫参脚本 sed #define TUNE_* 行生效；跑完必须 restore-stub")
     return ok
 
 
 def restore_stub(mode: str = None, dry_run: bool = False, op: str = DEFAULT_OP) -> bool:
-    """还原打桩现场。mode=None 时扫描档案所有模式的全部 kernel 文件。
+    """还原打桩现场。mode=None 时扫描档案内可安装侧打桩模式的 kernel 文件。
 
     op: 算子档案名。
     """
@@ -618,14 +922,14 @@ def restore_stub(mode: str = None, dry_run: bool = False, op: str = DEFAULT_OP) 
     if mode and mode not in qm:
         print(f"[ERROR] 未知模式 {mode!r}，档案现有: {sorted(qm)}")
         return False
-    modes = [mode] if mode else sorted(qm)
+    modes = [mode] if mode else _stub_modes(profile)
     print(f"[stub] restore-stub modes={modes} dry_run={dry_run}")
     ok = True
     seen = set()
     for m in modes:
         for cc, tmpls in sorted(qm[m].get("kernel_files", {}).items()):
             for tmpl, entry in sorted(tmpls.items()):
-                path = entry["install"]
+                path = _stub_kernel_path(entry)
                 if path in seen:
                     continue
                 seen.add(path)
@@ -637,25 +941,30 @@ def restore_stub(mode: str = None, dry_run: bool = False, op: str = DEFAULT_OP) 
 
 
 def stub_status(mode: str = None, op: str = DEFAULT_OP) -> None:
-    """打印档案内全部（或指定模式）kernel 文件的打桩状态。
+    """打印档案内可安装侧打桩模式（或指定模式）的 kernel 文件状态。
 
     op: 算子档案名。
     """
     profile = _load_stub_profile(op)
     qm = profile.get("quant_modes", {})
-    modes = [mode] if mode and mode in qm else sorted(qm)
+    modes = [mode] if mode and mode in qm else _stub_modes(profile)
+    if not modes:
+        print("[stub] 档案未声明安装侧打桩模式，无需检查 stub 状态")
+        return
     seen = set()
     print(f"{'file':<50} {'stub-mode':<16} status")
     print("-" * 80)
     for m in modes:
         for cc, tmpls in sorted(qm[m].get("kernel_files", {}).items()):
             for tmpl, entry in sorted(tmpls.items()):
-                path = entry["install"]
+                path = _stub_kernel_path(entry)
                 if path in seen:
                     continue
                 seen.add(path)
                 owner = (_read_stub_manifest(path) or {}).get("mode", "-")
-                print(f"{os.path.basename(path):<50} {owner:<16} {stub_file_status(path)}")
+                print(
+                    f"{os.path.basename(path):<50} {owner:<16} {stub_file_status(path)}"
+                )
 
 
 # ============================================================================
@@ -663,14 +972,34 @@ def stub_status(mode: str = None, op: str = DEFAULT_OP) -> None:
 # ============================================================================
 
 
-def create_worktree(ops_nn_dir: str, config: WorktreeConfig, dry_run: bool = False, op: str = DEFAULT_OP) -> bool:
+def create_worktree(
+    ops_nn_dir: str, config: WorktreeConfig, dry_run: bool = False, op: str = DEFAULT_OP
+) -> bool:
     """创建单个 worktree 并做文件修改。
 
     config.path 按 path_suffix 幂等解析为 ops_nn_dir 的兄弟目录。
     op: 算子档案名，透传给 _patch_worktree_files / patch_kernel_macros。
     """
     root = os.path.abspath(ops_nn_dir).rstrip("/")
-    config.path = os.path.join(os.path.dirname(root), os.path.basename(root) + config.path_suffix)
+    if not config.cleanup_run_dir:
+        config.path = os.path.join(
+            os.path.dirname(root), os.path.basename(root) + config.path_suffix
+        )
+    state = (
+        _read_environment(config.cleanup_run_dir) if config.cleanup_run_dir else None
+    )
+    owned = (
+        next((item for item in state["worktrees"] if item["path"] == config.path), None)
+        if state
+        else None
+    )
+    if state and (
+        state["cleaned"]
+        or owned is None
+        or (os.path.exists(config.path) and not owned["created"])
+    ):
+        print(f"  [ERROR] 工作树不属于当前未结束的运行，不修改: {config.path}")
+        return False
     print(f"\n{'=' * 60}")
     print(f"创建 worktree: {config.name} → {config.path}")
     print(f"{'=' * 60}")
@@ -682,7 +1011,16 @@ def create_worktree(ops_nn_dir: str, config: WorktreeConfig, dry_run: bool = Fal
 
     # git worktree add
     if config.branch:
-        cmd = ["git", "-C", ops_nn_dir, "worktree", "add", "-b", config.branch, config.path]
+        cmd = [
+            "git",
+            "-C",
+            ops_nn_dir,
+            "worktree",
+            "add",
+            "-b",
+            config.branch,
+            config.path,
+        ]
     else:
         cmd = ["git", "-C", ops_nn_dir, "worktree", "add", "--detach", config.path]
 
@@ -693,12 +1031,17 @@ def create_worktree(ops_nn_dir: str, config: WorktreeConfig, dry_run: bool = Fal
     if result.returncode != 0:
         print(f"  [ERROR] git worktree add failed: {result.stderr}")
         return False
+    if owned is not None:
+        owned["created"] = True
+        _write_environment(config.cleanup_run_dir, state)
 
     # 修改文件
     return _patch_worktree_files(config, dry_run, op=op)
 
 
-def _patch_worktree_files(config: WorktreeConfig, dry_run: bool = False, op: str = DEFAULT_OP) -> bool:
+def _patch_worktree_files(
+    config: WorktreeConfig, dry_run: bool = False, op: str = DEFAULT_OP
+) -> bool:
     """按档案声明修改 worktree 中的 op_host 强制点与 kernel 文件。
 
     声明源 = templates.<config.name>：forced_get_kernel_type / forced_is_capable
@@ -710,7 +1053,12 @@ def _patch_worktree_files(config: WorktreeConfig, dry_run: bool = False, op: str
     # 1. GetKernelType 强制 early return（forced_get_kernel_type 声明）
     gk_path = os.path.join(wt, decl["forced_get_kernel_type"]["file"])
     if os.path.exists(gk_path):
-        ok = patch_forced_return(gk_path, decl["forced_get_kernel_type"], "GetKernelType", dry_run) and ok
+        ok = (
+            patch_forced_return(
+                gk_path, decl["forced_get_kernel_type"], "GetKernelType", dry_run
+            )
+            and ok
+        )
     else:
         print(f"  [ERROR] File not found: {gk_path}")
         ok = False
@@ -718,16 +1066,28 @@ def _patch_worktree_files(config: WorktreeConfig, dry_run: bool = False, op: str
     # 2. IsCapable 强制 early return（forced_is_capable 声明）
     ic_path = os.path.join(wt, decl["forced_is_capable"]["file"])
     if os.path.exists(ic_path):
-        ok = patch_forced_return(ic_path, decl["forced_is_capable"], "IsCapable", dry_run) and ok
+        ok = (
+            patch_forced_return(
+                ic_path, decl["forced_is_capable"], "IsCapable", dry_run
+            )
+            and ok
+        )
     else:
         print(f"  [ERROR] File not found: {ic_path}")
         ok = False
 
     # 3. 修改 kernel .h（按 kernel_targets: 文件 × 变体列表）
-    for rel_path, variants in config.kernel_targets or [(config.kernel_rel_path, ["without_batch"])]:
+    for rel_path, variants in config.kernel_targets or [
+        (config.kernel_rel_path, ["without_batch"])
+    ]:
         kernel_path = os.path.join(wt, rel_path)
         if os.path.exists(kernel_path):
-            ok = patch_kernel_macros(kernel_path, config.name, variants=variants, dry_run=dry_run, op=op) and ok
+            ok = (
+                patch_kernel_macros(
+                    kernel_path, config.name, variants=variants, dry_run=dry_run, op=op
+                )
+                and ok
+            )
         else:
             print(f"  [ERROR] File not found: {kernel_path}")
             ok = False
@@ -754,13 +1114,15 @@ def print_build_instructions(ops_nn_dir: str, op: str = DEFAULT_OP) -> None:
     print(f"{'=' * 60}\n")
 
     # normal 包
-    print(f"# normal 包（baseline）")
+    print("# normal 包（baseline）")
     print(
         f"cd {q(ops_nn_dir)} && bash build.sh --pkg --jit --no_force --soc={q(soc)} "
         f"--vendor_name={q(NORMAL_VENDOR_NAME)} --ops={q(op_name)} -j<jobs> 2>&1"
     )
-    package = os.path.join(ops_nn_dir, "build_out", f"cann-ops-nn-{NORMAL_VENDOR_NAME}_linux-x86_64.run")
-    print(f"bash {q(package)} --quiet\n")
+    run_pkg = os.path.join(
+        ops_nn_dir, "build_out", f"cann-ops-nn-{NORMAL_VENDOR_NAME}_linux-x86_64.run"
+    )
+    print(f"bash {q(run_pkg)} --quiet\n")
 
     # 强制模板包
     for config in worktrees:
@@ -769,28 +1131,38 @@ def print_build_instructions(ops_nn_dir: str, op: str = DEFAULT_OP) -> None:
             f"cd {q(config.path)} && bash build.sh --pkg --jit --no_force --soc={q(soc)} "
             f"--vendor_name={q(config.vendor_name)} --ops={q(op_name)} -j<jobs> 2>&1"
         )
-        run_file = os.path.join(config.path, "build_out", f"cann-ops-nn-{config.vendor_name}_linux-x86_64.run")
+        run_file = os.path.join(
+            config.path,
+            "build_out",
+            f"cann-ops-nn-{config.vendor_name}_linux-x86_64.run",
+        )
         print(f"bash {q(run_file)} --quiet\n")
 
     # 验证
     print(f"# 验证 {len(worktrees) + 1} 个包都安装成功")
-    install_dirs = [NORMAL_INSTALL_DIR] + [wt.template_decl["vendor_install_dir"] for wt in worktrees]
+    install_dirs = [NORMAL_INSTALL_DIR] + [
+        wt.template_decl["vendor_install_dir"] for wt in worktrees
+    ]
     print("ls -d " + " ".join(q(os.path.join(VENDOR_BASE, d)) for d in install_dirs))
-    print(f'echo "load_priority={NORMAL_INSTALL_DIR}" > {q(os.path.join(VENDOR_BASE, "config.ini"))}\n')
+    print(
+        f'echo "load_priority={NORMAL_INSTALL_DIR}" > '
+        f"{q(os.path.join(VENDOR_BASE, 'config.ini'))}\n"
+    )
 
 
 # ============================================================================
 # 编译安装自动执行（后台 Popen + 每 ETA/4 轮询 + 三态判定 + 失败重试）
 # ============================================================================
 
-PER_PKG_BUILD_SECONDS = 10 * 60  # JIT 模式每包约 10 分钟（host-only，kernel 不编入包、由 ttk 运行时 JIT）
+PER_PKG_BUILD_SECONDS = (
+    10 * 60
+)  # JIT 模式每包约 10 分钟（host-only，kernel 不编入包、由 ttk 运行时 JIT）
 
 BUILD_PROGRESS_LOG = "/tmp/build_progress.log"
 BUILD_DONE_FLAG = "/tmp/build_done.flag"
 BUILD_FAIL_FLAG = "/tmp/build_fail.flag"
 BUILD_PID_FILE = "/tmp/build.pid"
 BUILD_OUTPUT_LOG = "/tmp/build_output.log"
-BUILD_STAMP_FILE = ".matmul-tiling-solver-build.json"
 
 
 def estimate_build_eta(n_packages: int = 5) -> int:
@@ -798,55 +1170,8 @@ def estimate_build_eta(n_packages: int = 5) -> int:
     return PER_PKG_BUILD_SECONDS * n_packages
 
 
-def _source_fingerprint(repo_dir: str, profile: dict, vendor_name: str) -> str:
-    """对会影响包内容的版本、源码 diff 和构建声明取指纹。"""
-    repo_rel = profile["identity"]["repo_rel"]
-    try:
-        head = subprocess.run(
-            ["git", "-C", repo_dir, "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
-        diff = subprocess.run(
-            ["git", "-C", repo_dir, "diff", "--binary", "HEAD", "--", "build.sh", repo_rel],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
-        status = subprocess.run(
-            ["git", "-C", repo_dir, "status", "--porcelain", "--untracked-files=all", "--", "build.sh", repo_rel],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"无法计算构建源指纹: {repo_dir}: {e.stderr.strip()}") from e
-    untracked = {}
-    for line in status.splitlines():
-        if line.startswith("?? "):
-            rel = line[3:]
-            path = os.path.join(repo_dir, rel)
-            if os.path.isfile(path):
-                with open(path, "rb") as f:
-                    untracked[rel] = hashlib.sha256(f.read()).hexdigest()
-    payload = {
-        "head": head.strip(),
-        "diff": diff,
-        "untracked": untracked,
-        "op": profile["identity"]["op_name"],
-        "soc": profile["soc"]["name"],
-        "vendor": vendor_name,
-        "profile": profile,
-        "build_flags": ["--pkg", "--jit", "--no_force"],
-    }
-    encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def _package_specs(ops_nn_dir: str, op: str) -> list[dict]:
-    """返回 normal 与 forced 包的路径、安装目录和可复用指纹。"""
-    profile = load_profile(op)
+def _package_specs(ops_nn_dir: str, op: str, run_dir: str = None) -> list[dict]:
+    """返回 normal 与 forced 包的路径、安装目录。"""
     specs = [
         {
             "name": "normal",
@@ -855,7 +1180,7 @@ def _package_specs(ops_nn_dir: str, op: str) -> list[dict]:
             "install_dir": NORMAL_INSTALL_DIR,
         }
     ]
-    for config in resolve_worktree_paths(ops_nn_dir, op):
+    for config in resolve_worktree_paths(ops_nn_dir, op, run_dir=run_dir):
         specs.append(
             {
                 "name": config.name,
@@ -864,27 +1189,14 @@ def _package_specs(ops_nn_dir: str, op: str) -> list[dict]:
                 "install_dir": config.template_decl["vendor_install_dir"],
             }
         )
-    for spec in specs:
-        spec["fingerprint"] = _source_fingerprint(spec["dir"], profile, spec["vendor"])
-        spec["stamp"] = json.dumps(
-            {
-                "op": profile["identity"]["op_name"],
-                "soc": profile["soc"]["name"],
-                "vendor": spec["vendor"],
-                "source_fingerprint": spec["fingerprint"],
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+    if any(
+        not spec["install_dir"]
+        or spec["install_dir"] in (".", "..")
+        or os.path.basename(spec["install_dir"]) != spec["install_dir"]
+        for spec in specs
+    ):
+        raise ValueError("vendor_install_dir 必须是 vendor 根目录下的包目录名")
     return specs
-
-
-def _stamp_matches(path: str, expected: str) -> bool:
-    try:
-        with open(path) as f:
-            return f.read().strip() == expected
-    except OSError:
-        return False
 
 
 def _verify_repo_version(ops_nn_dir: str, profile: dict) -> None:
@@ -900,10 +1212,13 @@ def _verify_repo_version(ops_nn_dir: str, profile: dict) -> None:
             text=True,
         ).stdout.strip()
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"无法读取算子仓版本: {ops_nn_dir}: {e.stderr.strip()}") from e
+        raise RuntimeError(
+            f"无法读取算子仓版本: {ops_nn_dir}: {e.stderr.strip()}"
+        ) from e
     if actual != expected:
         raise RuntimeError(
-            f"算子档案的版本锚点与算子仓不一致: 档案={expected}, 仓库={actual}。请先对账并重新生成算子档案。"
+            f"算子档案的版本锚点与算子仓不一致: "
+            f"档案={expected}, 仓库={actual}。请先对账并重新生成算子档案。"
         )
 
 
@@ -915,19 +1230,22 @@ def generate_build_script(
     fail_flag: str = BUILD_FAIL_FLAG,
     output_log: str = BUILD_OUTPUT_LOG,
     op: str = DEFAULT_OP,
+    run_dir: str = None,
 ) -> str:
     """
     生成编译+安装全部 vendor 包（normal + 档案 templates 各强制包）的 bash 脚本。
 
     build.sh 参数档案驱动：--soc=<soc.name> --ops=<identity.op_name>。
-    只复用源码指纹一致的 .run 产物。
+    显式构建时重新编译全部目标包；.run 文件名不包含 --ops，不能据此复用。
     """
     profile = load_profile(op)
     if isinstance(jobs, bool) or not isinstance(jobs, int) or jobs <= 0:
         raise ValueError(f"jobs 必须是正整数，实际为 {jobs!r}")
     soc = profile["soc"]["name"]
     op_name = profile["identity"]["op_name"]
-    packages = _package_specs(ops_nn_dir, op)
+    if run_dir:
+        prepare_run_environment(ops_nn_dir, run_dir, op)
+    packages = _package_specs(ops_nn_dir, op, run_dir=run_dir)
     script_path = "/tmp/run_build.sh"
     vendor_base = VENDOR_BASE
     q = shlex.quote
@@ -949,39 +1267,34 @@ def generate_build_script(
     ]
     for spec in packages[1:]:
         lock_dir = os.path.join(spec["dir"], "scripts/kernel/binary_script")
-        lines.append(f"find {q(lock_dir)} -maxdepth 1 -type f -name '*.lock' -delete 2>/dev/null || true")
+        lines.append(
+            f"find {q(lock_dir)} -maxdepth 1 -type f -name '*.lock' -delete "
+            "2>/dev/null || true"
+        )
     lines.extend(
         [
             "",
             "# 单包编译+安装。失败时：写 FAILED 行 + output 尾部诊断 + fail flag，然后退出。",
-            "# 跨算子、跨版本或未打完补丁的产物不会被复用。",
             "build_one() {",
-            "    local name=$1 dir=$2 vendor=$3 install_dir=$4 expected_stamp=$5 rc=0",
+            "    local name=$1 dir=$2 vendor=$3 install_dir=$4 rc=0",
             "    local run_file=$dir/build_out/cann-ops-nn-${vendor}_linux-x86_64.run",
-            "    local run_stamp=${run_file}.solver-stamp",
             f"    local install_path={q(vendor_base)}/$install_dir",
-            f"    local install_stamp=$install_path/{BUILD_STAMP_FILE}",
             '    echo "start $name" >> "$PROGRESS"',
-            '    if [ -f "$run_file" ] && [ -f "$run_stamp" ] && '
-            '       [ "$(cat "$run_stamp")" = "$expected_stamp" ]; then',
-            '        echo "skip compile (fingerprint matched): $name" >> "$PROGRESS"',
-            "    else",
-            '        rm -f "$run_file" "$run_stamp"',
-            f'        (cd "$dir" && bash build.sh --pkg --jit --no_force --soc={q(soc)} '
+            '    rm -f "$run_file"',
+            f'    (cd "$dir" && bash build.sh --pkg --jit --no_force --soc={q(soc)} '
             f'--vendor_name="$vendor" --ops={q(op_name)} -j"$JOBS" >> "$OUTPUT" 2>&1) || rc=$?',
-            "        if [ $rc -ne 0 ]; then",
-            '            echo "FAILED $name compile rc=$rc" >> "$PROGRESS"',
-            '            echo "---- last 40 lines of $OUTPUT ----" >> "$PROGRESS"',
-            '            tail -n 40 "$OUTPUT" >> "$PROGRESS"',
-            '            touch "$FAIL"',
-            "            exit 1",
-            "        fi",
-            '        if [ ! -f "$run_file" ]; then',
-            '            echo "FAILED $name compile produced no run file" >> "$PROGRESS"',
-            '            touch "$FAIL"',
-            "            exit 1",
-            "        fi",
-            '        printf "%s\\n" "$expected_stamp" > "$run_stamp"',
+            "    if [ $rc -ne 0 ]; then",
+            '        rm -f "$run_file"',
+            '        echo "FAILED $name compile rc=$rc" >> "$PROGRESS"',
+            '        echo "---- last 40 lines of $OUTPUT ----" >> "$PROGRESS"',
+            '        tail -n 40 "$OUTPUT" >> "$PROGRESS"',
+            '        touch "$FAIL"',
+            "        exit 1",
+            "    fi",
+            '    if [ ! -f "$run_file" ]; then',
+            '        echo "FAILED $name compile produced no run file" >> "$PROGRESS"',
+            '        touch "$FAIL"',
+            "        exit 1",
             "    fi",
             "    rc=0",
             '    bash "$run_file" --quiet >> "$OUTPUT" 2>&1 || rc=$?',
@@ -997,7 +1310,6 @@ def generate_build_script(
             '        touch "$FAIL"',
             "        exit 1",
             "    fi",
-            '    printf "%s\\n" "$expected_stamp" > "$install_stamp"',
             '    echo "done $name" >> "$PROGRESS"',
             "}",
             "",
@@ -1005,21 +1317,24 @@ def generate_build_script(
     )
 
     for i, spec in enumerate(packages, 1):
-        lines.append(f'echo "=== package {i}/{len(packages)}: {spec["name"]} ===" >> "$PROGRESS"')
         lines.append(
-            "build_one " + " ".join(q(str(spec[k])) for k in ("name", "dir", "vendor", "install_dir", "stamp"))
+            f'echo "=== package {i}/{len(packages)}: {spec["name"]} ===" >> "$PROGRESS"'
+        )
+        lines.append(
+            "build_one "
+            + " ".join(
+                q(str(spec[k])) for k in ("name", "dir", "vendor", "install_dir")
+            )
         )
         lines.append("")
 
-    lines.append(f"# === 验证 {len(packages)} 个 vendor 目录与构建指纹 ===")
+    lines.append(f"# === 验证 {len(packages)} 个 vendor 目录 ===")
     for spec in packages:
         install_path = os.path.join(vendor_base, spec["install_dir"])
-        stamp_path = os.path.join(install_path, BUILD_STAMP_FILE)
         lines.extend(
             [
-                f"if [ ! -d {q(install_path)} ] || [ ! -f {q(stamp_path)} ] || "
-                f'[ "$(cat {q(stamp_path)})" != {q(spec["stamp"])} ]; then',
-                f'    echo "FAILED verify {spec["name"]} fingerprint mismatch" >> "$PROGRESS"',
+                f"if [ ! -d {q(install_path)} ]; then",
+                f'    echo "FAILED verify {spec["name"]} directory missing" >> "$PROGRESS"',
                 '    touch "$FAIL"',
                 "    exit 1",
                 "fi",
@@ -1035,27 +1350,31 @@ def generate_build_script(
 
     with open(script_path, "w") as f:
         f.write("\n".join(lines) + "\n")
-    os.chmod(script_path, 0o755)
+    os.chmod(
+        script_path,
+        stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
+    )
     return script_path
 
 
-def check_vendors_exist(op: str = DEFAULT_OP, ops_nn_dir: str = OPS_NN_DEFAULT) -> bool:
+def check_vendors_exist(
+    op: str = DEFAULT_OP, ops_nn_dir: str = OPS_NN_DEFAULT, run_dir: str = None
+) -> bool:
     """
     检测 vendor 包（normal baseline + 档案 templates 各强制包）是否已安装。
 
-    返回 True 表示目录存在且构建指纹与当前源码一致。
+    返回 True 表示全部安装目录存在；是否需要重建由 agent 判断。
     """
-    stale = []
-    specs = _package_specs(ops_nn_dir, op)
+    missing = []
+    specs = _package_specs(ops_nn_dir, op, run_dir=run_dir)
     for spec in specs:
         install_path = os.path.join(VENDOR_BASE, spec["install_dir"])
-        stamp_path = os.path.join(install_path, BUILD_STAMP_FILE)
-        if not os.path.isdir(install_path) or not _stamp_matches(stamp_path, spec["stamp"]):
-            stale.append(spec["name"])
-    if stale:
-        print(f"[build] 缺失或过期的 vendor 包: {', '.join(stale)}")
+        if not os.path.isdir(install_path):
+            missing.append(spec["name"])
+    if missing:
+        print(f"[build] 缺失的 vendor 包: {', '.join(missing)}")
         return False
-    print(f"[build] {len(specs)} 个 vendor 包指纹匹配，跳过编译")
+    print(f"[build] {len(specs)} 个 vendor 包目录已存在，跳过编译")
     # 确保 config.ini 指向 normal
     config_ini = os.path.join(VENDOR_BASE, "config.ini")
     with open(config_ini, "w") as f:
@@ -1064,32 +1383,37 @@ def check_vendors_exist(op: str = DEFAULT_OP, ops_nn_dir: str = OPS_NN_DEFAULT) 
     return True
 
 
-def _count_need_build(ops_nn_dir: str, op: str = DEFAULT_OP) -> int:
-    """统计缺少可复用 .run 产物的包数。"""
-    return sum(
-        1
-        for spec in _package_specs(ops_nn_dir, op)
-        if not _stamp_matches(
-            os.path.join(spec["dir"], "build_out", f"cann-ops-nn-{spec['vendor']}_linux-x86_64.run.solver-stamp"),
-            spec["stamp"],
-        )
-    )
+def _count_need_build(
+    ops_nn_dir: str, op: str = DEFAULT_OP, run_dir: str = None
+) -> int:
+    """显式构建会重新编译全部目标包，与旧 .run 是否存在无关。"""
+    return len(_package_specs(ops_nn_dir, op, run_dir=run_dir))
 
 
-def start_build(ops_nn_dir: str, jobs: int = 32, op: str = DEFAULT_OP) -> int:
+def start_build(
+    ops_nn_dir: str, jobs: int = 32, op: str = DEFAULT_OP, run_dir: str = None
+) -> int:
     """
     生成编译脚本并在后台启动（三步式第 1 步）。
     返回预估总耗时（秒），AI 据此以 ETA/4 间隔轮询 check_build_status()。
 
     op: 算子档案名，决定 --soc/--ops 参数与包列表。
     """
-    for f in [BUILD_PROGRESS_LOG, BUILD_DONE_FLAG, BUILD_FAIL_FLAG, BUILD_PID_FILE, BUILD_OUTPUT_LOG]:
+    if run_dir:
+        prepare_run_environment(ops_nn_dir, run_dir, op)
+    for f in [
+        BUILD_PROGRESS_LOG,
+        BUILD_DONE_FLAG,
+        BUILD_FAIL_FLAG,
+        BUILD_PID_FILE,
+        BUILD_OUTPUT_LOG,
+    ]:
         if os.path.exists(f):
             os.remove(f)
 
-    script_path = generate_build_script(ops_nn_dir, jobs=jobs, op=op)
+    script_path = generate_build_script(ops_nn_dir, jobs=jobs, op=op, run_dir=run_dir)
 
-    need_build = _count_need_build(ops_nn_dir, op=op)
+    need_build = _count_need_build(ops_nn_dir, op=op, run_dir=run_dir)
     eta = estimate_build_eta(max(need_build, 1))
 
     # 子进程退出后由内核直接回收（不留 zombie），避免调用方进程长驻时
@@ -1114,8 +1438,10 @@ def start_build(ops_nn_dir: str, jobs: int = 32, op: str = DEFAULT_OP) -> int:
 
     interval = max(eta // 4, 60)
     print(f"[build] 已后台启动 (pid={proc.pid}, jobs={jobs}, 需编译 {need_build} 包)")
-    print(f"[build] 预计 {eta}s（约 {eta // 60} 分钟），建议每 {interval}s（ETA/4）检查一次")
-    print(f"[build] 轮询: check_build_status() → running/done/failed/dead")
+    print(
+        f"[build] 预计 {eta}s（约 {eta // 60} 分钟），建议每 {interval}s（ETA/4）检查一次"
+    )
+    print("[build] 轮询: check_build_status() → running/done/failed/dead")
     return eta
 
 
@@ -1187,27 +1513,35 @@ def _print_failure_diagnosis() -> None:
     # 打印最后一个 FAILED 行之后的诊断尾巴
     if failed_lines:
         idx = content.rfind(failed_lines[-1])
-        tail = content[idx:idx + 2000]
+        stop = idx + 2000
+        tail = content[idx:stop]
         print(f"[build] 诊断摘要:\n{tail}")
 
 
-def collect_build_result(op: str = DEFAULT_OP, ops_nn_dir: str = OPS_NN_DEFAULT) -> bool:
+def collect_build_result(
+    op: str = DEFAULT_OP, ops_nn_dir: str = OPS_NN_DEFAULT, run_dir: str = None
+) -> bool:
     """
     编译结束后验证 vendor 目录并写 config.ini（三步式第 3 步）。
 
     在 check_build_status() 返回 done/failed/dead 后调用。
-    返回 True 表示全部 vendor 包就绪且指纹匹配。
+    返回 True 表示本次构建成功完成且全部 vendor 目录存在。
     """
-    specs = _package_specs(ops_nn_dir, op)
+    if not os.path.exists(BUILD_DONE_FLAG) or os.path.exists(BUILD_FAIL_FLAG):
+        print("[build] 本次构建未成功完成，请检查构建日志")
+        return False
+    specs = _package_specs(ops_nn_dir, op, run_dir=run_dir)
     all_ok = True
     for spec in specs:
         path = os.path.join(VENDOR_BASE, spec["install_dir"])
-        stamp = os.path.join(path, BUILD_STAMP_FILE)
-        if os.path.isdir(path) and _stamp_matches(stamp, spec["stamp"]):
+        if os.path.isdir(path):
             print(f"  [ok] {spec['install_dir']}")
         else:
-            print(f"  [MISSING/STALE] {spec['install_dir']}")
+            print(f"  [MISSING] {spec['install_dir']}")
             all_ok = False
+
+    if not all_ok:
+        return False
 
     config_ini = os.path.join(VENDOR_BASE, "config.ini")
     with open(config_ini, "w") as f:
@@ -1216,20 +1550,26 @@ def collect_build_result(op: str = DEFAULT_OP, ops_nn_dir: str = OPS_NN_DEFAULT)
     return all_ok
 
 
-def run_build_with_retry(ops_nn_dir: str, jobs: int = 32, max_retries: int = 2, op: str = DEFAULT_OP) -> bool:
+def run_build_with_retry(
+    ops_nn_dir: str,
+    jobs: int = 32,
+    max_retries: int = 2,
+    op: str = DEFAULT_OP,
+    run_dir: str = None,
+) -> bool:
     """
-    一站式编译：启动 → 每 ETA/4 轮询三态判定 → 失败自动重试（断点续跑）。
+    一站式编译：启动 → 每 ETA/4 轮询三态判定 → 失败自动重试。
 
     op: 算子档案名，透传给 start_build / collect_build_result。
     """
     for attempt in range(1 + max_retries):
-        eta = start_build(ops_nn_dir, jobs=jobs, op=op)
+        eta = start_build(ops_nn_dir, jobs=jobs, op=op, run_dir=run_dir)
         interval = max(eta // 4, 60)
         deadline = time.time() + 6 * eta  # 总时长上限
 
         if attempt > 0:
             print(
-                f"[build] 第 {attempt} 次重试（断点续跑：已成功包自动跳过）。"
+                f"[build] 第 {attempt} 次重试（重新编译全部目标包）。"
                 f"若失败为 kernel 编译超时（rc=124）可考虑降低 jobs 重试，当前 jobs={jobs}。"
             )
 
@@ -1243,7 +1583,7 @@ def run_build_with_retry(ops_nn_dir: str, jobs: int = 32, max_retries: int = 2, 
 
         if result == "done":
             print(f"[build] DONE (attempt={attempt})")
-            return collect_build_result(op=op, ops_nn_dir=ops_nn_dir)
+            return collect_build_result(op=op, ops_nn_dir=ops_nn_dir, run_dir=run_dir)
 
         # failed / dead / timeout
         print(f"[build] {result.upper()} (attempt={attempt})")
@@ -1254,41 +1594,49 @@ def run_build_with_retry(ops_nn_dir: str, jobs: int = 32, max_retries: int = 2, 
         else:
             print(f"[build] 重试次数耗尽，请人工检查 {BUILD_OUTPUT_LOG}")
 
-    return collect_build_result(op=op, ops_nn_dir=ops_nn_dir)
+    return collect_build_result(op=op, ops_nn_dir=ops_nn_dir, run_dir=run_dir)
 
 
-def run_build_all(ops_nn_dir: str, jobs: int = 32, build: bool = True, op: str = DEFAULT_OP) -> bool:
+def run_build_all(
+    ops_nn_dir: str,
+    jobs: int = 32,
+    build: bool = True,
+    op: str = DEFAULT_OP,
+    run_dir: str = None,
+) -> bool:
     """
     完整的初始化+编译执行流程：
     0. 创建强制模板 worktree（档案 templates 声明；已存在则跳过）
-    1. 检测 vendor 包（normal + 各强制包）是否已安装 → 全部存在则跳过编译
-    2. build=True 时启动编译（含失败检测与自动重试）；build=False 时只准备不编译
+    1. build=True 时重新编译全部目标包（含失败检测与自动重试）
+    2. build=False 时只准备不编译，并检查安装目录是否存在
     3. 验证 vendor 目录并写 config.ini
 
     jobs 为编译并行度（默认 32）。
     op: 算子档案名，是 worktree、构建参数与 vendor 目录的声明来源。
+    run_dir: 本轮独占产物目录；传入后先备份环境，并使用本轮独立的临时工作树。
     """
     _verify_repo_version(ops_nn_dir, load_profile(op))
+    if run_dir:
+        prepare_run_environment(ops_nn_dir, run_dir, op)
     prepare_results = [
         create_worktree(ops_nn_dir, config, dry_run=False, op=op)
-        for config in resolve_worktree_paths(ops_nn_dir, op)
+        for config in resolve_worktree_paths(ops_nn_dir, op, run_dir=run_dir)
     ]
     if not all(prepare_results):
         print("[build] worktree 补丁未全部成功，终止编译。")
         return False
 
-    if check_vendors_exist(op=op, ops_nn_dir=ops_nn_dir):
-        return True
-
     if not build:
+        if check_vendors_exist(op=op, ops_nn_dir=ops_nn_dir, run_dir=run_dir):
+            return True
         print("[build] build=False：worktree 已就绪，vendor 包未编译。")
         print(
-            f"[build] 后续可调用 start_build(ops_nn_dir, jobs=N) 启动编译，"
-            f"再以 ETA/4 间隔轮询 check_build_status()，结束后 collect_build_result()。"
+            "[build] 后续可调用 start_build(ops_nn_dir, jobs=N) 启动编译，"
+            "再以 ETA/4 间隔轮询 check_build_status()，结束后 collect_build_result()。"
         )
         return False
 
-    return run_build_with_retry(ops_nn_dir, jobs=jobs, op=op)
+    return run_build_with_retry(ops_nn_dir, jobs=jobs, op=op, run_dir=run_dir)
 
 
 # ============================================================================
@@ -1296,17 +1644,41 @@ def run_build_all(ops_nn_dir: str, jobs: int = 32, build: bool = True, op: str =
 # ============================================================================
 
 
+def _run_environment_cli(argv):
+    parser = argparse.ArgumentParser(description="单次调优的环境备份与恢复")
+    parser.add_argument("command", choices=("prepare-run", "cleanup-run"))
+    parser.add_argument("--run-dir", required=True)
+    parser.add_argument("--ops-nn-dir", default=OPS_NN_DEFAULT)
+    parser.add_argument("--op")
+    args = parser.parse_args(argv)
+    if args.command == "prepare-run":
+        if not args.op:
+            parser.error("prepare-run 需要 --op")
+        prepare_run_environment(args.ops_nn_dir, args.run_dir, args.op)
+        print(f"[prepare] 环境备份已保存: {_environment_file(args.run_dir)}")
+    else:
+        if not _environment_file(args.run_dir).is_file():
+            parser.error("缺少运行前环境快照，不自动清理历史资源")
+        sys.exit(0 if cleanup_run_environment(args.run_dir) else 1)
+
+
 def _run_stub_cli(argv):
-    parser = argparse.ArgumentParser(description="安装侧声明驱动打桩（非 MX 模式；声明源 profiles/<op>/profile.json）")
+    parser = argparse.ArgumentParser(
+        description="安装侧声明驱动打桩（非 MX 模式；声明源 profiles/<op>/profile.json）"
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
     p1 = sub.add_parser("install-stub", help="备份+注入（扫参前）")
     p1.add_argument(
-        "--mode", required=True, help="档案内可打桩的量化模式（kernel_files 携带 sed_anchor 声明，即非 MX 模式）"
+        "--mode",
+        required=True,
+        help="档案内可打桩的量化模式（kernel_files 携带 sed_anchor 声明，即非 MX 模式）",
     )
     p1.add_argument("--op", required=True, choices=_available_ops(), help="算子档案名")
     p1.add_argument("--dry-run", action="store_true")
     p2 = sub.add_parser("restore-stub", help="还原现场（扫参后必做）")
-    p2.add_argument("--mode", default=None, help="缺省=还原档案内全部文件")
+    p2.add_argument(
+        "--mode", default=None, help="缺省=还原档案内全部安装侧打桩模式的文件"
+    )
     p2.add_argument("--op", required=True, choices=_available_ops(), help="算子档案名")
     p2.add_argument("--dry-run", action="store_true")
     p3 = sub.add_parser("stub-status", help="查看打桩状态")
@@ -1315,7 +1687,9 @@ def _run_stub_cli(argv):
     args = parser.parse_args(argv)
     available_modes = _stub_modes(load_profile(args.op))
     if args.mode is not None and args.mode not in available_modes:
-        parser.error(f"算子 {args.op!r} 不支持 stub mode {args.mode!r}；可用: {available_modes}")
+        parser.error(
+            f"算子 {args.op!r} 不支持 stub mode {args.mode!r}；可用: {available_modes}"
+        )
     if args.cmd == "install-stub":
         sys.exit(0 if install_stub(args.mode, args.dry_run, op=args.op) else 1)
     elif args.cmd == "restore-stub":
@@ -1326,6 +1700,9 @@ def _run_stub_cli(argv):
 
 def main():
     argv = sys.argv[1:]
+    if argv and argv[0] in ("prepare-run", "cleanup-run"):
+        _run_environment_cli(argv)
+        return
     # 非 MX 打桩子命令分流。
     if argv and argv[0] in ("install-stub", "restore-stub", "stub-status"):
         _run_stub_cli(argv)
@@ -1336,11 +1713,23 @@ def main():
     )
     parser.add_argument("--ops-nn-dir", default=OPS_NN_DEFAULT, help="ops-nn 仓库路径")
     parser.add_argument(
-        "--op", required=True, choices=_available_ops(), help="算子档案名（读 references/profiles/<op>/profile.json）"
+        "--op",
+        required=True,
+        choices=_available_ops(),
+        help="算子档案名（读 references/profiles/<op>/profile.json）",
     )
-    parser.add_argument("--dry-run", action="store_true", help="只打印操作，不实际修改文件")
+    parser.add_argument(
+        "--run-dir", required=True, help="本轮独占产物目录，用于环境备份与收尾"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="只打印操作，不实际修改文件"
+    )
     parser.add_argument("--jobs", type=int, default=32, help="编译并行度（默认 32）")
-    parser.add_argument("--no-build", action="store_true", help="只创建 worktree 与校验 vendor，不启动编译")
+    parser.add_argument(
+        "--no-build",
+        action="store_true",
+        help="只创建 worktree 与校验 vendor，不启动编译",
+    )
     args = parser.parse_args()
     if args.jobs <= 0:
         parser.error("--jobs 必须是正整数")
@@ -1357,15 +1746,23 @@ def main():
     print(f"ops-nn 仓库: {ops_nn_dir}")
     print(f"模式: {'dry-run' if args.dry_run else 'actual'}")
 
-    worktrees = resolve_worktree_paths(ops_nn_dir, op)
+    if not args.dry_run:
+        prepare_run_environment(ops_nn_dir, args.run_dir, op)
+    worktrees = resolve_worktree_paths(
+        ops_nn_dir, op, run_dir=args.run_dir if not args.dry_run else None
+    )
     if args.dry_run:
-        success_count = sum(create_worktree(ops_nn_dir, config, True, op=op) for config in worktrees)
+        success_count = sum(
+            create_worktree(ops_nn_dir, config, True, op=op) for config in worktrees
+        )
         print(f"\n预检: {success_count}/{len(worktrees)} 个 worktree 操作可生成")
         print_build_instructions(ops_nn_dir, op=op)
         return
 
     print(f"\n开始准备并校验 {len(worktrees) + 1} 个 vendor 包 (jobs={args.jobs})")
-    build_ok = run_build_all(ops_nn_dir, jobs=args.jobs, build=not args.no_build, op=op)
+    build_ok = run_build_all(
+        ops_nn_dir, jobs=args.jobs, build=not args.no_build, op=op, run_dir=args.run_dir
+    )
     if not args.no_build:
         if build_ok:
             print(f"\n[build] 全部编译安装成功，{len(worktrees) + 1} 个 vendor 包就绪")

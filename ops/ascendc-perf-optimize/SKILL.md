@@ -45,6 +45,8 @@ Step 4 — 单核流水优化策略（核内流水分析 + tiling 修正）
 
 **过程**：根据算子 pattern 路由到对应的 Tiling 理论模型目录（详见 `references/tiling/`，入口为 `references/tiling/index.md`），输出理想 tiling data。
 
+**MatMul 默认分析**：按 [MatMul 入口](references/tiling/matmul/index.md) 读取通用理论与目标架构参考，结合源码、Shape、dtype 和已有资料，给出几个可能的优化方向及简要依据即可。下列输出清单用于组织分析，不要求默认分析补齐完整 tiling data 或候选集；缺少实测证据时说明假设。只有用户明确要求执行实测，或接受已说明范围与预计耗时的实测方案后，才进入实测求解器，不因本步骤或后续流水分析需要验证而自动启动。
+
 **输出**：
 - [ ] 卡间切分方案（切分维度、通信内算子涉及）
 - [ ] 多核切分方案（切分维度、单核任务量、核数）

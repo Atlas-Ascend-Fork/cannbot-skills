@@ -5,7 +5,7 @@
 
 > 按算子 pattern 路由到对应的 Tiling 建模参考目录。每个 pattern 有独立的建模文件夹，包含该族算子的 Tiling 理论模型、参数推导和门禁决策逻辑。
 >
-> 输出统一格式的理想 tiling data（多核切分、Buffer 规划、分支覆盖）。
+> 输出统一格式的理想 tiling data（多核切分、Buffer 规划、分支覆盖）。MatMul 默认理论分析只需给出几个可能的优化方向及简要依据，无需补齐完整参数表；实测执行条件见 [MatMul 入口](matmul/index.md)。
 
 ---
 
@@ -101,6 +101,8 @@ Step 0 — 算子分类：
 ---
 
 ## 理想 Tiling Data 输出格式
+
+MatMul 默认理论分析不要求填写以下字段，需要详细参数方案时可参考此格式。
 
 ### Cube / 融合类（L1 + UB 两级）
 
