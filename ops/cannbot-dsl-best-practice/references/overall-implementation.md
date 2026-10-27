@@ -114,7 +114,7 @@ Kernel 按执行角色分为 CV 融合、单 C 和单 V。各路线共用公开�
 
 | 路线 | 执行角色 | 结构重点 |
 |---|---|---|
-| CV 融合 | C 与 V 协同 | 阶段交接、在途任务窗口、槽位复用与排空 |
+| CV 融合 | C 与 V 协同 | preload 下发错位、上下文绑定、资源复用与排空 |
 | 单 C | C 侧执行 | 任务分配、资源准备、C 阶段调用与输出 |
 | 单 V | V 侧执行 | 任务分配、资源准备、VF 阶段调用与输出 |
 
@@ -122,53 +122,41 @@ C 指 Cube/AIC，V 指 Vector/AIV；单 C、单 V 表示核型。所需角色由
 
 以下为结构伪码，计算阶段统一使用占位步骤。`inputs/outputs` 表示实际签名中的具名输入与输出，任务记录表示索引与资源的逻辑关联；落地时按契约展开，不默认引入容器或固定记录协议。资源的形状、类型、布局与构造参数由实现定义。所用导入放在算子源码顶部。
 
-### CV 融合：preload=2 的在途任务窗口
+### CV 融合：preload 流水的源码展开
 
-使用两个任务槽组织阶段交接。`preload=2` 表示最多两个已发起、尚未回收的任务，当前消费任务计入窗口。每个槽位持有该任务所需的上下文与交接资源，任务完成后才能复用。
+需要 preload 时，可借鉴以下写法，在当前设计允许的范围内选择预取位置与调用次序。先确定工作项及其数据依赖，再将计算流按需要错开的交接位置划分为子序列。每段可含任意数量、任意 C/V 组合的实际计算调用，不要求一段恰好一个 `cube_task` 和一个 `vec_task`。只用一个编译期非负整数 `preload` 调节预取轮次；其可用取值由依赖与资源容量决定，不要求所有 CV 算子采用这一排布。
+
+下面以当前工作项和滞后 `preload` 轮的工作项两段式展示源码展开。方法放在同一个 `@kernel` 类中，`__call__` 按本逻辑 block 的任务分配取得 `task_count` 后调用 `_run_preload`；构造时保存 `self.preload`，推导 `self.drain_steps` 并准备资源。尖括号内容需替换为实际下标、上下文绑定与方法调用；这是结构伪码，不是已通过编译的完整内核。
 
 ```text
-# 算子源码顶部
-from cannbotdsl import kernel
-from cannbotdsl.ops.arch import get_block_idx, get_block_num
+from cannbotdsl import jit
 
-PRELOAD = 2
+@jit
+def _issue_tick(self, tick, task_count, inputs, outputs):
+    item = tick
+    if 0 <= item < task_count:
+        <逐条写出本段实际计算方法的调用，绑定 item 对应的上下文与输入输出，数量和 C/V 次序由设计决定>
 
-@kernel
-class CubeVectorKernel:
-    def __init__(self, preload=PRELOAD):
-        self.preload = preload
-        准备 C 与 V 各自需要的资源
-        按 preload 准备任务上下文与交接槽位
+    item = tick - self.preload
+    if 0 <= item < task_count:
+        <逐条写出下一段实际计算方法的调用，绑定该 item 对应的上下文与输入输出>
 
-    def __call__(self, inputs, outputs):
-        block_idx = get_block_idx()
-        block_num = get_block_num()
-        tasks = 分配给当前逻辑 block 的任务
-        task_count = 本 block 的任务数
+    <若还有后续计算，按实际流水设计确定其滞后轮次，并展开下标和调用；不默认按 preload 的倍数递增>
 
-        # 启动：填入存在的任务。
-        for sequence in range(min(self.preload, task_count)):
-            slot = sequence % self.preload
-            将 tasks[sequence] 的上下文绑定到 slot
-            提交该任务的生产阶段
+@jit
+def _run_preload(self, task_count, inputs, outputs):
+    for tick in range(task_count):
+        self._issue_tick(tick, task_count, inputs, outputs)
 
-        for sequence in range(task_count):
-            slot = sequence % self.preload
-            在消费前建立该任务的数据就绪依赖
-            执行消费阶段并提交该任务的输出
-            确认该槽位的最后访问完成，允许复用
-
-            next_sequence = sequence + self.preload
-            if next_sequence < task_count:
-                将 tasks[next_sequence] 的上下文绑定到 slot
-                提交下一任务的生产阶段
+    for tail in range(self.drain_steps):
+        self._issue_tick(task_count + tail, task_count, inputs, outputs)
 ```
 
-启动阶段填入至多两个任务；稳定阶段每回收一个槽位就补入一个任务；新任务发完后继续消费剩余任务，完成排空。任务数为 0 或 1 时只处理实际存在的任务。
+`tick` 是下发位置，不是硬件周期。AIC、AIV 仍各自按本核 FIFO 与数据依赖推进；实际 DSL 操作和资源通路决定任务归属。主循环与收尾共用展开后的调用，不使用 `enumerate`、任务列表或回调分派，也不在 tick 之间添加全局屏障；主调度条件位于 VF 外。
 
-生产与消费阶段按数据依赖分配给 C/V 角色。本例适用于可组织成一次生产与消费交接的任务；更长的阶段链应按资源的完整存活区间安排推进与回收。任务上下文和交接数据必须使用一致的槽位，地址仍被计算或搬运访问时不得覆盖。
-
-槽位容量、数据就绪和允许覆盖是不同约束。使用 Channel 时，`produce()/consume()` 只选择槽位，不代表同步已经完成。同步依据实际访问建立；主调度条件位于 VF 外。资源与同步写法见 [Channel](patterns/channel-buffer.md)、[同步](patterns/synchronization.md)。
+- **下标与收尾：** 每个工作项重复同一计算流、各段采用固定非负滞后时，工作项 `i` 在 `tick = i + 该段实际滞后` 下发该段一次。`self.drain_steps` 取实际最大滞后，空流取 0；上面两段式取 `preload`，它是派生值而非另一个调参项。扩展时按实际依赖、同核次序与资源复用确定滞后及收尾，不由段号推算 `2 * preload`、`3 * preload`。不同任务下发速率需重新确定工作项映射与收尾终点。
+- **原工作项上下文：** 延后计算仍使用该工作项的坐标、有效尺寸、分支条件与状态。可由 `item` 重建的直接重建；需要保存整数历史值时，可按当前版本与设备支持情况使用 [DelayLineGroup](https://cannbot-dsl.gitcode.com/zh/api/kernel/types-and-views/delay-line-group.html)。正滞后用 `tap(lag)` 读取已写入的历史值，滞后为 0 时使用当前上下文；主循环与收尾保持一致的推进规则。它不保存计算张量，也不负责同步。
+- **资源与依赖：** 每份数据保留到所有消费者的最后访问结束后再复用，缓冲深度按完整存活区间确定，不能直接用 `preload` 代替深度或作取模除数。分叉、汇合及跨工作项反馈需同时满足数据依赖与本核 FIFO 顺序，避免形成相互等待。使用 Channel 时，`produce()/consume()` 只选择槽位并推进游标；实际访问与同步见 [Channel](patterns/channel-buffer.md)、[同步](patterns/synchronization.md)。
 
 ### 单 C：任务与计算阶段
 
@@ -223,4 +211,4 @@ class VectorKernel:
 
 VF 只承接设备计算，资源选择和任务调度位于 VF 外。条件执行与内存屏障规则见 [VF](patterns/vf.md)。
 
-**检查：** 任务完整覆盖且不重复；空任务不访问无效资源；CV 覆盖 0、1、2、3 个任务与槽位回绕；任务上下文与数据一致；所有在途访问结束后才回收资源。设备执行记录按 [生产代码](production-code.md) 检查。
+**检查：** 任务完整覆盖且不重复；空任务不访问无效资源；CV 核对空任务、单任务、`preload=0`、任务数小于 `preload` 及槽位回绕，主循环与收尾无遗漏或重复；任务上下文与数据一致；所有在途访问结束后才回收资源。设备执行记录按 [生产代码](production-code.md) 检查。
