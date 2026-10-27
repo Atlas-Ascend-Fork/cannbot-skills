@@ -85,6 +85,8 @@ int64_t attrValue = *ret;  // 未校验 ret 是否为 nullptr，可能解引用�
 
 ### TOPK-2. 使用GetInputDesc获取Dtype，context获取Shape `[适用: Host]`
 
+**严重级别**：高
+
 **问题说明**
 
 Host侧代码不要使用 `GetInputTensor` 获取 Shape 和 Dtype。应使用 `GetInputDesc` 获取的对象来获取 Dtype，使用 context 获取对应的 Shape。`GetInputTensor` 在某些场景下可能返回无效数据。
