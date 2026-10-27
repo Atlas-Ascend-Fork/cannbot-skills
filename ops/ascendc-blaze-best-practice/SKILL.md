@@ -156,6 +156,13 @@ tile、Scale、padding 或 workaround：
    int32 dot-product、Golden 使用 FP32 reduction）时，必须把两者分别写入合同，
    并提供声明支持域内的等价性证据；量化后的输出恰好一致不能反向证明中间
    累加等价。若合同改为设备累加语义，必须重新生成 Golden、输入和证据。
+   GMM 的逐组 Golden 合同必须逐项声明：`group_list` 三项不变式（非递减、首值
+   非负、末值等于 `M`）；相邻端点相等表示合法空 group（跳过且不创建 MM tile）；
+   即使输入为 FP16，Golden 也以 FP32 计算并返回 FP32（如
+   `torch.matmul(x[s:e].float(), weight[g].float())`、输出 `dtype=torch.float32`）；
+   未进入冻结公式的 `x_scale`/`weight_scale` 不得隐式引入，Golden 后端、累加
+   dtype 和非有限值分类与 DESIGN/PLAN 一致。详见
+   [`group-matmul-delta.md`](references/kernel-design/group-matmul-delta.md) §1。
 3. **分开声明验证层级。** 编译、静态检查、Skill 校验和 CPU Golden 只能证明
    对应层级；`device_verified` 必须来自真实设备路径，并在记录中保留
    `sandbox/device_visible`、设备节点、SoC/架构、完整命令、返回码和输出。

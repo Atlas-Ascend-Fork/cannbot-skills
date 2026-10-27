@@ -42,7 +42,7 @@ PLAN 必须逐字段验证复制后的 Asset Tiling Engine 与当前 Scheduler/B
 当前 Asset 提供的 `WeightQuantTilingSwat` 是 SWAT 流式路径的 Tiling Engine。DESIGN 必须确认：
 
 1. Engine 入口签名和参数语义与 Investigation 确认的源码一致；
-2. Engine 内部分形轴对齐校验逻辑闭合（transB=true: `n%16==0`; transB=false: `k%16==0`）；
+2. Engine 内部分形轴对齐校验逻辑闭合（transB=true: `n%16==0`; transB=false: `k%16==0`）（原样复用时的闭合项；修改 Engine 后按 §4 分支重证）；
 3. Engine 返回的 TilingData 字段覆盖全部 Scheduler/Block/Prologue consumer；
 4. Engine 不支持的 partition 需要项目 Tiling 返回固定合法控制值时，固定值元组必须绑定 partition_id、legal predicate 和 consumer fields。
 
@@ -79,7 +79,7 @@ DESIGN 必须冻结 Tiling 计算与 BlockMmad/Prologue 使用的空间一致性
 ## 6. 验证门禁
 
 - TilingData 全部字段有闭合的语义/单位/合法域/consumer 映射；
-- 分形轴对齐校验在 Tiling 入口保留；
+- 原样复用参考路线时，分形轴对齐校验在 Tiling 入口保留；经 DESIGN 授权完成非对齐适配时，以重新证明的内部对齐、有效长度与尾块正确性替代入口对齐拒绝校验；
 - Tiling 与 BlockMmad/Prologue 的空间一致性公式满足；
 - Engine 不支持的 partition 有固定合法值或 blocking 处置；
 - transB=true 时尾轮 N 方向不切分；

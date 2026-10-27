@@ -54,7 +54,7 @@ per-token quant。不能在 group 循环中复用一个局部 `mm` 并在循环�
 只会保留最后一个非空 group，或让其他行保持未定义；空 group 和不均匀 group
 必须由该完整矩阵语义覆盖。
 
-对普通 FP16 GMM + GLU，Golden 的最小可执行主线应保持逐组写回和逐组后处理：
+对普通 FP16 GMM + GLU（即使输入为 FP16，Golden 也以 FP32 计算并返回 FP32，输出 `dtype=torch.float32`），Golden 的最小可执行主线应保持逐组写回和逐组后处理：
 
 ```python
 y = torch.empty((M, N // 2), dtype=torch.float32)

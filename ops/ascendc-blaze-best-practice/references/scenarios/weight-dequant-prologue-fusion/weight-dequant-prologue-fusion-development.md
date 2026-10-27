@@ -83,7 +83,7 @@ Step 3 将下列稳定动作类别实例化为 PLAN 的 `ordered_actions`。每�
 - B 从 L1 读取（非 GM）的修改点：跳过 GM→L1 B 搬运，BlockMmad 从 L1Params 提供的 B_dequant 地址读取；
 - L1 布局：lower half [B0|A0], upper half [B1|A1], bias at tail 64-byte aligned；
 - BiasType 一致性核对（GM/L1/BT/Tiling 四处）；
-- 分形轴对齐约束校验；
+- 分形轴对齐约束校验（原样复用路线），或按 DESIGN 分支的非对齐适配重证项（内部对齐、有效长度、尾块正确性）；
 - 官方 Scheduler（`MatmulSwatScheduler`）的直接引用和绑定；
 - 结构/ABI 静态检查及必要的单变量正负对照。
 

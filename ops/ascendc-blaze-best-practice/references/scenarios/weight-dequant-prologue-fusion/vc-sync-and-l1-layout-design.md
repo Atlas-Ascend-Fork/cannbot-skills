@@ -90,7 +90,7 @@ DESIGN 必须冻结分形轴对齐约束：
 | transB=true | 尾轮 N 方向不切分 | `CeilDiv` 不保证 16 对齐，破坏分形边界 |
 | M | 任意 | M 不是分形轴 |
 
-Tiling 入口必须校验分形轴对齐，违反时抛出 `std::runtime_error`。
+参考路线的 Tiling 入口按上表校验分形轴对齐，违反时抛出 `std::runtime_error`。该校验是参考路线的接受条件而非任务接口条件；按需求合同的合法域选择"原样复用并保留检查"或"非对齐适配"的分支判定见 [Tiling 参数合同专题](weight-quant-tiling-contract.md) §4。
 
 ## 7. 验证门禁
 
@@ -98,7 +98,7 @@ Tiling 入口必须校验分形轴对齐，违反时抛出 `std::runtime_error`�
 - L1 布局的 B_dequant/A/bias 字节边界与 Tiling 一致；
 - CV 同步的 flag 预置、交替和 final drain 闭合，无死锁或残留 flag；
 - BiasType 在 GM/L1/BT/Tiling 四处一致；
-- 分形轴对齐约束在 Tiling 入口校验；
+- 原样复用参考路线时，分形轴对齐约束在 Tiling 入口校验；非对齐适配路线按 Tiling 合同专题 §4 分支重证内部对齐、有效长度与尾块正确性；
 - L1 总空间约束满足；
 - 官方源码区与 Blaze Asset 原文件保持零改动。
 

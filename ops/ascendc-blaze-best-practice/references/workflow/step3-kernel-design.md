@@ -119,6 +119,7 @@ logical argument
    - 算子的全部计算步骤（包括 matmul 及其前/后的所有非 matmul 计算）必须由单一 Blaze 官方 Kernel 方案覆盖，才算 blaze_native。多个独立 Kernel 分别覆盖不同步骤不构成 blaze_native。
    - 禁止将用户需求中的任何计算步骤排除到 Blaze 官方方案分析范围之外（如声明为"辅助预处理""host 侧步骤""非 Blaze 操作"等），从而缩小 `native_gaps` 的判定范围使剩余步骤单独满足 blaze_native 条件。
    - 算子的所有计算必须在 device 侧完成。不得将需求中声明的计算步骤放到 host 侧执行后将其结果作为中间输入传入 device Kernel。
+   - 上述单一 device Kernel 约束对 `blaze_native` 与 `blaze_custom` 全部路线、全部场景同等适用；不得因路线不同而把需求中的计算步骤移到 host 侧，也不得据此放宽 `native_gaps` 判定。
 
 8. 若一个完整官方方案以单一 Kernel 覆盖算子的全部计算步骤（包括 matmul 及其前/后的非 matmul 计算），且全部在 device 侧完成，写入：
 
