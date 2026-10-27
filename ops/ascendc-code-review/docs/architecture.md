@@ -439,6 +439,7 @@ Step 2: 逐文件匹配：语言 → 侧别 → 默认启用 → 领域触发
 | `ascendc` | AscendC算子 | ops-transformer, ops-math, ops-nn, ops-cv | ascendc-kernel-rules.md, ascendc-sunset-api.md, ascendc-topk.md |
 | `mc2` | MC²通算融合 | ops-transformer | mc2-specific.md |
 | `simt` | SIMT编程 | ops-transformer | simt-api-analysis.md |
+| `blaze` | Blaze矩阵乘框架 | ops-tensor | blaze-specific.md |
 | `ops-math` | 数学算子仓专用 | ops-math | *预留* |
 | `ops-nn` | 神经网络仓专用 | ops-nn | *预留* |
 | `ops-cv` | 计算机视觉仓专用 | ops-cv | *预留* |
@@ -469,6 +470,7 @@ Step 2: 逐文件匹配：语言 → 侧别 → 默认启用 → 领域触发
 | `RED` | ascendc-red-line.md | 红线问题（必须触发） |
 | `SIMT` | simt-api-analysis.md | SIMT API转换 |
 | `MC2` | mc2-specific.md | MC²领域 |
+| `BLAZE` | blaze-specific.md | Blaze矩阵乘框架（ops-tensor） |
 | `LOG` | ascendc-log.md | AscendC日志上报 |
 | `ERR` | ascendc-error-code.md | CANN错误码，唯一基准为相邻 cann-error-code-standard；不复制正式码表 |
 | `HOST` | ascendc-host-rules.md | AscendC Host工程布局 |
