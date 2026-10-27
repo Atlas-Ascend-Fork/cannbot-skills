@@ -36,7 +36,7 @@ Read `core/methodology.md` 掌握假设检验流程（5 步：代码段识别 �
 
 用 `grep -nE '^#+ .*{条例ID}([ :.]|$)' {规则文件}` 定位起始行（条款标题形如 `#### SEC-1.1 …`、`## KERNEL-1: …`），向下找第一个井号数 ≤ 起始标题的标题行为结束，Read offset={start} limit={end-start}，禁止 Read 整个文档。
 **必须关注**该条例章节中是否包含「专属检视方法」「检视策略」——若有，严格按该指引执行，不可跳过。
-若条例来自 ascendc-kernel-rules / ascendc-sunset-api / simt-api-analysis / mc2-specific，先用 `/ascendc-docs-search` 查阅对应 API 最新文档。
+若条例来自 ascendc-kernel-rules / ascendc-sunset-api / ascendc-simt / mc2-specific，先用 `/ascendc-docs-search` 查阅对应 API 最新文档。
 
 ### Step 6 — 逐条例检视 + 输出
 

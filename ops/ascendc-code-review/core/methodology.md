@@ -139,6 +139,6 @@ FAIL/SUSPICIOUS 结果必须附代码片段：
 1. 先完整阅读对应的编码规范文件，根据规范检视，其他不统计
 2. 存疑代码块有函数调用行为，必须使用 LSP 或搜索工具深层次分析
 3. Kernel 代码检视时，若已提供 API 预研报告，以其为 API 约束的主要来源；若未提供预研报告、或预研报告未覆盖当前涉及的 API，必须使用 `/ascendc-docs-search` skill 查阅官方文档。禁止凭记忆或推测
-4. SIMT kernel 代码检视前查阅 `references/simt-api-analysis.md`
+4. SIMT kernel 代码检视前查阅 `references/ascendc-simt.md`
 5. 返回检视结果时，仔细检查风险代码行的行数是否正确
 6. 返回检视结果时，所有风险代码块都应该被引用，不能只展示行数

@@ -2,6 +2,8 @@
 
 > **声明**：本表**仅供人读**，用于快速了解全部规则文件的分类与定位。机器路由（规则加载、侧别过滤、触发匹配）依赖各规则文件自身的「适用」声明头，**不依赖本表**。新增或修改规则文件时须同步更新本表（见 `docs/architecture.md` 5.1 节）。
 >
+> 最后更新：2026-10-27（SIMT 文件合并：simt-api-analysis.md（16 条）+ simt-constraints.md（知识参考，无声明头）合并为 ascendc-simt.md，条款 16→15（SIMT-1-1~SIMT-1-15，原 UintDiv 保留条款移除），触发词更新为 Simt/simt_api/asc_simt.h，侧别 Kernel、领域 true、通用分组容量 5，原约束清单（头文件位置/变量名冲突/参数传递/启动方式/UB/线程数/VF 调用）并入「执行流程」章节并新增检视前置要求（先经 /ascendc-docs-search 查 SIMT 头文件核实）；本表原 #10/#11 两行合并为一行，特殊机制注记删除 simt-constraints.md 条目，总表行号重排为连续 1-13；依据 commit 77fdc791）
+>
 > 最后更新：2026-10-22（blaze-specific.md 完善 v1.3：新增 BLAZE-21「Tile 层对外接口严格控制」（红线，仅聚合头对外 + 最小 public 接口），条款数 20→21）
 >
 > 最后更新：2026-10-22（blaze-specific.md 完善 v1.2：新增 BLAZE-20「Tile 层接口风格统一」（tag 分派 / tensor 推导类型与形状 / 基类私有继承封装 / 单一全特化），依据 ops-tensor PR #544，条款数 19→20）
@@ -22,14 +24,13 @@
 | 4 | ascendc-sunset-api.md | AscendC 日落检查 | SUNSET | C++ | All | 关键词触发（aclnn、aclrt、aclop） | 通用分组（容量2） | 2 | 跨侧别日落（废弃）API/头文件/库检查，预研报告驱动 + clause.get_sunset_api.py fallback |
 | 5 | ascendc-host-rules.md | AscendC工程约定 | HOST | C++ | Host | 关键词触发（InferDataType、IMPL_OP、REG_OP、IMPL_OP_INFERSHAPE、GetPlatformInfo、GetCoreNumAic/Aiv、GetUbBlockSize、TilingParse） | 通用分组（容量2） | 4 | HOST-1 InferDataType 须放 op_graph 目录（禁 op_host 链式写法）；HOST-2 REG_OP 算子必须实现 InferDataType（互斥分工）；HOST-3 platform 参数须校验取值合法性（判空+类型匹配零值拦截）；HOST-4 platform 参数须在 Tiling 方法中直接获取（禁 TilingParse→compileInfo→Tiling 传递） |
 | 6 | ascendc-log.md | AscendC日志 | LOG | C++ | Host | 关键词触发（OP_LOGE、OP_LOGI、OP_LOGW、OP_LOGD） | 通用分组（容量1） | 2 | LOG-1 基于 cann-error-code-standard 核验实际入口，禁止推荐废弃宏，与 ERR 同根因合并；LOG-2 检查算子名来自上下文，保留判空分支豁免 |
-| 13 | ascendc-error-code.md | CANN错误码 | ERR | C++ | All | 必须触发（无条件启用，不参与内容筛查） | 通用分组（容量2） | 4 | ERR-1 检测 EZ0001、EZ0002、EZ0003、EZ0005、EZ0006、EZ0007 及旧宏；ERR-2 语义/注册/Arglist；ERR-3 首报唯一性；ERR-4 失败返回诊断；唯一基准 cann-error-code-standard |
-| 7 | ascendc-red-line.md | 高频问题清单 | RED | C++ | All | 必须触发（无条件启用，不参与内容筛查） | 通用分组（容量3），**最高优先级** | 10 | 生产环境总结的红线问题（除零/越界/溢出/未初始化/数据竞争等） |
-| 8 | ascendc-topk.md | 高频问题清单 | TOPK | C++ | All | 必须触发（无条件启用，不参与内容筛查） | 通用分组（容量3），**最高优先级** | 14 | 检视实践中高频风险点（野指针/特殊值/返回值校验/atomic 清零等） |
-| 9 | mc2-specific.md | 领域专项 | MC2 | C++ | Host, Kernel | 关键词触发（hccl_、expert、dispatch 等 26 个） | 通用分组（容量5） | 19 | MC² 通算融合算子：通信同步/MoE 专家路由/量化精度/CCU 硬件约束 |
-| 10 | simt-api-analysis.md | 领域专项 | SIMT | C++ | Kernel | 关键词触发（Simt::、simt_api/asc_simt.h 等） | 通用分组（容量5） | 16 | SIMT API 转换/保留规则（GetThreadNum→blockDim.x、UintDiv 保留等） |
-| 11 | simt-constraints.md | 知识参考 | — | C++ | Kernel | — | 知识参考（无适用声明头，不参与自动路由） | — | SIMT 禁止事项清单（参数传递/启动方式/UB/TilingData/Dim3），由 load-balance 编排引用 |
+| 7 | ascendc-error-code.md | CANN错误码 | ERR | C++ | All | 必须触发（无条件启用，不参与内容筛查） | 通用分组（容量2） | 4 | ERR-1 检测 EZ0001、EZ0002、EZ0003、EZ0005、EZ0006、EZ0007 及旧宏；ERR-2 语义/注册/Arglist；ERR-3 首报唯一性；ERR-4 失败返回诊断；唯一基准 cann-error-code-standard |
+| 8 | ascendc-red-line.md | 高频问题清单 | RED | C++ | All | 必须触发（无条件启用，不参与内容筛查） | 通用分组（容量3），**最高优先级** | 10 | 生产环境总结的红线问题（除零/越界/溢出/未初始化/数据竞争等） |
+| 9 | ascendc-topk.md | 高频问题清单 | TOPK | C++ | All | 必须触发（无条件启用，不参与内容筛查） | 通用分组（容量3），**最高优先级** | 14 | 检视实践中高频风险点（野指针/特殊值/返回值校验/atomic 清零等） |
+| 10 | mc2-specific.md | 领域专项 | MC2 | C++ | Host, Kernel | 关键词触发（hccl_、expert、dispatch 等 26 个） | 通用分组（容量5） | 19 | MC² 通算融合算子：通信同步/MoE 专家路由/量化精度/CCU 硬件约束 |
+| 11 | ascendc-simt.md | 领域专项 | SIMT | C++ | Kernel | 关键词触发（Simt、simt_api/asc_simt.h） | 通用分组（容量5） | 15 | SIMT API C 风格转换规则（Simt::GetThreadNum→blockDim.x、VF_CALL→asc_vf_call 等 15 条 API 转换），含检视前置要求（先经 /ascendc-docs-search 查 SIMT 头文件核实转换规则）与执行流程（头文件位置/变量名冲突/参数传递/启动方式/UB 使用/线程数/VF 调用检视步骤，吸收原 simt-constraints.md 约束清单），由 simt-api-analysis.md + simt-constraints.md 合并 |
 | 12 | ascendc-kernel-rules.md | AscendC Kernel编码 | KERNEL | C++ | Kernel | 关键词触发（AscendC::、DataCopy、EnQue、TILING_KEY_IS 等 22 个） | 通用分组（容量5） | 13 | Kernel 侧编码规范（KERNEL-1~5 API 使用与硬件约定 + 6~8 TilingKey注册/派发/命名 + 9 核内同步推荐 Lock/Unlock + 10 SetFlag/WaitFlag 配对 + 11 禁 PipeBarrier<PIPE_ALL> + 12 禁 __VEC_SCOPE__ 用具名 VF 函数+asc_vf_call + 13 VF 内禁 if 分支），由 api+perf+op-conventions 合并 |
-| 14 | blaze-specific.md | 领域专项 | BLAZE | C++ | Host, Kernel | 关键词触发（blaze/、Blaze::、GemmUniversal、BlockMmad 等 14 个） | 通用分组（容量5） | 21 | Blaze 矩阵乘框架（ops-tensor）：架构分层/核心类模板参数兼容/策略注册与声明头-聚合头约定/编码约束（高阶API禁令、头文件路径与自包含、tile 转发头与 arch35 约定、名称空间、架构宏统一、Params 结构）/命名规范/Tile 层接口风格统一与对外接口严格控制/AIC-AIV Mix 同步（含核类型守卫）/交付件完整性，有 `排除场景` 声明（third_party、纯构建、纯脚本改动排除） |
+| 13 | blaze-specific.md | 领域专项 | BLAZE | C++ | Host, Kernel | 关键词触发（blaze/、Blaze::、GemmUniversal、BlockMmad 等 14 个） | 通用分组（容量5） | 21 | Blaze 矩阵乘框架（ops-tensor）：架构分层/核心类模板参数兼容/策略注册与声明头-聚合头约定/编码约束（高阶API禁令、头文件路径与自包含、tile 转发头与 arch35 约定、名称空间、架构宏统一、Params 结构）/命名规范/Tile 层接口风格统一与对外接口严格控制/AIC-AIV Mix 同步（含核类型守卫）/交付件完整性，有 `排除场景` 声明（third_party、纯构建、纯脚本改动排除） |
 
 ## 特殊机制注记
 
@@ -37,7 +38,6 @@
 |------|---------|
 | ascendc-red-line.md / ascendc-topk.md | 最高优先级：独立成组、不参与跨条款合并、必进第一波（`steps/common.plan-design.md` Step 6.2/7） |
 | cpp-style.md | 16 条单独成 1 组（组名 style），全文 Read，结果以 yaml `category: style` 字段输出（无文本前缀），不走假设检验，违反计入报告问题数（severity 取条款声明） |
-| simt-constraints.md | 无适用/检视负载声明头，不进入 references 自动扫描；作为 SIMT 检视的知识补充被 `core/review-load-balance.md` 引用 |
 | cpp-secure.md / ascendc-red-line.md / ascendc-topk.md | `触发: 必须触发` = 不依赖代码命中关键词，无条件激活且不参与 Step 5 内容筛查 |
 | mc2-specific.md | 有 `排除场景` 声明（纯通信中转/纯计算无集合通信时排除），plan-design Step 3 读取应用 |
 

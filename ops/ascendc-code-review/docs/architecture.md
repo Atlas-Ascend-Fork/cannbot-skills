@@ -35,7 +35,7 @@ ascendc-code-review/
 │   ├── ascendc-kernel-rules.md      Kernel侧编码规范
 │   ├── ascendc-sunset-api.md         日落API检查
 │   ├── ascendc-topk.md              TOPK高频问题
-│   ├── ...                          另有 cpp-style、simt-api-analysis、mc2-specific 等
+│   ├── ...                          另有 cpp-style、ascendc-simt、mc2-specific 等
 │
 ├── scripts/                         工具脚本：{tool}.py
 │   ├── clause.check_bounds.py              数值边界静态分析
@@ -438,7 +438,7 @@ Step 2: 逐文件匹配：语言 → 侧别 → 默认启用 → 领域触发
 | `cpp` | 通用C++ | 所有仓 | cpp-secure.md, cpp-general.md, cpp-style.md |
 | `ascendc` | AscendC算子 | ops-transformer, ops-math, ops-nn, ops-cv | ascendc-kernel-rules.md, ascendc-sunset-api.md, ascendc-topk.md |
 | `mc2` | MC²通算融合 | ops-transformer | mc2-specific.md |
-| `simt` | SIMT编程 | ops-transformer | simt-api-analysis.md |
+| `simt` | SIMT编程 | ops-transformer | ascendc-simt.md |
 | `blaze` | Blaze矩阵乘框架 | ops-tensor | blaze-specific.md |
 | `ops-math` | 数学算子仓专用 | ops-math | *预留* |
 | `ops-nn` | 神经网络仓专用 | ops-nn | *预留* |
@@ -450,7 +450,7 @@ Step 2: 逐文件匹配：语言 → 侧别 → 默认启用 → 领域触发
 | 后缀 | 含义 | 示例 |
 |------|------|------|
 | `secure` | 安全编码规范 | cpp-secure |
-| `api` | API使用规范 | ascendc-sunset-api, simt-api-analysis |
+| `api` | API使用规范 | ascendc-sunset-api, ascendc-simt |
 | `general` | 通用编码规范 | cpp-general |
 | `style` | 代码风格规范 | cpp-style |
 | `topk` | 高频问题清单 | ascendc-topk |
@@ -468,7 +468,7 @@ Step 2: 逐文件匹配：语言 → 侧别 → 默认启用 → 领域触发
 | `SUNSET` | ascendc-sunset-api.md | CANN日落API |
 | `TOPK` | ascendc-topk.md | TOPK高频问题 |
 | `RED` | ascendc-red-line.md | 红线问题（必须触发） |
-| `SIMT` | simt-api-analysis.md | SIMT API转换 |
+| `SIMT` | ascendc-simt.md | SIMT API转换 |
 | `MC2` | mc2-specific.md | MC²领域 |
 | `BLAZE` | blaze-specific.md | Blaze矩阵乘框架（ops-tensor） |
 | `LOG` | ascendc-log.md | AscendC日志上报 |
