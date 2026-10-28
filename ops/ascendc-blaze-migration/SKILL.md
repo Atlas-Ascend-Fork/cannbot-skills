@@ -46,7 +46,7 @@ G0 迁移准备
 ```text
 blaze-migration-<task-id>/
 ├── repo/{original,blaze}/
-├── reports/{migration-record.md,environment-state.json,migration-design.md,migration-validation.md,migration-review.md}
+├── reports/{migration-record.md,environment-state.json,migration-design.md,migration-validation.md,migration-review.md,blaze-witness-investigation.md}
 ├── packages/{original,blaze}/
 ├── validation/{runner,cases,inputs,results/{original,blaze},msprof/{original,blaze},logs}/
 └── SHA256SUMS
@@ -98,6 +98,23 @@ blaze-migration-<task-id>/
 
 按需使用 `ascendc-blaze-best-practice` 调查现有 Blaze concrete witness，使用 `ascendc-st-design` 做约束与覆盖分析，使用 `ops-profiling` 负责 msprof 性能采集与分析。只复用相关能力，不运行与本流程冲突的大规模默认产物流程。
 
+调用 `ascendc-blaze-best-practice` 时只消费其 Step 2（只读 Investigation），并遵守以下契约：
+
+- 不进入其 Step 1/3/4，不生成、不提交其 `docs/DESIGN.md`、`docs/PLAN.md` 和场景选择结果；也不得在产品仓生成其 Step 2 的默认产物 `operators/<operator_name>/docs/blaze/blaze-investigation-report.md`；
+- 调查结论只能写到迁移工程的 `reports/blaze-witness-investigation.md`，属于过程资产，不进入产品仓，也不作为 `migration-design.md` 的一部分；G6 关闭前必须确认产品仓工作区不存在 `docs/blaze/` 或 `operators/*/docs/` 下的过程产物；
+- G1 的 `migration-design.md` 是本流程唯一设计权威；该 Investigation 是 `native_gap`、组件能力和 ABI 事实的必需证据来源；
+- 其结论为“Blaze 官方方案不覆盖”时，只作为 G1 输入，不得直接改写 G1 已冻结的迁移范围、用例集合或验收合同；
+- 两者结论冲突时以 G1 合同和源实现证据为准，并把冲突登记到 `migration-record.md`；若 Investigation 表明 G1 存在事实错误，按强制规则 7 返回 G1，不得以本条压制该证据。
+
+`ascendc-blaze-best-practice` 是 Blaze 能力与约束的必需事实源之一：G1 必须读取其
+Investigation 证据。本地不可用时把相应事实保持 `unknown` 或 `blocked`，不得以单份旧
+规范、口述约定、历史实现或“固定提交”静默替代；多个来源冲突时逐条记录来源、证据和
+影响，无法消除的冲突保持 `unknown`/`blocked`，不能只按其中一份继续编码。
+
 ## 完成定义
 
 只有 G5 为 `verified`，且 G6 的两仓代码身份、依赖和复现信息与最终证据一致时，才能声明迁移完成。编译、单例、局部测试、报告生成、PR 创建或远端推送均不能单独代替完成条件；G6 默认只创建本地 git commit。
+
+G6 的否定条件：不创建 PR、不推送、不等待远端 CI；runner、输入、报告、OPP 和
+msprof 数据等过程资产必须保留在 CLI 启动目录下的迁移工程，产品仓不得包含这些
+过程资产。

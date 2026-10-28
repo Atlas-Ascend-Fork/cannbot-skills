@@ -280,6 +280,7 @@ G3 具体用例、runner、输入、逐字节规则和执行清单冻结后，G4
 - 所有验证义务都有合同/行为依据，压缩和排除都有可审计证据；
 - 功能、性能、非法拒绝、路由和逐字节判定完整；
 - 构建、反模式、review 和交付计划完整；
+- 引用 `ascendc-blaze-best-practice` 时只消费其 Step 2 Investigation，产物落在 `reports/`，不引入其 DESIGN/PLAN（见 [SKILL.md](../SKILL.md) 的“按需读取”）。
 - 不要求具体 case、输入、runner 或测试结果。
 
 ### G1.3 设计自审与合同冻结
