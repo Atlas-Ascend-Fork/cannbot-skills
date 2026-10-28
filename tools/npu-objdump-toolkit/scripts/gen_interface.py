@@ -153,7 +153,7 @@ def documented_options(interface: Dict[str, Any]) -> List[Dict[str, Any]]:
 def extract_maps(source_root: Path) -> Dict[str, Dict[str, str]]:
     sys.path.insert(0, str(source_root / "utils/msobjdump"))
     try:
-        import msobjdump.msobjdump_main as main_module  # noqa: C0415
+        import msobjdump.msobjdump_main as main_module  # noqa: PLC0415
     finally:
         sys.path.pop(0)
     return {
