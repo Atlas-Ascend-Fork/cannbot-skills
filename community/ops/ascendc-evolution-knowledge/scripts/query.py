@@ -75,7 +75,9 @@ def _sufficiency(results: list[dict]) -> bool:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Query ops-perf-evolution OKF KB")
+    parser = argparse.ArgumentParser(
+        description="Query ascendc-ops-perf-evolution OKF KB"
+    )
     parser.add_argument(
         "--kind", choices=["discovered_strategy", "proven_solution", "failure_pattern"]
     )

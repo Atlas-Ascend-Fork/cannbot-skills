@@ -26,11 +26,23 @@ INDEX.json 是 machine-parseable 的 source_key 权威清单，用途：
 """
 
 from __future__ import annotations
+import argparse
 import json
 import logging
 import os
 import re
+import sys
 from pathlib import Path
+
+_SCRIPT_DIR_FOR_IMPORT = os.path.dirname(os.path.realpath(__file__))
+if _SCRIPT_DIR_FOR_IMPORT not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR_FOR_IMPORT)
+
+from knowledge_root import (  # noqa: E402
+    KnowledgeRootError,
+    discovered_dir,
+    resolve_knowledge_root,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -81,24 +93,21 @@ def _find_project_knowledge_root() -> str:
         d = d.parent
 
 
-def resolve_knowledge_discovered_dir() -> Path | None:
-    """按三级来源解析知识仓 discovered 目录；全部落空返回 None（调用方决定降级）。"""
-    env_root = os.environ.get("CANNBOT_KNOWLEDGE_ROOT", "").strip()
-    if env_root:
-        cand = Path(env_root).expanduser() / KNOWLEDGE_DISCOVERED_REL
-        if cand.is_dir():
-            return cand
-    env_file_root = _find_project_knowledge_root()
-    if env_file_root:
-        cand = Path(env_file_root).expanduser() / KNOWLEDGE_DISCOVERED_REL
-        if cand.is_dir():
-            return cand
-    # <repo>/community/ops/ascendc-evolution-strategies/scripts → 仓根父目录下的兄弟检出
-    repo_root = Path(__file__).resolve().parents[4]
-    cand = repo_root.parent / "cannbot-knowledge" / KNOWLEDGE_DISCOVERED_REL
-    if cand.is_dir():
-        return cand
-    return None
+def resolve_knowledge_discovered_dir(cli_root: str | None = None) -> Path | None:
+    """按统一解析链解析知识仓 discovered 目录。
+
+    显式来源（CLI / env / .cannbot/knowledge.env）无效时 fail-loud（SystemExit(3)）；
+    完全未配置时返回 None，由调用方降级复用现有 INDEX.json 的 discovered 数组。
+    """
+    try:
+        root, source = resolve_knowledge_root(cli_root)
+        LOGGER.info("knowledge root: %s (source=%s)", root, source)
+        return discovered_dir(root)
+    except KnowledgeRootError as exc:
+        if not exc.configured:
+            return None
+        LOGGER.error("%s", exc)
+        raise SystemExit(3)
 
 
 # OKF 知识库根目录（兄弟 skill ascendc-evolution-knowledge 下）
@@ -294,13 +303,14 @@ def discover_families() -> list[dict]:
     return entries
 
 
-def discover_discovered() -> list[dict]:
+def discover_discovered(cli_root: str | None = None) -> list[dict]:
     """扫描 cannbot-knowledge 仓 discovered/ 生成 X 系列条目（doc_repo 标记）。
 
-    知识仓根无法解析时降级复用现有 INDEX.json 的 discovered 数组（告警，
-    不静默清空——避免在无知识仓检出的环境重建索引时丢光 89 条 X 条目）。
+    知识仓根完全未配置时降级复用现有 INDEX.json 的 discovered 数组（告警，
+    不静默清空——避免在无知识仓检出的环境重建索引时丢光 X 条目）；显式配置
+    无效时上层已 fail-loud，不会走到这里。
     """
-    disc_dir = resolve_knowledge_discovered_dir()
+    disc_dir = resolve_knowledge_discovered_dir(cli_root)
     if disc_dir is None:
         LOGGER.warning(
             "WARN: 无法定位 cannbot-knowledge 仓 discovered 目录，"
@@ -471,7 +481,15 @@ OP_FAMILIES = [
 ]
 
 
-def main():
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="从 strategy_meta 生成 INDEX.json")
+    parser.add_argument(
+        "--knowledge-root",
+        default=None,
+        help="cannbot-knowledge 仓根（显式覆盖；配置无效时 fail-loud）",
+    )
+    args = parser.parse_args(argv)
+
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     cards = discover_cards()
     okf = discover_okf()
@@ -479,7 +497,7 @@ def main():
     preconds = discover_preconditions()
     playbooks = discover_playbooks()
     families = discover_families()
-    discovered = discover_discovered()
+    discovered = discover_discovered(args.knowledge_root)
 
     deprecated_count = sum(1 for c in cards if c.get("deprecated", False))
     active_cards = len(cards) - deprecated_count
@@ -530,4 +548,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

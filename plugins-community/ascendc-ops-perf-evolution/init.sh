@@ -1,5 +1,5 @@
 #!/bin/bash
-# ----------------------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------------------
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
 # This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 # CANN Open Software License Agreement Version 2.0 (the "License").
@@ -7,7 +7,7 @@
 # THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE in the root of the software repository for the full text of the License.
-# ----------------------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------------------
 
 set -e
 
@@ -135,7 +135,7 @@ print(' '.join(sorted(all_skills)))
 " 2>/dev/null)
   if [ -z "$INCLUDED_SKILLS" ]; then
     warn "Failed to parse skill dependencies from AGENTS.md, using fallback"
-    INCLUDED_SKILLS="npu-arch ops-profiling ascendc-ops-evaluation ascendc-evolution-report ascendc-evolution-knowledge ascendc-evolution-strategies ascendc-evolution-world-model"
+    INCLUDED_SKILLS="npu-arch ops-profiling ascendc-ops-evaluation ascendc-evolution-report ascendc-evolution-knowledge ascendc-evolution-strategies ascendc-evolution-world-model knowledge-query"
   fi
 else
   err "AGENTS.md not found at $PLUGIN_ROOT/AGENTS.md"
@@ -805,7 +805,7 @@ fi
 
 # --- Summary & Quick Start ---
 echo ""
-echo -e "  ${GREEN}${BOLD}✓ CANNBot ops-perf-evolution installed successfully!${NC}"
+echo -e "  ${GREEN}${BOLD}✓ CANNBot ascendc-ops-perf-evolution installed successfully!${NC}"
 echo ""
 echo -e "  ${BOLD}Quick Start:${NC}"
 if [ "$TOOL" = "opencode" ]; then

@@ -195,9 +195,9 @@ describe("plugins consistency — single source of truth", () => {
   });
 
   it("./AGENTS.md in plugin.json agents[] is filtered out (not treated as agent)", () => {
-    // ops-perf-evolution plugin.json agents[] includes "./AGENTS.md" (the PM entry).
+    // ascendc-ops-perf-evolution plugin.json agents[] includes "./AGENTS.md" (the PM entry).
     // This must be filtered out — AGENTS.md is a configFile, not an installable agent.
-    const pluginDir = join(REPO_ROOT, "plugins-community", "ops-perf-evolution");
+    const pluginDir = join(REPO_ROOT, "plugins-community", "ascendc-ops-perf-evolution");
     expect(existsSync(pluginDir)).toBe(true);
     const pj = readJson(join(pluginDir, ".claude-plugin", "plugin.json"));
     const hasAgentsMd = (pj.agents || []).some((a: string) => a === "./AGENTS.md");

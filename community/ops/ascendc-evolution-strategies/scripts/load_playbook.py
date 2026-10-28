@@ -37,6 +37,16 @@ import os
 import re
 import sys
 
+_SCRIPT_DIR_FOR_IMPORT = os.path.dirname(os.path.realpath(__file__))
+if _SCRIPT_DIR_FOR_IMPORT not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR_FOR_IMPORT)
+
+from knowledge_root import (  # noqa: E402
+    KnowledgeRootError,
+    playbook_dir,
+    resolve_knowledge_root,
+)
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -102,41 +112,24 @@ def _playbook_dir_of(root: str) -> str:
     return os.path.join(os.path.expanduser(root), KNOWLEDGE_PLAYBOOK_REL)
 
 
-def _resolve_playbook_dir() -> str:
-    """按三级来源解析 Playbook 目录；全部落空时 fail-loud（SystemExit(3)）。"""
-    tried = []
-    env_root = os.environ.get("CANNBOT_KNOWLEDGE_ROOT", "").strip()
-    if env_root:
-        cand = _playbook_dir_of(env_root)
-        if os.path.isdir(cand):
-            return cand
-        tried.append(f"CANNBOT_KNOWLEDGE_ROOT={env_root}（目录不存在：{cand}）")
-    env_file_root = _find_project_knowledge_root()
-    if env_file_root:
-        cand = _playbook_dir_of(env_file_root)
-        if os.path.isdir(cand):
-            return cand
-        tried.append(f".cannbot/knowledge.env → {env_file_root}（目录不存在：{cand}）")
-    # <repo>/community/ops/ascendc-evolution-strategies/scripts → 仓根的父目录下的兄弟检出
-    repo_root = os.path.normpath(
-        os.path.join(SCRIPT_DIR, os.pardir, os.pardir, os.pardir, os.pardir)
-    )
-    cand = os.path.join(
-        os.path.dirname(repo_root), "cannbot-knowledge", KNOWLEDGE_PLAYBOOK_REL
-    )
-    if os.path.isdir(cand):
-        return cand
-    tried.append(f"兄弟检出 {cand}")
-    if os.path.isdir(LEGACY_PLAYBOOK_DIR):
-        return LEGACY_PLAYBOOK_DIR
-    tried.append(f"legacy {LEGACY_PLAYBOOK_DIR}")
-    LOGGER.error(
-        "无法定位 cannbot-knowledge 仓的 Playbook 目录（已尝试：%s）。"
-        "请先 clone cannbot-knowledge 并在项目根运行其 install.sh（consumer 模式，"
-        "会写入 .cannbot/knowledge.env），或 export CANNBOT_KNOWLEDGE_ROOT=<知识仓根>。",
-        "；".join(tried),
-    )
-    raise SystemExit(3)
+def _resolve_playbook_dir(cli_root: str | None = None) -> str:
+    """按统一解析链定位 Playbook 目录；显式来源无效时 fail-loud（SystemExit(3)）。
+
+    解析优先级的唯一实现见 ``knowledge_root.resolve_knowledge_root``：
+    CLI → env → ``.cannbot/knowledge.env`` → 兄弟检出。
+    只有「完全未配置知识仓」时才允许旧版仓内 Playbook 兜底；显式配置了无效
+    路径属于配置错误，必须报错退出，不得静默换仓。
+    """
+    try:
+        root, source = resolve_knowledge_root(cli_root)
+        LOGGER.info("knowledge root: %s (source=%s)", root, source)
+        return str(playbook_dir(root))
+    except KnowledgeRootError as exc:
+        if not exc.configured and os.path.isdir(LEGACY_PLAYBOOK_DIR):
+            LOGGER.warning("%s；回退旧版仓内 Playbook：%s", exc, LEGACY_PLAYBOOK_DIR)
+            return LEGACY_PLAYBOOK_DIR
+        LOGGER.error("%s", exc)
+        raise SystemExit(3)
 
 
 def find_playbook(strategy_id: str, playbook_dir: str) -> str | None:
@@ -185,13 +178,18 @@ def main():
         default=None,
         help="Playbook 目录（默认按三级来源解析知识仓，见模块注释）",
     )
+    parser.add_argument(
+        "--knowledge-root",
+        default=None,
+        help="cannbot-knowledge 仓根（显式覆盖；配置无效时 fail-loud）",
+    )
     parser.add_argument("--output", default="-", help="输出文件路径（- 为 stdout）")
     parser.add_argument(
         "--list-only", action="store_true", help="只列出命中的 Playbook ID，不输出内容"
     )
     args = parser.parse_args()
 
-    playbook_dir = args.playbook_dir or _resolve_playbook_dir()
+    playbook_dir = args.playbook_dir or _resolve_playbook_dir(args.knowledge_root)
 
     strategy_ids = [x.strip() for x in args.strategy_ids.split(",") if x.strip()]
 

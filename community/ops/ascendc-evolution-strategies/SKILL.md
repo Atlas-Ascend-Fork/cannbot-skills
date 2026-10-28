@@ -32,6 +32,19 @@ X 系列（进化发现策略）正文已迁至 cannbot-knowledge 仓
 （OKF frontmatter，文件名小写 disc_x{n}.md）；INDEX.json 的 `discovered` 数组
 带 `doc_repo: cannbot-knowledge` 标记指向该仓。
 
+## 知识仓绑定与本地知识库（统一说明）
+
+三仓分离后的知识根解析、`init.sh` 用法、各脚本参数、local-first 流转与验收方法，
+统一见 [`references/knowledge-repo-integration.md`](references/knowledge-repo-integration.md)。
+SKILL.md 只保留协议摘要；脚本细节以该文档为准。
+
+关键约定：
+
+- 知识根解析优先级：`--knowledge-root` > `CANNBOT_KNOWLEDGE_ROOT` > `.cannbot/knowledge.env` > 兄弟检出；
+  显式来源无效会 **fail-loud**，不再静默换仓。
+- 自进化发现先写本地 `.cannbot/knowledge-local/staging/`，审核后 `promote`，再 `pr` 同步知识仓。
+- 验收：`scripts/knowledge_smoke.py`（知识是否被加载）+ `scripts/check_three_repo_contract.py`（三方适配）。
+
 ## 策略分层检索协议
 
 ### L0 (Universal) — 所有算子适用
@@ -62,19 +75,23 @@ cannbot-knowledge 仓 `optimizations/evolution_strategies/discovered/`。
 3. **UB 预算**: Light (<50%) / Medium (50-75%) / Heavy (>75%)
 4. **推荐组合**: 7 个经过验证的黄金组合
 
-## 策略发现协议（写入 cannbot-knowledge 仓 discovered/）
+## 策略发现协议（local-first：先写本地库，再决定是否 PR）
 
 当 open_exploration 节点取得显著提升（speedup > best_score_before * 1.10）时：
 
 1. 读取 `references/strategy-index.md` 检查新发现的优化方法是否已有覆盖
 2. 如果是全新策略：
-   - 解析知识仓根（`CANNBOT_KNOWLEDGE_ROOT` / 项目 `.cannbot/knowledge.env` / 兄弟检出 `../cannbot-knowledge`），
-     `Glob knowledge/contrib/ascendc/optimizations/evolution_strategies/discovered/disc_x*.md` 获取当前最大编号
-   - `Write` 知识仓 `.../discovered/disc_x{n+1}.md` 记录新策略（文件名小写；
-     frontmatter 须满足知识仓 OKF 契约：type/title/description/tags/status/sources/platforms，参考同目录既有卡）
-   - `Edit references/strategy-index.md` 追加新行到"探索发现策略"分类
-   - 运行 `scripts/generate_index_json.py` 重建 INDEX.json（discovered 数组自动带上 doc_repo 标记）
-3. 知识仓侧提交前须通过其 `check.sh`（frontmatter lint + 索引同步）
+   - 解析知识仓根（统一走 `scripts/knowledge_root.py`：CLI `--knowledge-root` >
+     `CANNBOT_KNOWLEDGE_ROOT` > 项目 `.cannbot/knowledge.env` > 兄弟检出；**显式来源无效会 fail-loud**），
+     `Glob <root>/knowledge/contrib/ascendc/optimizations/evolution_strategies/discovered/disc_x*.md` 获取当前最大编号
+   - 用 `python3 scripts/knowledge_local.py add --project <项目根> --id X{n+1} --file <草稿>`
+     写入本地库 `.cannbot/knowledge-local/staging/`（OKF frontmatter 须满足
+     type/title/description/tags/status/sources/created_at/updated_at/platforms）；
+     **运行期不直接写知识仓、不改 `references/strategy-index.md`**
+   - 人工/CI 审核后 `knowledge_local.py promote --id X{n+1}`，再由
+     `knowledge_local.py pr --id X{n+1}` 生成（或 `--execute` 执行到校验为止）同步到知识仓、
+     重建索引、跑 `check.sh`、提交 PR 的步骤
+3. 知识仓 PR 合并前须通过其 `check.sh`（frontmatter lint + 索引同步）
 
 > **可变性说明**: 策略卡正文（P/D/A/R 系列）与进化发现正文（X 系列）均已迁至 cannbot-knowledge 仓；本地 `preconditions/` 的 `strategy_meta` 块为 P/D/A/R 卡的机器元数据。X 系列为运行时可写（写知识仓）。`strategy-index.md` 仅允许追加 X 系列条目。
 

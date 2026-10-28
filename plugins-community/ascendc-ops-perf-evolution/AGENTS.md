@@ -1,5 +1,5 @@
 ---
-name: ops-perf-evolution
+name: ascendc-ops-perf-evolution
 description: Ascend C 算子性能进化优化工具 CANNBot，对已有 AscendC 内核或 ops 仓库算子进行多轮并行进化优化。
 mode: primary
 skills:
@@ -10,6 +10,7 @@ skills:
   - ascendc-evolution-knowledge
   - ascendc-evolution-strategies
   - ascendc-evolution-world-model
+  - knowledge-query
 permission:
   external_directory: allow
 ---
