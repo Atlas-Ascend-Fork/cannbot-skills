@@ -119,7 +119,9 @@
 | 核心类型 | `core_type_list` | `CubeCore,VectorCore` |
 | 核间关系 | — | CubeCore : VectorCore = 1 : 2 |
 
-> **与 950 白皮书对照**：白皮书表4-2 的物理容量标注为 L1 512KB / L0A/L0B 64KB / L0C 256KB per AI Core，与 INI 一致；**UB 标注为 512KB per AI Core**，与 INI 对齐的解读是按 AI Core 组（1 AIC + 2 AIV）计的物理容量（每 AIV 物理 256KB × 2，"按组计"口径为推断）。INI `ub_size` 248KB 为每 AIV 用户可用值——物理 256KB − 8KB 预留 = 248KB = 253952B，与 INI 精确吻合（本地 CANN 全部 950PR/950DT SKU 已核实一致）。完整证据链见 `npu-arch-guide.md` §Buffer 容量。
+> **与 950 白皮书对照**：白皮书表4-2 的物理容量标注为 L1 512KB / L0A/L0B 64KB / L0C 256KB per AI Core，与 INI 一致；**UB 标注为 512KB per AI Core**，与 INI 对齐的解读是按 AI Core 组（1 AIC + 2 AIV）计的物理容量（每 AIV 物理 256KB × 2）。INI `ub_size` 248KB 为每 AIV 用户可用值——物理 256KB − 8KB 预留 = 248KB = 253952B，与 INI 精确吻合（本地 CANN 全部 950PR/950DT SKU 已核实一致）。完整证据链见 `npu-arch-guide.md` §Buffer 容量。
+>
+> **★ 结论（预算口径，按此执行）**：**两个 AIV 的 UB 物理独立、不可共享**——UB 预算一律按**单个 AIV 的 248KB** 计，不得按"AI Core 组 512KB"或"2 × 248KB = 496KB 共享池"规划 buffer。白皮书的 512KB 是组内 2 个 AIV 的物理合计，不是可供单个 AIV 使用的容量；MIX 1:2 下同一份 kernel 在两个 AIV 上各持一份独立 UB 与独立 TPipe。
 
 ### 2.6 DAV_3003 — KirinX90 端侧系列
 

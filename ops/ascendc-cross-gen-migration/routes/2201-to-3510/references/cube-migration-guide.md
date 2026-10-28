@@ -60,6 +60,13 @@ cube 迁移**不是只读本文件**——以下环节必须配套使用 skill �
 | `__CCE_AICORE__ == 200`、`defined __DAV_310R6__` | a2/a3 | 老平台 |
 | `__NPU_ARCH__ == 2201` / `== 3510` | 官方文档口径 | 官方样例和文档统一使用 |
 
+### ★ MIX 任务类型由框架推导，不要默认手工声明（实测）
+
+- **ops-nn 构建链会自动产出 MIX 元数据**：实测 kernel 源码与 A2 **逐字节相同**（无任何 `__mix__` / `KERNEL_TASK_TYPE` 声明），ascend950 编译后 kernel 元数据仍为 `coreType=MIX, taskRation=1:2`，运行期 `Block Num=28 AIC / Mix Block Num=56 AIV`。
+- **禁止用 `__mix__(1, N)` 属性形式**：ops-nn 框架会按 tilingkey 对入口改名（`-D<op>=<op>_N_tilingkey`），改名后编译器报 `__attribute__((aic)), __attribute__((aiv)), bisheng::core_ratio attribute needs to appear with kernel func`。
+- 确需显式声明时（非 ops-nn 工程，或实测推导结果不符预期），用**入口内宏**：`KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2)`。
+- **判定顺序**：先不声明 → 编译 → 检查 kernel 元数据 / 运行期 Block Num → 只有推导结果不对时才加声明。默认添加属过度修改（会引入不必要的编译宏依赖，且掩盖真实问题）。
+
 ## 改动 1：工程组织（arch 目录拆分 + 入口宏分发）
 
 迁移后 kernel 代码按架构拆分为独立目录，入口通过平台宏选择头文件：
@@ -437,6 +444,27 @@ CopyL0CToGm(co1Local);                     // Fixpipe
 | 确定性开关 | 新增 `deterministic` 字段，取 `attrs` 与 `context_->GetDeterministic() == 1`（全局确定性配置）的或值 |
 | 参数校验 | 迁移时顺手补齐 `OP_CHECK_IF` 形状/取值校验，错误信息带上具体数值便于定位 |
 | 调度基准 | `SetBlockDim`/`CalcTschBlockDim` 的取数口径（AIC 数 vs AIV 数）直接决定核利用率 |
+
+### ★ Host tiling 的 `MatmulApiTiling` 构造陷阱（实测，迁移必查）
+
+```cpp
+// 错误（默认构造）：依赖 platform_ascendc::PlatformAscendCManager 单例
+matmul_tiling::MatmulApiTiling mm;
+// 3510 实测：tiling 进程未初始化该单例时，mm.GetTiling() 恒返回 -1
+// 表现为 "matmul getTiling failed"，但日志同时打印的是默认 bufferPool 值
+// （l1Size=524032 / l0CSize=131072），容易被误读成 "SetBufferSpace 参数越界"。
+
+// 正确：显式传入平台
+matmul_tiling::MatmulApiTiling mm(ascendcPlatform);   // ascendcPlatform 来自 context->GetPlatformInfo()
+```
+
+**为什么容易误判**：单例未初始化时 `bufferPool` 取的是 API 默认值而非真实 950 容量，于是
+`SetBufferSpace(platFormMemSize.l1Size, ...)`（GetCoreMemSize 返回 524288/262144）会先被
+"Provided L1 size is out of range" 拒绝；即使绕过（传 -1），`baseM` 也会按默认 L0C=128KB 被压到 128，
+**Cube 分块减小、性能损失约 5%**（实测 A/B：baseM 256 vs 128，fp16/bf16 快 3~6%，fp32 持平）。
+
+**处置顺序**：先修构造（传平台）→ 再判断是否真的需要 `SetBufferSpace` 调整。**不要**把
+`SetBufferSpace(-1,-1,-1)` + 降 baseM 当作首选修复——那是绕过，会把平台容量信息丢掉。
 
 ## 改动 9：迁移 diff 审查清单（所有算子通用，审查"看起来无害"的删除/遗漏）
 

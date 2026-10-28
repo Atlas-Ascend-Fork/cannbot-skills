@@ -16,6 +16,7 @@
 | 3 编译安装 | `stages/stage_3_build.md` | `[GATE-3] BUILD=PASS INSTALL=PASS` |
 | 4 精度验证 | `stages/stage_4_precision.md` | `[GATE-4] PRECISION=N/N_PASS`（仅当 N_FAIL==0 时允许输出 PASS；否则输出 `PRECISION=N/M_PASS BLOCKED`） |
 | 5 性能验证 | `stages/stage_5_performance.md` | `[GATE-5] PERF=COLLECTED`（仅当 10 项证据全部存在时允许输出；否则输出 `PERF=NOT_COLLECTED BLOCKED`） |
+| 6 A5 新特性使能 | `stages/stage_6_feature_enable.md` | `[GATE-6] A5_FEATURES=ENABLED k/N`（有界尝试：默认单特性 ≤60min/≤5 循环，主瓶颈特性 ≤120min/≤10 循环；成功保留 / 失败回退并记录） |
 
 ## 本路线覆盖的两大迁移能力
 
@@ -81,6 +82,12 @@
 
 **Cube 类算子**（kernel 含 Mmad/LoadData/LoadDataWithTranspose/Fixpipe/DataCopyCO12DstParams/CrossCoreSetFlag 等 cube API）：迁移时 MUST 同时阅读 `references/cube-migration-guide.md`——Cube 数据通路（L1/L0A/L0B/L0C）、分形变化（ZZ→NZ）、跨核同步机制与 Vector 差异正交，独立成章；**该 guide 不替代对应层级指南，仅覆盖 AIC 侧差异，AIV 侧 Vector 路径仍用层级指南的既有经验**（各环节配套文件见 cube-guide「配套经验引用表」）。
 
+### A5 新特性使能（★ 阶段 6 MUST READ）
+
+| 文件 | 用途 | LOADED Token |
+|------|------|-------------|
+| `references/a5-feature-catalog.md` | 950 新增能力清单（L0C→UB 直通/dualDstCtrl、L0C→GM NZ2DN、UB→L1、双主模式、SSBuffer、Mutex、同步模式 4、LoadData 扩展、RegBase、SIMT、低阶直跑、溢出控制）：逐项判定适用性、落地要点、验收指标、回退方式 | `[LOADED] a5-feature-catalog` |
+
 ### 实战经验（迁移沉淀，按需加载）
 
 | 文件 | 内容 | LOADED Token（在 `stages/stage_2_implement.md` 声明） |
@@ -97,6 +104,9 @@
 4. **★ Subnormal 风险分析 MUST 基于证据**——不得仅凭业务经验判断"不会出现 subnormal"。MUST 基于 dtype、输入范围、中间计算、常量、eps 值、minimum normal/subnormal、计算链给出证据；**受影响操作数存在结构性下界（max 归一锚点/invalid line 哨兵修复/数学推导）时优先按策略 0 给出证明（保持 INTRINSIC，见 `references/api-diff-guide.md` §1.4）**。无法证明无风险时按存在风险处理（见 `stages/stage_1_assess.md` Step 1.3.1）
 5. **★ FP16 精度失败 MUST 进入五阶段调试流程**——FP16 FAIL + FP32 PASS 时，禁止直接标注"FP16 已知限制"。MUST 执行 Phase 1→5 调试，给出根因和归类（见 `stages/stage_4_precision.md` Step 4.6.2）
 6. **kernel 含跨核同步原语（CrossCoreSetFlag/WaitFlag、IBSet/IBWait、SyncAll、NotifyNextBlock/WaitPreBlock）时，MUST 按 `stages/stage_1_assess.md` Step 1.5 逐同步点盘点参与集合粒度并对照目标平台文档**（**模式号相同 ≠ 语义相同**，以目标平台为准）
+7. **★ 阶段 6 有界使能约束（本路线为必做收尾阶段）**——注意：本路线的阶段 6 是**必做**，与 `2201→2002` 路线的阶段 6（`stage_6_optimize.md`，可选、由 owner 指令触发）**语义无关，禁止类比或据此跳过**。本路线中所有 950 新增能力（`references/a5-feature-catalog.md` 全部条目）在阶段 0–5 中只做"可用性核查"，**不得默认使能**；阶段 6 对每个适用项做一次有界尝试：一次只开一个特性（保证归因）、保留须具备编译+全量精度+性能 A/B 三项证据、放弃须完整回退（代码 + CMake `OPTIONS` + 编译宏 + tiling 字段）并记录卡点。
+   - **R1 跳过情形**：仅"已尝试失败"或"收益上限 <5%（附可复核算式）"两种；**R2 难度非理由**——需降 tile / 需重构 / 需满足前置条件均属尝试内容，A/B 须测净值；容量算式只否决具体变体，不否决特性；**R3 预算分级**——默认 ≤60min/5 循环，消除已实测主导成本的主瓶颈特性 ≤120min/10 循环，从首次改代码起算。
+   - **禁止**"未尝试即标注不适用"、**禁止**以难度或"时间不足"跳过、**禁止**无时间盒长调试、**禁止**为保留特性放宽精度判定
 
 ## 路线专属「绝对不要做」（每条含替代方案）
 
@@ -109,4 +119,6 @@
 | **★ eps 值不检查 dtype 可表示性就声称"已有 eps 保护"** | **对所有支持 dtype 检查 eps 是否可表示/normal/subnormal/下溢为 0/导致除零（`references/api-diff-guide.md` §1.6）** |
 | **★ FP16 FAIL + FP32 PASS 时跳过五阶段调试** | **MUST 执行 Phase 1→5，给出根因、是否 A5 特有、是否修复及理由（见 `stages/stage_4_precision.md` Step 4.6.2）** |
 | 原样保留依赖旧架构同步原语语义的跨核同步协议（flagId 配对、跨核 Set/Wait） | 按 `stages/stage_1_assess.md` Step 1.5 逐个同步点盘点参与集合粒度，对照目标平台模式语义与型号支持范围；无法论证成立则禁用该路径走标准流程 |
-| 断言新旧平台核映射/核比例差异（如"910b 是 1:1、950 是 1:2"） | MIX 比例是算子配置项（`__mix__(1,N)` / `KERNEL_TYPE_MIX_AIC_1_2`），非平台属性；差异以官方迁移指导（`2201_to_3510_arch_changes.md`）与 API 文档为准 |
+| 断言新旧平台核映射/核比例差异（如"910b 是 1:1、950 是 1:2"） | MIX 比例是算子配置项（入口内 `KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2)`；`__mix__(1,N)` 属性形式在 ops-nn 入口改名后会编译失败，见 cube-migration-guide），非平台属性；差异以官方迁移指导（`2201_to_3510_arch_changes.md`）与 API 文档为准 |
+| 阶段 5 采完数据即结束（"迁移完成 = 交付"） | 执行阶段 6：按 `a5-feature-catalog.md` 逐项判定并做有界尝试，交付物应包含"哪些特性试过、结论如何" |
+| 以"UB 组共享 512KB"规划 buffer | **每个 AIV 的 UB 独立、用户可用 248KB/AIV**（见 `references/ub-budget-guide.md` 头部 ★ 与 `npu-arch` §2.5 结论），预算按单 AIV 计 |

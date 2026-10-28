@@ -217,7 +217,7 @@
         ],
         "eval_mode": "text"
       },
-      "prompt": "PlatformAscendC 查询当前芯片时 GetCurNpuArch 和 GetSocVersion 失败，会返回什么？可以继续按 DAV_2201 默认分支执行吗？",
+      "prompt": "PlatformAscendC 查询当前芯片时 GetCurNpuArch 和 GetSocVersion 失败，会返回什么？可以继续按 DAV_2201 默认分支执行吗？另外请说明：查询失败后可以怎样获取并补充平台信息（可用哪些接口），以及上报该错误时应附带哪些平台信息。",
       "expected_output": "回复应说明失败分别返回 NpuArch::DAV_RESV 和 SocVersion::RESERVED_VERSION，不能静默假定 DAV_2201；应把未知架构作为显式错误或安全兜底路径处理，再补充平台信息",
       "expectations": [],
       "files": []

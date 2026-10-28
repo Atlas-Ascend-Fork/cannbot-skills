@@ -1,6 +1,6 @@
 ---
 name: ascendc-cross-gen-migration
-description: 当用户希望将已有 AscendC 算子工程跨架构迁移（当前支持 A2/A3（910b/910_93、DAV_2201）→ A5（950、DAV_3510）与 A2/A3 → 310P（310P3、DAV_2002/dav-m200），按 Step R 判定迁移路线）时使用。按 Stage 0–5 完成 L1 基础适配、L2 RegBase 改造、L3 SIMT 优化及 Cube 类算子迁移；精度标杆由 agent 逆向源码自合成，并与目标平台实测双向互检。
+description: 当用户希望将已有 AscendC 算子工程跨架构迁移（当前支持 A2/A3（910b/910_93、DAV_2201）→ A5（950、DAV_3510）与 A2/A3 → 310P（310P3、DAV_2002/dav-m200），按 Step R 判定迁移路线）时使用。按 Stage 0–6 完成 L1 基础适配、L2 RegBase 改造、L3 SIMT 优化及 Cube 类算子迁移；精度标杆由 agent 逆向源码自合成，并与目标平台实测双向互检。
 metadata:
   version: "3.4"
   date: "2026-09-30"
@@ -40,6 +40,8 @@ metadata:
 2. 源/目标平台组合不在表内 → 本 skill 暂不支持该迁移，向用户说明并停止。**禁止套用最近路线的差异清单**——不同架构对的 API 差异、数据通路与同步语义不同，混用即臆造架构差异（违反全局约束）。
 3. 判定完成后 MUST 先读取路线包的 `route.md`，再进入 Stage 0；`route.md` 中的约束与本文「全局约束」同等强制。
 4. 新增路线时新增一个路线包目录（`routes/<源代号>-to-<目标代号>/`，可复制现行路线包后改写差异点）并在上表登记一行；本文骨架与公共 `references/` 不改动。**路线包自包含，禁止跨路线取材。**
+
+> **Cube 类算子（kernel 含 `Mmad` / `LoadData` / `Fixpipe` 等）**：迁移时 MUST 同时阅读所属路线包的 `references/cube-migration-guide.md`，它覆盖与 Vector 正交的硬件差异——**数据通路（L1/L0A/L0B/L0C）、L0A 分形 ZZ→NZ、跨核同步协议**；该指南只覆盖 AIC 侧差异，**不替代**对应层级的 l1/l2/l3 指南。
 
 ## 外部依赖：asc-devkit 全量仓
 
@@ -86,8 +88,9 @@ metadata:
 | 1 评估定级 | `routes/<路线>/stages/stage_1_assess.md` | `[GATE-1] LEVEL=L1/L2/L3`（层级判定规则见路线包 `route.md` 决策树） |
 | 2 代码改造 | `routes/<路线>/stages/stage_2_implement.md` | `[GATE-2] FILES_MODIFIED=[...]` |
 | 3 编译安装 | `routes/<路线>/stages/stage_3_build.md` | `[GATE-3] BUILD=PASS INSTALL=PASS` |
-| 4 精度验证 | `routes/<路线>/stages/stage_4_precision.md` | `[GATE-4] PRECISION=N/N_PASS`（仅当 N_FAIL==0 时允许输出 PASS；否则输出 `PRECISION=N/M_PASS BLOCKED`） |
+| 4 精度验证 | `routes/<路线>/stages/stage_4_precision.md` | `[GATE-4] PRECISION=N/N_PASS`（仅当 N_FAIL==0 时允许输出 PASS；否则输出 `PRECISION=N/M_PASS BLOCKED`）。**硬性要求**：用例数 ≥30、单例元素数 ≤200K、覆盖全部 dtype 与数据排布、经 `torch.ops.npu`（EXEC_NPU_CMD 绑定）调用，禁止用 PyTorch 同名算子替代被测实现 |
 | 5 性能验证 | `routes/<路线>/stages/stage_5_performance.md` | `[GATE-5] PERF=COLLECTED`（仅当 10 项证据全部存在时允许输出；否则输出 `PERF=NOT_COLLECTED BLOCKED`） |
+| 6 收尾阶段（**由路线包定义**） | `2201→3510`：`routes/2201-to-3510/stages/stage_6_feature_enable.md`（A5 新特性使能）；`2201→2002`：`routes/2201-to-2002/stages/stage_6_optimize.md`（性能优化，owner 指令触发） | `2201→3510`：`[GATE-6] A5_FEATURES=ENABLED k/N`（k=保留数，N=适用特性数；逐项有界尝试，成功保留 / 失败回退并记录）；`2201→2002`：`[GATE-6] OPT=<达标/上限收敛/契约冲突升级> SPEEDUP=<值>`。**两条路线的 GATE-6 语义不同，按所属路线包判据执行，禁止跨路线套用** |
 
 ## Reference 文件索引
 
@@ -173,6 +176,7 @@ SIMT 侧（L3）：`ascendc-simt-best-practices`（含本 skill 沉淀的 Atomic
 10. **★ 精度测试中任何 NaN/Inf 输出 MUST 触发根因分析**——在根因确定且归类完成前，禁止输出 GATE-4 PASS。禁止直接用"已知限制"跳过分析（见路线包 `routes/<路线>/stages/stage_4_precision.md` Step 4.6.1）
 11. **★ 所有 Gate 均为 evidence-based**——禁止仅依据 Todo completed / Agent 自我声明 / 静态分析 / "预计没问题"判定 PASS。证据不足时保持 NOT VERIFIED / NOT PASSED / BLOCKED（见 Gate 协议第 7 条）
 12. **禁止臆造新旧平台架构差异**——MIX 比例（1:1/1:2）、核映射等以官方迁移指导与 API 文档为准，不得凭推断断言；路线未覆盖的架构对不得套用其他路线的差异清单
+13. **★ A5 新特性 MUST 逐项、有界、可回退**（阶段 6）——预算从该特性**首次改代码**起算：默认 ≤60 分钟且 ≤5 次构建-调试循环，消除 Stage 5 已实测主导成本的**主瓶颈特性** ≤120 分钟且 ≤10 次（先到即停）。**跳过只允许两种情形**：① 已实际尝试并失败；② 收益上限 < 5% 且附可复核算式。**实施难度（需降 tile / 需重构数据通路 / 需先满足前置条件 / 风险较大）不是跳过理由**——前置改动属尝试内容，且 A/B MUST 测净值。保留须同时具备"编译安装 PASS + 精度全量 N/N PASS + 性能 A/B 改善 ≥5%（或指定瓶颈指标达标）"三项证据；到点未通过 MUST 完整回退（代码 + CMake 选项 + 编译宏 + tiling 字段）并记录卡点。禁止无时间盒长调试、禁止为保留特性放宽精度判定、禁止"未尝试即标注不适用"
 
 ## 绝对不要做（每条含替代方案）
 
@@ -198,5 +202,8 @@ SIMT 侧（L3）：`ascendc-simt-best-practices`（含本 skill 沉淀的 Atomic
 | 假设 aclnn 接口名 = 底层 L0 算子名 | 读 aclnn L2 源码（`op_host/op_api/aclnn_*.cpp`）确认目标平台调度路径 |
 | **★ 精度测试出现 NaN/Inf 后直接标注"已知限制"** | **MUST 执行根因分析（除零/溢出/下溢/eps/dtype 转换），归类后才可标注** |
 | **★ Gate 仅依据 Todo completed / 自我声明判定 PASS** | **MUST 有实际证据（编译产物/测试输出/CSV/报告文件），证据不足时保持 BLOCKED** |
-| 断言新旧平台核映射/核比例差异（如"910b 是 1:1、950 是 1:2"） | MIX 比例是算子配置项（`__mix__(1,N)` / `KERNEL_TYPE_MIX_AIC_1_2`），非平台属性；差异以官方迁移指导与 API 文档为准 |
+| 断言新旧平台核映射/核比例差异（如"910b 是 1:1、950 是 1:2"） | MIX 比例是算子配置项（入口内 `KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2)`；`__mix__(1,N)` 属性形式在 ops-nn 入口改名后会编译失败，见 cube-migration-guide），非平台属性；差异以官方迁移指导与 API 文档为准 |
+| 迁移完成后默认"性能就是这样"（不做阶段 6） | MUST 执行阶段 6：对每个适用 A5 新特性做一次有界尝试，成功保留/失败回退并记录 |
+| 无时间盒地长调试某个新特性 | 默认 60 分钟 / 5 次构建循环、主瓶颈特性 120 分钟 / 10 次循环，到点即回退并记录卡点（特性/报错/已排除假设） |
+| 为保留新特性而只跑精度子集、放宽阈值、删用例 | 全量复跑 `N_PASS == N_TESTS`，否则回退 |
 | 凭芯片型号自行推断架构代号（如"910B 就是 DAV_2201"） | 用 `npu-arch` skill 澄清芯片号↔架构映射（其经白皮书与 CANN ini 文件验证），再按 Step R 查路由表 |

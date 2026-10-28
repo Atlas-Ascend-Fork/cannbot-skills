@@ -1,6 +1,7 @@
 # UB 预算估算与溢出排查指南
 
-> **适用范围**: A5 (Ascend 950PR) Vector 算子，UB = 256 KB/AIV；**cube 类算子中 AIV 侧 Vector 路径（UB 由 AIV 核承载）同样适用**——cube 算子的 AIC 侧存储（L0A/L0B/L0C/L1）预算见 `cube-migration-guide.md` 改动 5「片上缓冲容量对照」
+> **★ UB 空间归属（最先确认，做任何预算前）**：950 分离模式下**每个 AIV 的 UB 相互独立**——每 AIV 物理 256KB、用户可用 248KB（INI `ub_size` = 253952B = 物理 256KB − 8KB 预留）。**不存在"AIC + AIV 组共享 512KB"的共享池**：白皮书 "512KB per AI Core" 指组内 2 个 AIV 的物理合计（2 × 256KB），不是共享容量。因此：① Buffer 预算一律按**单个 AIV** 计，不得按组累加；② MIX 1:2 下同一份 kernel 代码在两个 AIV 上各跑一份独立 TPipe，各自的 `pipe.InitBuffer` 互不侵占；③ 跨 AIV 传递数据只能走 GM/workspace 或 SSBuffer，不能假设一块 UB 被两个 AIV 共用。
+> **适用范围**: A5 (Ascend 950PR) Vector 算子，UB = 256 KB/AIV（用户可用 248KB/AIV）；**cube 类算子中 AIV 侧 Vector 路径（UB 由 AIV 核承载）同样适用**——cube 算子的 AIC 侧存储（L0A/L0B/L0C/L1）预算见 `cube-migration-guide.md` 改动 5「片上缓冲容量对照」
 > **何时使用**: 编译通过但运行时 507035 / error 340 / "UB out-of-range"；设计 tile 大小时；多 buffer 场景下估算 UB 占用
 > **代号说明**: 文中 `P-P*` / `OL-*` 为历史卡片代号；使用 `knowledge-query`
 > 按代号或具体原语/症状查询当前外部知识卡。
@@ -54,9 +55,11 @@ namespace Ops { namespace Common {
 }}
 
 // 使用时：
-//   SimtMode:    可用 UB = 256 KB - 40 KB = 216 KB
-//   pure-SIMD:   可用 UB = 256 KB
+//   SimtMode:    可用 UB = 248 KB - 40 KB = 208 KB   （按 INI 用户可用 248KB/AIV 计）
+//   pure-SIMD:   可用 UB = 248 KB
 ```
+
+> **口径提示**：950 上 `GetCoreMemSize(CoreMemType::UB)` 返回 INI `ub_size` 对应的 **248 KB/AIV 用户可用值**（物理 256 KB − 8 KB 预留）；白皮书的 256 KB / 512 KB 为物理口径。做 buffer 预算时 MUST 以 API 返回值（248 KB/AIV 计，见文件头 ★ UB 空间归属）为准，不要把物理 256 KB 全部占满。
 
 ---
 

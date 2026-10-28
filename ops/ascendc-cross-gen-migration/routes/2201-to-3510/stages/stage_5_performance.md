@@ -131,6 +131,25 @@ experimental_config = torch_npu.profiler._ExperimentalConfig(
 
 **固定 warmup=5, active=5，不可修改。**
 
+### ★ 采集失败处置（共享机器 / profiler 超时）
+
+**症状**：采集期间报 `aicore timeout(507014)` / `vector core timeout(507034)` / `EE9999`，而**同一 shape 关闭 profiler 后稳定通过**。此时先怀疑采集环境，不要直接判定算子死锁。
+
+**判别顺序**（每步留证据，写进报告）：
+
+1. **排除设备争用**：`npu-smi info -t proc-mem -i <dev>` 查他人进程，换空闲卡重试。共享机器上他人的训练/msprof 进程是首要干扰源，且会造成非确定性超时。
+2. **会话隔离**：每个 case 用**独立进程**采集（每个进程内仍完整执行 warmup=5 + active=5），避免长会话累积触发超时。
+3. **缩短/拆分**：单 case 单会话，失败即重试，不做整批长会话。
+4. **配置降级**：最后手段，且仅用于取证——见下方边界。
+
+### ★ l2_cache 降级的边界（必须遵守）
+
+- `l2_cache=True` 会抬高采集开销、扰动 kernel 时序，是超时的高发诱因；二分实验（`l2_cache=False` 能过）可用于**定位**问题。
+- **真实场景不会关闭 L2 采集**：关闭后得到的耗时与开启时不可直接比较（采集开销与时序都变了），**不得作为最终性能结论，也不得用于跨版本 A/B 对比**。
+- 正式报告的性能数据 MUST 来自完整配置（`Level1 + PipeUtilization + l2_cache=True + warmup5/active5`）。若某 case 只能在降级配置或事件计时下取到数据，报告中该行 MUST 显式标注实际采集方式，并说明**该行不参与 A/B 与达标判定**。
+
+**记录要求**：报告中 MUST 记录采集设备号、采集时段是否存在他人进程、是否存在降级采集的 case。
+
 ### 路径基准
 
 **MUST 使用阶段 0 记录的 `${OP_DIR}`（算子工程根目录）作为绝对路径基准**，确保 Python 代码与 shell find 命令操作同一路径。
@@ -397,6 +416,14 @@ T_A5 / T_A2 ≈ 1 + f
 - 禁止仅依据 Todo completed / Agent 自我声明 / "阶段已完成"输出 `PERF=COLLECTED`
 - 禁止在没有 profiler 采集的情况下输出 `PERF=COLLECTED`
 - 禁止用精度测试数据替代性能测试数据
-- 禁止跳过 profiler 配置（Level1 + PipeUtilization + L2Cache + warmup=5 + active=5）
+- 禁止跳过 profiler 配置（Level1 + PipeUtilization + L2Cache + warmup=5 + active=5）——唯一的例外是按「采集失败处置」记录并标注的降级取证，该类数据不参与 A/B 与达标判定
 
-**注意**：GATE-5 的 token 是 `PERF=COLLECTED` 而非 `PERF=PASS/FAIL`。本阶段只做性能评估和数据采集，不做达标判定。`PERF=COLLECTED` 验证的是"性能数据是否真实采集并完成分析"，而不是强制要求性能提升。如需性能优化，后续可独立使用性能优化流程。
+**注意**：GATE-5 的 token 是 `PERF=COLLECTED` 而非 `PERF=PASS/FAIL`。本阶段只做性能评估和数据采集，不做达标判定。`PERF=COLLECTED` 验证的是"性能数据是否真实采集并完成分析"，而不是强制要求性能提升。阶段 6（`stage_6_feature_enable.md`）只承担 **A5 新特性的有界使能**；若需超出该范围的结构性优化（重写数据通路、tiling 搜索、算法级改写等），后续可独立使用性能优化流程（`ascendc-perf-optimize` / `ops-profiling`），其结果不改变本阶段与阶段 6 的门禁结论。
+
+## ★ 基线交付（阶段 6 的前置输入）
+
+本阶段采集的 per-case 数据是**阶段 6 的唯一对比基准**，MUST：
+
+1. 保留每个 case 的原始 `op_statistic.csv` 与 `kernel_details.csv`，**后续阶段不得覆盖或删除**（阶段 6 每个特性尝试都会重新采集到同目录时，先备份基线：`perf/<op>/baseline_case_*/`）；
+2. 在 `perf_report_<op_name>.md` 的「性能数据」表中保留 per-step 耗时与瓶颈指标（ratio / cache），阶段 6 的 A/B 直接引用该表；
+3. 记录本次采集的设备号与是否独占（共享设备上的非确定性超时会污染 A/B 对比，阶段 6 复测应使用同一设备与同等负载条件）。
