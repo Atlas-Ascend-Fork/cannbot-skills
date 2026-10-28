@@ -29,7 +29,7 @@
 
 ---
 
-## HOST-1: InferDataType 注册与实现必须放置在 op_graph 目录 `[适用: Host]`
+## HOST-1: InferDataType 注册与实现必须放置在 op_graph 目录
 
 **严重级别**：高
 
@@ -114,7 +114,7 @@ IMPL_OP_INFERSHAPE(AdaptiveAvgPool2d)
 
 ---
 
-## HOST-2: REG_OP 注册的算子必须实现 InferDataType `[适用: Host]`
+## HOST-2: REG_OP 注册的算子必须实现 InferDataType
 
 **严重级别**：高
 
@@ -209,7 +209,7 @@ grep -rn "InferDataType" <op_dir>/ --include='*.cpp' --include='*.h' 2>/dev/null
 
 ---
 
-## HOST-3: 获取的 platform 参数必须校验取值合法性 `[适用: Host]`
+## HOST-3: 获取的 platform 参数必须校验取值合法性
 
 **严重级别**：高
 
@@ -307,7 +307,7 @@ auto coreNum = platformInfo->GetCoreNumAiv();
 
 ---
 
-## HOST-4: platform 参数须在 Tiling 方法中直接获取，禁止 TilingParse 经 compileInfo 传递 `[适用: Host]`
+## HOST-4: platform 参数须在 Tiling 方法中直接获取，禁止 TilingParse 经 compileInfo 传递
 
 **严重级别**：高
 
