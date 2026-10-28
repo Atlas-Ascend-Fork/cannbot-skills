@@ -11,6 +11,7 @@
 - [MatMul 片上复用与布局候选](matmul-memory-and-layout.md)
 - [MatMul 深流水与预取候选](matmul-pipeline-and-preload.md)
 - [多核尾轮与 Split-K 调度候选](multicore-load-balancing.md)
+- [整调度 makespan 空转判定与二维再切分](makespan-scheduling-gap.md)
 - [Vector、寄存器与 CUBE–Vector 数据路径候选](vector-register-and-cv-path.md)
 - [带宽扫描与模板选择](bandwidth-template-selection.md)
 - [Attention 多级流水与负载均衡](attention-pipelines.md)

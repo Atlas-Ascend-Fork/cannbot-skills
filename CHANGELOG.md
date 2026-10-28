@@ -2,6 +2,10 @@
 
 > **记录规则**：单条不超过 **200 字**，按【领域】+ 问题 + 修复要点组织；技术细节、验证数据与发布过程放 PR 描述 / commit message，不写入日志。
 
+### 【2026-10-27】
+#### 新特性 New Features
+- 【算子生成】`catlass-dsl-generator` 性能收口瓶颈取证前置 makespan 零成本判定（`ceil(总块数/核数) × 单块耗时` 与实测吻合即任务铺放空转，含无 profiler 时的消融取证路径），新增 `optimization/makespan-scheduling-gap` 知识条目与尾轮条目交叉引用。
+
 ### 【2026-10-26】
 #### 新特性 New Features
 - 【算子生成】`plugins-community/catlass-dsl-generator` 新增骨架门禁、探针与调研预算、无性能目标时三轮性能收口，沉淀 14 条实现模式知识条目。

@@ -30,6 +30,10 @@ Stream-K 则只对不足核数的 M/N 尾部沿 K 再切，使各核产生部分
 
 # 用法
 
+总块数只是略超核数（整个调度仅两轮）时先做 makespan 判定，见
+[整调度 makespan 空转判定与二维再切分](makespan-scheduling-gap.md)——该形态下本条的
+尾轮再切（候选 A）仍是首选，全量二维再切是工作单元需要同构时的替代。
+
 先计算每轮活跃任务数及 `tail_tasks / core_count`。只有末轮占总时长不可忽略且 profile 显示明显
 核间负载不均时才实验：输出 tile 可继续合法切分时优先 M/N 再切；M/N 已太小、K 足够长且
 workspace/归约可接受时再测 Split-K。
