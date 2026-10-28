@@ -8,35 +8,37 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
 
-# 评测配置 (Mini子集)
-# 快速评测验证数据集，覆盖 L1-L4 各层级核心范式算子
+# 评测配置 (Mini子集 / micro 子集)
+# 快速评测验证数据集，覆盖 L1-L5 各层级核心范式算子（对齐 cann-bench next_suite_20260924 的 micro 16 项）
 #
-# 超时策略: per-op timeout (L1=3h, L2=4h, L3=6h, L4=9h)
+# 超时策略: per-op timeout (L1=3h, L2=4h, L3=6h, L4=9h, L5=12h)
 # 优先级: op.timeout > category_timeouts > default_timeout > OP_TIMEOUT 环境变量
 #
-# Level1 (2个):
+# Level1 (1个):
 #   - swi_glu                  Elementwise 门控激活 (LLaMA/DeepSeek FFN)
-#   - foreach_addcdiv_scalar   FusedComposite TensorList 批量调度 (优化器基元)
 #
 # Level2 (6个):
+#   - cummin                   Reduction 累积最小值 (顺序依赖链)
+#   - gather                   IndexGather 按索引逐元素提取 (读端随机访存)
+#   - image_resize_normalize   FusedComposite resize + channel normalize (CV 前处理)
 #   - rms_norm                 Normalization 简单归约→归一化 (LLM pre-norm)
+#   - scatter                  ScatterUpdate 按索引更新 (写端随机访存)
 #   - softmax                  Normalization 复杂归约→归一化 (Transformer attention)
-#   - apply_rotary_pos_emb     FusedComposite 旋转位置编码 (RoPE)
-#   - cummin                   Reduction 前缀扫描归约 (顺序依赖链)
-#   - scatter                  ScatterUpdate 随机索引写 (写端随机访存)
-#   - gather                   IndexGather 随机索引读 (读端随机访存)
 #
-# Level3 (6个):
-#   - grouped_matmul           Contraction 批量 float Cube 核调度 (MoE dispatch)
-#   - quant_matmul             Contraction INT8 Cube 核+输出反量化 (量化推理核心)
-#   - dequant_swiglu_quant     FusedComposite 反量化→激活→量化融合 (MoE 量化推理出口)
+# Level3 (5个):
 #   - add_rms_norm_dynamic_quant FusedComposite Add+Norm+Quant 三域融合 (DeepSeek-V3 decode)
+#   - grouped_matmul           Contraction 分组矩阵乘法 (MoE dispatch)
+#   - quant_matmul             Contraction 量化矩阵乘法 (量化推理核心)
 #   - top_k                    SortSelect 排序+TopK 选择 (MoE gating + sampling)
 #   - transpose                LayoutTransform 跨步数据搬运 (访存重排基线)
 #
-# Level4 (2个):
-#   - mla_prolog               FusedComposite 9-input 多步前处理编排 (DeepSeek-V3 decode 前处理)
-#   - mla                      FusedComposite KV 低秩解压+注意力计算 (DeepSeek-V2/V3 核心注意力)
+# Level4 (3个):
+#   - dynamic_mx_quant         Quantization Microscaling(MX) 动态量化 (OCP MX scale)
+#   - linear_cross_entropy     FusedComposite LM-head 投影+交叉熵融合 (分块在线 softmax)
+#   - mla                      FusedComposite 多头潜在注意力 (DeepSeek-V2/V3 核心注意力)
+#
+# Level5 (1个):
+#   - kimi_delta_attention     FusedComposite Kimi Delta Attention 门控状态递推核心
 
 prompt_template: prompts/op_dev_prompt.txt
 cann_bench_root: cann-bench
@@ -56,7 +58,6 @@ allowed_models:
 default_timeout: 10800
 category_timeouts:
   Elementwise: 10800
-  FusedComposite: 32400    # L4 worst-case (L1-L3 由 per-op 覆盖)
   Normalization: 14400
   Reduction: 14400
   ScatterUpdate: 14400
@@ -64,6 +65,8 @@ category_timeouts:
   Contraction: 21600
   SortSelect: 21600
   LayoutTransform: 21600
+  Quantization: 32400
+  FusedComposite: 43200    # L5 worst-case (L1-L4 由 per-op 覆盖)
 
 ops:
   # ===== Level1 (3h = 10800s) =====
@@ -72,34 +75,9 @@ ops:
     example_path: cann-bench/examples/direct_launch_example
     timeout: 10800
 
-  - op_name: cann-bench/tasks/level1/foreach_addcdiv_scalar
-    category: FusedComposite
-    example_path: cann-bench/examples/direct_launch_example
-    timeout: 10800
-
   # ===== Level2 (4h = 14400s) =====
-  - op_name: cann-bench/tasks/level2/rms_norm
-    category: Normalization
-    example_path: cann-bench/examples/direct_launch_example
-    timeout: 14400
-
-  - op_name: cann-bench/tasks/level2/softmax
-    category: Normalization
-    example_path: cann-bench/examples/direct_launch_example
-    timeout: 14400
-
-  - op_name: cann-bench/tasks/level2/apply_rotary_pos_emb
-    category: FusedComposite
-    example_path: cann-bench/examples/direct_launch_example
-    timeout: 14400
-
   - op_name: cann-bench/tasks/level2/cummin
     category: Reduction
-    example_path: cann-bench/examples/direct_launch_example
-    timeout: 14400
-
-  - op_name: cann-bench/tasks/level2/scatter
-    category: ScatterUpdate
     example_path: cann-bench/examples/direct_launch_example
     timeout: 14400
 
@@ -108,7 +86,32 @@ ops:
     example_path: cann-bench/examples/direct_launch_example
     timeout: 14400
 
+  - op_name: cann-bench/tasks/level2/image_resize_normalize
+    category: FusedComposite
+    example_path: cann-bench/examples/direct_launch_example
+    timeout: 14400
+
+  - op_name: cann-bench/tasks/level2/rms_norm
+    category: Normalization
+    example_path: cann-bench/examples/direct_launch_example
+    timeout: 14400
+
+  - op_name: cann-bench/tasks/level2/scatter
+    category: ScatterUpdate
+    example_path: cann-bench/examples/direct_launch_example
+    timeout: 14400
+
+  - op_name: cann-bench/tasks/level2/softmax
+    category: Normalization
+    example_path: cann-bench/examples/direct_launch_example
+    timeout: 14400
+
   # ===== Level3 (6h = 21600s) =====
+  - op_name: cann-bench/tasks/level3/add_rms_norm_dynamic_quant
+    category: FusedComposite
+    example_path: cann-bench/examples/direct_launch_example
+    timeout: 21600
+
   - op_name: cann-bench/tasks/level3/grouped_matmul
     category: Contraction
     example_path: cann-bench/examples/direct_launch_example
@@ -116,16 +119,6 @@ ops:
 
   - op_name: cann-bench/tasks/level3/quant_matmul
     category: Contraction
-    example_path: cann-bench/examples/direct_launch_example
-    timeout: 21600
-
-  - op_name: cann-bench/tasks/level3/dequant_swiglu_quant
-    category: FusedComposite
-    example_path: cann-bench/examples/direct_launch_example
-    timeout: 21600
-
-  - op_name: cann-bench/tasks/level3/add_rms_norm_dynamic_quant
-    category: FusedComposite
     example_path: cann-bench/examples/direct_launch_example
     timeout: 21600
 
@@ -140,7 +133,12 @@ ops:
     timeout: 21600
 
   # ===== Level4 (9h = 32400s) =====
-  - op_name: cann-bench/tasks/level4/mla_prolog
+  - op_name: cann-bench/tasks/level4/dynamic_mx_quant
+    category: Quantization
+    example_path: cann-bench/examples/direct_launch_example
+    timeout: 32400
+
+  - op_name: cann-bench/tasks/level4/linear_cross_entropy
     category: FusedComposite
     example_path: cann-bench/examples/direct_launch_example
     timeout: 32400
@@ -149,3 +147,9 @@ ops:
     category: FusedComposite
     example_path: cann-bench/examples/direct_launch_example
     timeout: 32400
+
+  # ===== Level5 (12h = 43200s) =====
+  - op_name: cann-bench/tasks/level5/kimi_delta_attention
+    category: FusedComposite
+    example_path: cann-bench/examples/direct_launch_example
+    timeout: 43200
