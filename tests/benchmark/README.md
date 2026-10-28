@@ -33,9 +33,9 @@ tests/benchmark/
 
 ## 快速开始
 
-每次评测必须通过 `--workflow` 显式选择本仓 `plugins-official/` 下仍提供 `init.sh` 的工作流；安装入口缺失或安装失败时立即停止。选择的工作流应与评测任务和参考工程匹配。
+每次评测必须通过 `--workflow` 显式选择工作流插件；安装入口缺失或安装失败时立即停止。选择的工作流应与评测任务和参考工程匹配。
 
-旧 `ops-direct-invoke` 已迁至 [cannbot](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke)。本评测器仍使用本地 `init.sh` 和 `AGENTS.md` 主 Agent 的安装契约，不会自动切换到新仓工作流或其他插件。新仓正式版的运行方式见其维护文档。
+工作流插件的解析顺序：先查本仓 `plugins-official/{workflow}/init.sh`；若本仓没有（插件已迁出的场景，如 `ops-direct-invoke` 已迁至 [cannbot 应用仓](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke)），则自动从 `cann/cannbot` 应用仓按需拉取该插件目录（sparse-checkout，缓存到 `results/.plugins/`），再执行其 `init.sh`。
 
 ```bash
 # 替换为本仓实际存在、适合本次评测的插件目录名

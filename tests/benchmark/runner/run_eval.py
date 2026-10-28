@@ -31,6 +31,7 @@ import datetime
 import glob
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -48,7 +49,7 @@ import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from isolation_check import verify_isolation, check_stale_serve, check_task_dist_residue
-from setup_cann_bench import ensure_cann_bench, CANN_BENCH_DIR
+from setup_cann_bench import ensure_cann_bench
 from progress import EvalProgress
 from report import generate_report
 
@@ -91,8 +92,9 @@ def parse_model(model: str, harness: str = "opencode") -> tuple[str, str]:
     return provider_id, model_id
 
 
-def resolve_allowed_models(config: dict | None,
-                           cli_allowed: str | None = None) -> list[str]:
+def resolve_allowed_models(
+    config: dict | None, cli_allowed: str | None = None
+) -> list[str]:
     """解析模型白名单: CLI --allowed-models (逗号分隔) 优先于 config allowed_models。"""
     if cli_allowed:
         return [m.strip() for m in cli_allowed.split(",") if m.strip()]
@@ -105,7 +107,8 @@ def validate_model_allowed(model: str, allowed: list[str]):
     """白名单非空时校验模型在列表内, 否则放行。"""
     if allowed and model not in allowed:
         raise ValueError(
-            f"模型 {model!r} 不在白名单内, 允许的模型: {', '.join(allowed)}")
+            f"模型 {model!r} 不在白名单内, 允许的模型: {', '.join(allowed)}"
+        )
 
 
 def resolve_op_timeout(op: dict, config: dict | None = None) -> int:
@@ -126,8 +129,9 @@ def resolve_op_timeout(op: dict, config: dict | None = None) -> int:
     return OP_TIMEOUT
 
 
-def prompt_for_model(harness: str = "opencode",
-                     allowed: list[str] | None = None) -> str:
+def prompt_for_model(
+    harness: str = "opencode", allowed: list[str] | None = None
+) -> str:
     """--model 未提供时发起问询: 列出可用模型并等待用户输入。
 
     harness="opencode" 时运行 opencode models 列出模型;
@@ -136,24 +140,24 @@ def prompt_for_model(harness: str = "opencode",
     """
     if not sys.stdin.isatty():
         raise ValueError(
-            "必须通过 --model 指定评测模型"
-            " (用 opencode models 查看可用模型)")
+            "必须通过 --model 指定评测模型 (用 opencode models 查看可用模型)"
+        )
     if harness == "opencode":
         try:
-            out = subprocess.run(["opencode", "models"],
-                                 capture_output=True, text=True, timeout=15)
-            models = [
-                line.strip()
-                for line in out.stdout.splitlines()
-                if "/" in line
-            ]
+            out = subprocess.run(
+                ["opencode", "models"], capture_output=True, text=True, timeout=15
+            )
+            models = [line.strip() for line in out.stdout.splitlines() if "/" in line]
         except Exception:
             models = []
         if allowed:
             models = [m for m in models if m in allowed]
         if models:
-            header = ("可用模型 (opencode models, 白名单内):" if allowed
-                      else "可用模型 (opencode models):")
+            header = (
+                "可用模型 (opencode models, 白名单内):"
+                if allowed
+                else "可用模型 (opencode models):"
+            )
             print(header)
             for m in models:
                 print(f"  {m}")
@@ -183,8 +187,9 @@ def prompt_for_model(harness: str = "opencode",
 class ServeManager:
     """管理 opencode serve 进程的生命周期。"""
 
-    def __init__(self, port: int = SERVE_PORT, url: str = SERVE_URL,
-                 model: str | None = None):
+    def __init__(
+        self, port: int = SERVE_PORT, url: str = SERVE_URL, model: str | None = None
+    ):
         self.port = port
         self.url = url
         self.model = model  # provider/model, None = opencode 默认 (上次选用)
@@ -215,7 +220,9 @@ class ServeManager:
     def shutdown(self):
         """评测结束时清理 serve 进程。"""
         if self._proc is not None:
-            print(f"  [SERVE] 关闭 serve (cwd={os.path.basename(self._cwd) if self._cwd else '?'}) ...")
+            print(
+                f"  [SERVE] 关闭 serve (cwd={os.path.basename(self._cwd) if self._cwd else '?'}) ..."
+            )
             self._terminate_proc()
         self._close_log_fh()
         self._log_path = None
@@ -264,7 +271,9 @@ class ServeManager:
             self._proc = None
             self._cwd = None
         elif self._cwd is not None and self._cwd != cwd_real:
-            print(f"  [SERVE] cwd 变化, 重启: {os.path.basename(self._cwd)} → {os.path.basename(cwd_real)}")
+            print(
+                f"  [SERVE] cwd 变化, 重启: {os.path.basename(self._cwd)} → {os.path.basename(cwd_real)}"
+            )
             self._terminate_proc()
             self._close_log_fh()
         elif self._health_check():
@@ -287,20 +296,23 @@ class ServeManager:
 
     def _launch(self, cwd_real: str) -> bool:
         """启动新的 serve 进程并等待就绪。"""
-        print(f"  [SERVE] 启动 opencode serve --port {self.port} "
-              f"(cwd={os.path.basename(cwd_real)}, model={self.model or 'default'}) ...")
+        print(
+            f"  [SERVE] 启动 opencode serve --port {self.port} "
+            f"(cwd={os.path.basename(cwd_real)}, model={self.model or 'default'}) ..."
+        )
 
         log_dir = os.path.join(RESULTS_DIR, ".serve_logs")
         os.makedirs(log_dir, exist_ok=True)
         self._log_path = os.path.join(
-            log_dir, f"serve_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+            log_dir, f"serve_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        )
         self._log_fh = open(self._log_path, "w")
 
         self._write_model_config(cwd_real)
         self._proc = subprocess.Popen(
-            ["opencode", "serve", "--port", str(self.port),
-             "--hostname", "127.0.0.1"],
-            stdout=self._log_fh, stderr=subprocess.STDOUT,
+            ["opencode", "serve", "--port", str(self.port), "--hostname", "127.0.0.1"],
+            stdout=self._log_fh,
+            stderr=subprocess.STDOUT,
             cwd=cwd_real,
         )
         self._cwd = cwd_real
@@ -308,7 +320,9 @@ class ServeManager:
         for _ in range(30):
             time.sleep(2)
             if self._health_check():
-                print(f"  [SERVE] 就绪 (port {self.port}, cwd={os.path.basename(cwd_real)}, log={self._log_path})")
+                print(
+                    f"  [SERVE] 就绪 (port {self.port}, cwd={os.path.basename(cwd_real)}, log={self._log_path})"
+                )
                 return True
         print(f"  [SERVE] 启动失败, 日志: {self._log_path}")
         self._proc = None
@@ -341,17 +355,262 @@ class ServeManager:
 _serve_mgr = ServeManager()
 
 # ── 工作流安装 ────────────────────────────────────────────────────────
-_SKILLS_FORK = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))))
+_SKILLS_FORK = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
+
+# 插件已迁到 cannbot 应用仓的拉取来源（本仓不再维护的插件从这里按需拉取）
+CANNBOT_APP_URL = "https://gitcode.com/cann/cannbot.git"
+CANNBOT_APP_BRANCH = "master"
+# 已知良好基线 commit (同 cann-bench 的 PINNED_COMMIT 约定); 上游有新提交时
+# 请人工确认插件目录/统一安装器无漂移后更新本 pin; 可用 CANNBOT_APP_COMMIT=none
+# 或 --cannbot-app-commit none 显式关闭钉版, 跟随 master 最新 (不推荐)。
+CANNBOT_APP_PINNED_COMMIT = "32a5bd02368a96fab92bacfc8d750c5d80a7911e"
+# 拉取到的插件缓存目录（隔离于仓库之外，避免污染 git 工作区）
+_PLUGIN_CACHE_DIR = os.path.join(RESULTS_DIR, ".plugins")
 
 
-def _workflow_init(workflow: str) -> str:
-    path = os.path.join(_SKILLS_FORK, "plugins-official", workflow, "init.sh")
-    if not workflow or workflow != os.path.basename(workflow) or not os.path.isfile(path):
+def _resolve_plugin_commit(commit: str | None = None) -> str:
+    """解析插件来源钉版 commit: 显式参数 > CANNBOT_APP_COMMIT 环境变量 > 内置 PIN。
+
+    返回空串表示跟随 CANNBOT_APP_BRANCH 最新; "none"/"off"/空串同义。
+    """
+    raw = commit if commit is not None else os.environ.get("CANNBOT_APP_COMMIT")
+    if raw is None:
+        raw = CANNBOT_APP_PINNED_COMMIT
+    raw = raw.strip()
+    if raw.lower() in ("", "none", "off"):
+        return ""
+    return raw
+
+
+def _git_head(repo_dir: str) -> str:
+    """返回插件仓库当前 HEAD 完整 sha; 失败返回空串 (视为未知)。"""
+    try:
+        result = subprocess.run(
+            ["git", "-C", repo_dir, "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _resolve_full_commit(repo_dir: str, commit: str) -> str:
+    """将 commit (支持缩写/短 sha) 解析为完整 sha; 失败返回空串。"""
+    try:
+        result = subprocess.run(
+            ["git", "-C", repo_dir, "rev-parse", "--verify", f"{commit}^{{commit}}"],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _checkout_plugin_commit(repo_dir: str, commit: str, branch: str) -> str:
+    """将浅 clone 的插件仓库 checkout 到指定 pin commit, 返回完整 HEAD sha。
+
+    commit 支持缩写/短 sha; 本地缺对象时先按 sha 浅 fetch, 服务端拒绝按 SHA
+    抓取时兜底解除浅克隆全量 fetch 分支 (unshallow); 两者都拿不到 commit 时
+    fail-fast 转 ValueError。
+    """
+    def _run(cmd, timeout=120):
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
+    full_commit = _resolve_full_commit(repo_dir, commit)
+    if full_commit and _git_head(repo_dir) == full_commit:
+        return full_commit
+    if not full_commit:
+        # depth-1 浅 clone 不含 pin 提交: 先按 SHA 浅 fetch (省流量)
+        try:
+            fetch = _run(
+                ["git", "-C", repo_dir, "fetch", "--depth", "1", "origin", commit]
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+            raise ValueError(f"拉取插件 pin commit 失败: {e}") from e
+        full_commit = _resolve_full_commit(repo_dir, commit)
+        if fetch.returncode != 0 or not full_commit:
+            # 服务端可能拒绝按 SHA 抓取 (unadvertised object), 兜底解除浅克隆
+            # 全量拉取分支历史, 确保 pin 提交可达
+            try:
+                branch_fetch = _run(
+                    ["git", "-C", repo_dir, "fetch", "--unshallow", "origin", branch]
+                )
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+                raise ValueError(f"拉取插件 pin commit 失败: {e}") from e
+            if branch_fetch.returncode != 0:
+                raise ValueError(
+                    f"无法获取插件 pin commit {commit[:12]}: 上游可能已删除/改写该提交; "
+                    f"请更新 CANNBOT_APP_COMMIT, 或清空以跟随 {branch}。"
+                )
+            full_commit = _resolve_full_commit(repo_dir, commit)
+            if not full_commit:
+                raise ValueError(
+                    f"无法获取插件 pin commit {commit[:12]}: 上游可能已删除/改写该提交; "
+                    f"请更新 CANNBOT_APP_COMMIT, 或清空以跟随 {branch}。"
+                )
+    try:
+        checkout = _run(["git", "-C", repo_dir, "checkout", "-f", full_commit])
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        raise ValueError(f"checkout 插件 pin commit 失败: {e}") from e
+    if checkout.returncode != 0:
+        raise ValueError(f"checkout 插件 pin commit 失败: {checkout.stderr.strip()}")
+    head = _git_head(repo_dir)
+    if head != full_commit:
+        raise ValueError(f"checkout 后 HEAD 与 pin 不一致: {head or '未知'}")
+    return head
+
+
+def _local_plugin_init(workflow: str) -> str:
+    """返回本仓 plugins-official/ 下现存的本地插件 init.sh 路径。"""
+    return os.path.join(_SKILLS_FORK, "plugins-official", workflow, "init.sh")
+
+
+def _fetch_plugin_init(workflow: str, commit: str | None = None) -> str:
+    """从 cannbot 应用仓按需拉取单个插件目录，返回其 init.sh 路径。
+
+    插件已从本仓迁出到 cannbot 应用仓（如 ops-direct-invoke），评测器不能
+    再依赖本地 plugins-official/ 的旧副本；此处用 sparse-checkout 只拉目标
+    插件目录，避免全量 clone cannbot 应用仓。
+
+    插件的 init.sh 依赖应用仓根 script/bin/ 下的统一安装器（相对路径引用），
+    因此必须连同 script/ 一并 sparse-checkout 并保持仓库相对布局，不能只
+    搬出插件目录后删除仓库其余内容。
+
+    commit 为插件来源钉版: 显式参数 > CANNBOT_APP_COMMIT 环境变量 > 内置 PIN
+    (CANNBOT_APP_PINNED_COMMIT); 显式传 none/off 才跟随 master 最新。两种情况
+    都会记录并输出实际拉取到的 sha。
+    """
+    cache_root = os.path.join(_PLUGIN_CACHE_DIR, workflow)
+    # 插件目录相对仓库根路径; init.sh 依赖同根 script/ 目录, 须保持相对布局
+    plugin_rel_dir = os.path.join("plugins-official", workflow)
+    init_path = os.path.join(cache_root, "repo", plugin_rel_dir, "init.sh")
+    commit_path = os.path.join(cache_root, "commit")
+    commit = _resolve_plugin_commit(commit)
+
+    # 仅钉版模式复用缓存: 钉版命中要求缓存 sha 与 pin 一致(支持缩写前缀);
+    # 跟随分支(commit 为空)语义是"要最新", 复用旧缓存会违背该语义, 故一律重拉。
+    if commit and os.path.isfile(init_path):
+        cached_sha = ""
+        if os.path.isfile(commit_path):
+            try:
+                with open(commit_path) as f:
+                    cached_sha = f.read().strip()
+            except OSError:
+                cached_sha = ""
+        if cached_sha == commit or cached_sha.startswith(commit):
+            suffix = f" (commit {cached_sha[:12]})" if cached_sha else ""
+            print(f"  [WORKFLOW] 插件已缓存: {os.path.dirname(init_path)}{suffix}")
+            return init_path
+        print(
+            f"  [WORKFLOW] 缓存插件 commit {cached_sha[:12] or '未知'} "
+            f"与钉版 {commit[:12]} 不一致, 重新拉取 ..."
+        )
+        try:
+            shutil.rmtree(cache_root)
+        except OSError as e:
+            raise ValueError(f"清理过期插件缓存失败: {e}") from e
+
+    try:
+        os.makedirs(_PLUGIN_CACHE_DIR, exist_ok=True)
+        if os.path.isdir(cache_root):
+            shutil.rmtree(cache_root)
+        os.makedirs(cache_root, exist_ok=True)
+    except OSError as e:
+        raise ValueError(f"准备插件缓存目录失败: {e}") from e
+
+    # 目标插件在应用仓中的路径固定为 plugins-official/<workflow>;
+    # init.sh 依赖仓库根 script/bin/ 统一安装器, 插件 plugin-sources.json 还会
+    # 引用仓库根 harness/ 下的共享 skill (如 workflow-orchestrator), 需一并
+    # sparse-checkout 保持布局 (vendor/cannbot-skills 子模块由安装器自行拉取)
+    sparse_paths = [plugin_rel_dir, "script", "harness"]
+
+    print(
+        f"  [WORKFLOW] 本仓无插件 {workflow!r}，从 cannbot 应用仓拉取 {plugin_rel_dir} ..."
+    )
+
+    cmd = [
+        "git",
+        "-C",
+        cache_root,
+        "clone",
+        "--depth",
+        "1",
+        "--filter=blob:none",
+        "--sparse",
+        "--branch",
+        CANNBOT_APP_BRANCH,
+        CANNBOT_APP_URL,
+        "repo",
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        shutil.rmtree(cache_root, ignore_errors=True)
+        raise ValueError(f"从 cannbot 应用仓拉取插件失败: {e}") from e
+    if result.returncode != 0:
+        shutil.rmtree(cache_root, ignore_errors=True)
         raise ValueError(
-            f"本仓工作流不存在或缺少 init.sh: {workflow!r}；"
-            "请通过 --workflow 选择 plugins-official/ 下现存的本地插件")
-    return path
+            f"从 cannbot 应用仓拉取插件失败: {result.stderr.strip() or result.stdout.strip()}"
+        )
+    try:
+        sc_result = subprocess.run(
+            [
+                "git",
+                "-C",
+                os.path.join(cache_root, "repo"),
+                "sparse-checkout",
+                "set",
+                *sparse_paths,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        shutil.rmtree(cache_root, ignore_errors=True)
+        raise ValueError(f"sparse-checkout 拉取插件目录失败: {e}") from e
+    if sc_result.returncode != 0:
+        shutil.rmtree(cache_root, ignore_errors=True)
+        raise ValueError(
+            f"sparse-checkout 拉取插件目录失败: "
+            f"{sc_result.stderr.strip() or sc_result.stdout.strip()}"
+        )
+
+    repo_dir = os.path.join(cache_root, "repo")
+    head_sha = _git_head(repo_dir)
+    if commit:
+        head_sha = _checkout_plugin_commit(repo_dir, commit, CANNBOT_APP_BRANCH)
+    try:
+        with open(commit_path, "w") as f:
+            f.write(f"{head_sha}\n")
+    except OSError:
+        pass
+    print(f"  [WORKFLOW] 插件 commit: {head_sha or '未知'}")
+
+    # 保持仓库相对布局: init.sh 位于 repo/plugins-official/<workflow>/ 下,
+    # 其相对路径 ../../script/bin 可解析到 repo/script/bin/ 的统一安装器
+    if not os.path.isfile(init_path):
+        shutil.rmtree(cache_root, ignore_errors=True)
+        raise ValueError(
+            f"cannbot 应用仓中插件 {workflow!r} 不存在或缺少 init.sh: {init_path}"
+        )
+    print(f"  [WORKFLOW] 插件已拉取: {os.path.dirname(init_path)}")
+    return init_path
+
+
+def _workflow_init(workflow: str, commit: str | None = None) -> str:
+    # 严格目录名校验：非空、单一目录名、不以 - 开头（会被 git sparse-checkout 当作选项）、
+    # 排除 . / ..（否则 _fetch_plugin_init 的 rmtree 可能删到 results 目录本身）
+    if not workflow or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", workflow):
+        raise ValueError(f"非法工作流名: {workflow!r}")
+
+    local_path = _local_plugin_init(workflow)
+    if os.path.isfile(local_path):
+        return local_path
+    # 本仓没有时，从 cannbot 应用仓拉取（插件迁出场景）
+    return _fetch_plugin_init(workflow, commit=commit)
 
 
 def generate_run_id() -> str:
@@ -361,6 +620,7 @@ def generate_run_id() -> str:
 # ══════════════════════════════════════════════════════════════════════
 #  算子源码持久化
 # ══════════════════════════════════════════════════════════════════════
+
 
 def op_short_name(op_name: str) -> str:
     """算子短名 (用于 operators/ 缓存目录与 prompt 占位符)。
@@ -425,13 +685,20 @@ def clean_task_dist_whl(op_name_abs: str) -> int:
             except OSError:
                 pass
     if removed:
-        print(f"  [CLEAN] 清理 {os.path.basename(os.path.dirname(dist_dir))}/dist "
-              f"遗留 .whl × {removed}")
+        print(
+            f"  [CLEAN] 清理 {os.path.basename(os.path.dirname(dist_dir))}/dist "
+            f"遗留 .whl × {removed}"
+        )
     return removed
 
 
-def _persist_subdirs(src_root: str, dst_root: str, skip: tuple[str, ...] = (),
-                     need_valid: bool = False, label: str = ""):
+def _persist_subdirs(
+    src_root: str,
+    dst_root: str,
+    skip: tuple[str, ...] = (),
+    need_valid: bool = False,
+    label: str = "",
+):
     """遍历 src_root 下子目录, 跳过 skip, (可选) 校验后覆盖拷入 dst_root。"""
     if not os.path.isdir(src_root):
         return
@@ -447,8 +714,7 @@ def _persist_subdirs(src_root: str, dst_root: str, skip: tuple[str, ...] = (),
         if os.path.exists(dst):
             shutil.rmtree(dst)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copytree(src, dst,
-                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         print(f"  [PERSIST] {label}{entry} → {dst}")
 
 
@@ -470,7 +736,9 @@ def persist_op_code(work_dir: str, op_name: str, op_name_abs: str | None = None)
     _persist_subdirs(
         os.path.join(iso_dir, "csrc", "ops"),
         os.path.join(OPS_CACHE_DIR, op_slug, "csrc", "ops"),
-        skip=("add", "sqrt", "CMakeLists.txt"), need_valid=True)
+        skip=("add", "sqrt", "CMakeLists.txt"),
+        need_valid=True,
+    )
 
     # ── 注册入口 ──
     init_src = os.path.join(iso_dir, "cann_bench", "__init__.py")
@@ -483,7 +751,9 @@ def persist_op_code(work_dir: str, op_name: str, op_name_abs: str | None = None)
     _persist_subdirs(
         os.path.join(iso_dir, "tests"),
         os.path.join(OPS_CACHE_DIR, op_slug, "tests"),
-        skip=("add", "sqrt"), label="tests/")
+        skip=("add", "sqrt"),
+        label="tests/",
+    )
 
     # ── 交付件 .whl (build 产物 → example/dist; 按 prompt 要求 → cann-bench 算子目录 dist) ──
     whl_dst = os.path.join(OPS_CACHE_DIR, op_slug, "dist")
@@ -567,8 +837,9 @@ def restore_op_code(work_dir: str, op_name: str):
 
     cache_readme = os.path.join(OPS_CACHE_DIR, op_slug, "README.md")
     if os.path.isfile(cache_readme):
-        shutil.copy2(cache_readme,
-                     os.path.join(work_dir, "operators", op_slug, "README.md"))
+        shutil.copy2(
+            cache_readme, os.path.join(work_dir, "operators", op_slug, "README.md")
+        )
 
     # ── 交付件 .whl ──
     # 重跑续作时恢复上次产出的 whl, 避免 agent 不再重新 build 导致
@@ -584,6 +855,7 @@ def restore_op_code(work_dir: str, op_name: str):
 #  配置 / 扫描 / prompt
 # ══════════════════════════════════════════════════════════════════════
 
+
 def load_config(config_path: str) -> dict:
     with open(config_path, "r") as f:
         return yaml.safe_load(f)
@@ -597,8 +869,9 @@ def read_category(proto_path: str) -> str:
     return proto.get("operator", {}).get("category", "")
 
 
-def scan_all_ops(cann_bench_root: str,
-                 config_example_map: dict | None = None) -> list[dict]:
+def scan_all_ops(
+    cann_bench_root: str, config_example_map: dict | None = None
+) -> list[dict]:
     """扫描 tasks/levelN/* 自动发现算子。
 
     example_path 与 config 行为一致: config 中显式配置过该算子的
@@ -614,11 +887,13 @@ def scan_all_ops(cann_bench_root: str,
         level, op_name = parts[-2], parts[-1]
         proto_path = os.path.join(op_path, "proto.yaml")
         op_key = f"cann-bench/tasks/{level}/{op_name}"
-        ops.append({
-            "op_name": op_key,
-            "category": read_category(proto_path),
-            "example_path": config_example_map.get(op_key, DEFAULT_EXAMPLE),
-        })
+        ops.append(
+            {
+                "op_name": op_key,
+                "category": read_category(proto_path),
+                "example_path": config_example_map.get(op_key, DEFAULT_EXAMPLE),
+            }
+        )
     return ops
 
 
@@ -635,8 +910,7 @@ def resolve_paths(op: dict, cann_bench_root: str) -> dict:
     return op
 
 
-def build_prompt(template_path: str, op: dict,
-                 example_path: str | None = None) -> str:
+def build_prompt(template_path: str, op: dict, example_path: str | None = None) -> str:
     """渲染提示词模板。
 
     example_path 显式覆盖 op["example_path_abs"] (评测主流程在重试循环中
@@ -658,10 +932,16 @@ def build_prompt(template_path: str, op: dict,
 #  隔离工作目录 — init.sh 安装 CANNBot workflow
 # ══════════════════════════════════════════════════════════════════════
 
-def prepare_isolated_work_dir(op_name: str, op_op_path_abs: str,
-                                example_path_abs: str, run_id: str,
-                                workflow: str,
-                                harness: str = HARNESS_DEFAULT) -> str:
+
+def prepare_isolated_work_dir(
+    op_name: str,
+    op_op_path_abs: str,
+    example_path_abs: str,
+    run_id: str,
+    workflow: str,
+    harness: str = HARNESS_DEFAULT,
+    app_commit: str | None = None,
+) -> str:
     """创建隔离工作目录并安装 CANNBot 工作流。
 
     根据 harness 选择 init.sh 的 tool 参数:
@@ -681,7 +961,7 @@ def prepare_isolated_work_dir(op_name: str, op_op_path_abs: str,
     _harness_tool = {"opencode": "opencode", "claude": "claude", "kimi": "claude"}
     init_tool = _harness_tool.get(harness, "opencode")
 
-    workflow_init = _workflow_init(workflow)
+    workflow_init = _workflow_init(workflow, commit=app_commit)
     op_slug = op_name.replace("/", "_")
     work_dir = os.path.join(RESULTS_DIR, ".workdir", run_id, op_slug)
 
@@ -690,16 +970,21 @@ def prepare_isolated_work_dir(op_name: str, op_op_path_abs: str,
     os.makedirs(work_dir, exist_ok=True)
 
     # 1) 运行 init.sh 安装 CANNBot workflow 到隔离目录
-    print(f"  [INIT] 安装 CANNBot 工作流到 {work_dir} "
-          f"(harness={harness}, tool={init_tool}) ...")
+    print(
+        f"  [INIT] 安装 CANNBot 工作流到 {work_dir} "
+        f"(harness={harness}, tool={init_tool}) ..."
+    )
     result = subprocess.run(
         ["bash", workflow_init, "project", init_tool, work_dir],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     if result.returncode != 0:
         raise RuntimeError(
             f"工作流 {workflow!r} 安装失败 (exit {result.returncode}): "
-            f"{result.stderr.strip() or result.stdout.strip()}")
+            f"{result.stderr.strip() or result.stdout.strip()}"
+        )
 
     # 2) 复制算子任务定义到 operators/{short_name}/
     op_short = op_short_name(op_name)
@@ -721,13 +1006,23 @@ def prepare_isolated_work_dir(op_name: str, op_op_path_abs: str,
     if os.path.exists(iso_example):
         shutil.rmtree(iso_example)
     shutil.copytree(
-        example_path_abs, iso_example, symlinks=True,
+        example_path_abs,
+        iso_example,
+        symlinks=True,
         ignore=shutil.ignore_patterns(
-            "build", "build_py", "dist",
-            "__pycache__", "*.pyc", "*.egg-info",
+            "build",
+            "build_py",
+            "dist",
+            "__pycache__",
+            "*.pyc",
+            "*.egg-info",
             "_C.abi3.so",
-            "CMakeCache.txt", "CMakeFiles", "Makefile",
-            "cmake_install.cmake", "*.o", "*.os",
+            "CMakeCache.txt",
+            "CMakeFiles",
+            "Makefile",
+            "cmake_install.cmake",
+            "*.o",
+            "*.os",
         ),
     )
 
@@ -743,14 +1038,13 @@ def prepare_isolated_work_dir(op_name: str, op_op_path_abs: str,
             if os.path.lexists(cannbot_link):
                 os.remove(cannbot_link)
             os.symlink(os.path.realpath(agents_md), cannbot_link)
-            print(f"  [LINK] AGENTS.md → .opencode/agents/cannbot.md")
+            print("  [LINK] AGENTS.md → .opencode/agents/cannbot.md")
 
     print(f"  [WORKDIR] {work_dir}")
     return work_dir
 
 
-def delivery_complete(work_dir: str, op: dict,
-                       op_attempt: int = 1) -> bool:
+def delivery_complete(work_dir: str, op: dict, op_attempt: int = 1) -> bool:
     """交付完整性检查: 交付件 .whl 已产出。
 
     检查处所随尝试次数递进:
@@ -766,7 +1060,8 @@ def delivery_complete(work_dir: str, op: dict,
         search_dirs.append(os.path.join(op["op_name_abs"], "dist"))
     if op_attempt > 1 and op.get("op_name"):
         search_dirs.append(
-            os.path.join(OPS_CACHE_DIR, op_short_name(op["op_name"]), "dist"))
+            os.path.join(OPS_CACHE_DIR, op_short_name(op["op_name"]), "dist")
+        )
     for d in search_dirs:
         if os.path.isdir(d) and any(f.endswith(".whl") for f in os.listdir(d)):
             return True
@@ -776,6 +1071,7 @@ def delivery_complete(work_dir: str, op: dict,
 # ══════════════════════════════════════════════════════════════════════
 #  算子执行
 # ══════════════════════════════════════════════════════════════════════
+
 
 def _open_sse_log(log_path: str | None):
     """打开 (按需创建父目录) SSE 事件日志文件, 失败返回 None。"""
@@ -825,14 +1121,19 @@ def _drain_sse(resp, stop_event: threading.Event, log_fh):
             _handle_sse_event(line[5:].strip(), log_fh)
 
 
-def _sse_monitor(session_id: str, stop_event: threading.Event,
-                 log_path: str | None = None, timeout: int = OP_TIMEOUT):
+def _sse_monitor(
+    session_id: str,
+    stop_event: threading.Event,
+    log_path: str | None = None,
+    timeout: int = OP_TIMEOUT,
+):
     """Background thread: stream SSE events, log subagent dispatch, 事件落盘 jsonl。"""
     log_fh = _open_sse_log(log_path)
     try:
         resp = requests.get(
             f"{SERVE_URL}/session/{session_id}/event",
-            stream=True, timeout=timeout,
+            stream=True,
+            timeout=timeout,
         )
         _drain_sse(resp, stop_event, log_fh)
     except Exception:
@@ -852,9 +1153,15 @@ class _SseGuard:
         self.event = threading.Event()
         self.thread = threading.Thread(
             target=_sse_monitor,
-            args=(session_id, self.event,
-                  os.path.join(output_dir, "sse_events.jsonl"), req_timeout),
-            name=f"sse-{session_id}", daemon=True)
+            args=(
+                session_id,
+                self.event,
+                os.path.join(output_dir, "sse_events.jsonl"),
+                req_timeout,
+            ),
+            name=f"sse-{session_id}",
+            daemon=True,
+        )
         self.thread.start()
 
     def stop(self):
@@ -901,8 +1208,9 @@ def _serve_delete_session(session_id: str | None) -> str | None:
     return None
 
 
-def _serve_retry_or_finalize(result: dict, attempt: int, stop_sse,
-                             status: str, stderr: str):
+def _serve_retry_or_finalize(
+    result: dict, attempt: int, stop_sse, status: str, stderr: str
+):
     """重试前的统一收尾: 停 SSE → 重试则 sleep+确保 serve; 末次则写入失败状态。"""
     stop_sse()
     if attempt < SERVE_RETRY:
@@ -925,8 +1233,7 @@ def _collect_session_metrics(session_id: str, result: dict):
             result["tokens"] = sess_tokens
         if isinstance(sdata.get("cost"), (int, float)):
             result["cost"] = sdata["cost"]
-    except (requests.HTTPError, requests.ConnectionError,
-            requests.Timeout, ValueError):
+    except (requests.HTTPError, requests.ConnectionError, requests.Timeout, ValueError):
         pass
 
 
@@ -938,9 +1245,13 @@ def _extract_actual_model(info: dict) -> str:
     return f"{provider}/{model}" if model else ""
 
 
-def run_via_serve(op_name: str, prompt: str, output_dir: str,
-                  model: str | None = None,
-                  timeout: int | None = None) -> dict:
+def run_via_serve(
+    op_name: str,
+    prompt: str,
+    output_dir: str,
+    model: str | None = None,
+    timeout: int | None = None,
+) -> dict:
     req_timeout = timeout if timeout is not None else OP_TIMEOUT
     result = _new_serve_result(op_name, model, req_timeout)
     sse = _SseGuard()
@@ -958,15 +1269,23 @@ def run_via_serve(op_name: str, prompt: str, output_dir: str,
             # 早于可能超时的 message POST, 保证 abort 命中正确会话)
             _serve_abort_session(result.get("session_id"))
             _serve_retry_or_finalize(
-                result, attempt, sse.stop, "timeout",
-                f"全部 {SERVE_RETRY} 次尝试均超时 (每次 {req_timeout}s)")
+                result,
+                attempt,
+                sse.stop,
+                "timeout",
+                f"全部 {SERVE_RETRY} 次尝试均超时 (每次 {req_timeout}s)",
+            )
         except (requests.HTTPError, requests.ConnectionError) as e:
             last_err = e
             print(f"  [SERVE] attempt {attempt} failed: {e}")
             _serve_delete_session(result.get("session_id"))
             _serve_retry_or_finalize(
-                result, attempt, sse.stop, "error",
-                f"All {SERVE_RETRY} attempts failed. Last: {last_err}")
+                result,
+                attempt,
+                sse.stop,
+                "error",
+                f"All {SERVE_RETRY} attempts failed. Last: {last_err}",
+            )
         except Exception as e:
             sse.stop()
             result["status"] = "error"
@@ -986,8 +1305,9 @@ def _serve_timeout_msg(req_timeout: int, attempt: int) -> str:
     return f"Timed out after {req_timeout}s"
 
 
-def _serve_post_message(prompt: str, output_dir: str, attempt: int,
-                        result: dict, sse: _SseGuard) -> str:
+def _serve_post_message(
+    prompt: str, output_dir: str, attempt: int, result: dict, sse: _SseGuard
+) -> str:
     """单次尝试: 建会话 → 起 SSE → 发消息 → 采集指标; 成功填 result, 返回 session_id。
 
     op_name / req_timeout / model 从 result 读取 (避免长参数列表)。
@@ -1008,24 +1328,20 @@ def _serve_post_message(prompt: str, output_dir: str, attempt: int,
 
     sse.start(session_id, output_dir, req_timeout)
 
-    payload = {"agent": "cannbot",
-               "parts": [{"type": "text", "text": prompt}]}
+    payload = {"agent": "cannbot", "parts": [{"type": "text", "text": prompt}]}
     # "default" = 未指定模型的哨兵 (真模型需 provider/model 格式, 不可能等于 "default")
     if model and model != "default":
         provider_id, model_id = parse_model(model)
         payload["model"] = {"providerID": provider_id, "modelID": model_id}
     resp = requests.post(
         f"{SERVE_URL}/session/{session_id}/message",
-        json=payload, timeout=req_timeout,
+        json=payload,
+        timeout=req_timeout,
     )
     resp.raise_for_status()
 
     data = resp.json()
-    text_parts = [
-        p["text"]
-        for p in data.get("parts", [])
-        if p.get("type") == "text"
-    ]
+    text_parts = [p["text"] for p in data.get("parts", []) if p.get("type") == "text"]
     result["stdout"] = "\n".join(text_parts)[-50000:]
     result["status"] = "success"
     result["returncode"] = 0
@@ -1042,11 +1358,15 @@ def _serve_post_message(prompt: str, output_dir: str, attempt: int,
     return session_id
 
 
-def run_via_pipe(op_name: str, prompt: str, output_dir: str,
-                  model: str | None = None,
-                  timeout: int | None = None,
-                  harness: str = HARNESS_DEFAULT,
-                  work_dir: str | None = None) -> dict:
+def run_via_pipe(
+    op_name: str,
+    prompt: str,
+    output_dir: str,
+    model: str | None = None,
+    timeout: int | None = None,
+    harness: str = HARNESS_DEFAULT,
+    work_dir: str | None = None,
+) -> dict:
     req_timeout = timeout if timeout is not None else OP_TIMEOUT
     result = {
         "op_name": op_name,
@@ -1066,8 +1386,7 @@ def run_via_pipe(op_name: str, prompt: str, output_dir: str,
             raise FileNotFoundError(f"prompt.txt not found: {prompt_file}")
 
         if harness == "opencode":
-            cmd = ["opencode", "run",
-                   "请按照附件中的指令完成算子开发任务。"]
+            cmd = ["opencode", "run", "请按照附件中的指令完成算子开发任务。"]
             if model:
                 cmd += ["-m", model]
             with open(prompt_file) as stdin_fh:
@@ -1075,7 +1394,8 @@ def run_via_pipe(op_name: str, prompt: str, output_dir: str,
                     cmd,
                     cwd=output_dir,
                     stdin=stdin_fh,
-                    capture_output=True, text=True,
+                    capture_output=True,
+                    text=True,
                     timeout=req_timeout,
                 )
         elif harness == "claude":
@@ -1092,7 +1412,8 @@ def run_via_pipe(op_name: str, prompt: str, output_dir: str,
             proc = subprocess.run(
                 cmd,
                 cwd=cwd,
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
                 timeout=req_timeout,
             )
         elif harness == "kimi":
@@ -1107,7 +1428,8 @@ def run_via_pipe(op_name: str, prompt: str, output_dir: str,
             proc = subprocess.run(
                 cmd,
                 cwd=cwd,
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
                 timeout=req_timeout,
             )
         else:
@@ -1136,14 +1458,16 @@ def run_via_pipe(op_name: str, prompt: str, output_dir: str,
 @dataclass
 class OpRunConfig:
     """单算子执行的运行配置 (use_serve/model/timeout/harness 相关参数封装)。"""
+
     use_serve: bool = True
     model: str | None = None
     timeout: int | None = None
     harness: str = HARNESS_DEFAULT
 
 
-def run_single_op(op_name: str, prompt: str, output_dir: str,
-                  work_dir: str, cfg: OpRunConfig) -> dict:
+def run_single_op(
+    op_name: str, prompt: str, output_dir: str, work_dir: str, cfg: OpRunConfig
+) -> dict:
     """执行单个算子开发任务。
 
     opencode harness: 优先 serve API (multi-agent), 回退 pipe (CLI).
@@ -1153,24 +1477,36 @@ def run_single_op(op_name: str, prompt: str, output_dir: str,
     with open(os.path.join(output_dir, "prompt.txt"), "w") as f:
         f.write(prompt)
 
-    if (cfg.harness == "opencode" and cfg.use_serve
-            and _serve_mgr.ensure_running(cwd=work_dir)):
-        print(f"  [MODE] serve API (CANNBot multi-agent)")
-        return run_via_serve(op_name, prompt, output_dir, model=cfg.model,
-                             timeout=cfg.timeout)
+    if (
+        cfg.harness == "opencode"
+        and cfg.use_serve
+        and _serve_mgr.ensure_running(cwd=work_dir)
+    ):
+        print("  [MODE] serve API (CANNBot multi-agent)")
+        return run_via_serve(
+            op_name, prompt, output_dir, model=cfg.model, timeout=cfg.timeout
+        )
 
     print(f"  [MODE] pipe ({cfg.harness} CLI)")
-    return run_via_pipe(op_name, prompt, output_dir, model=cfg.model,
-                        timeout=cfg.timeout, harness=cfg.harness,
-                        work_dir=work_dir)
+    return run_via_pipe(
+        op_name,
+        prompt,
+        output_dir,
+        model=cfg.model,
+        timeout=cfg.timeout,
+        harness=cfg.harness,
+        work_dir=work_dir,
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════
 #  结果
 # ══════════════════════════════════════════════════════════════════════
 
+
 def save_result(result: dict, output_dir: str):
     op_slug = result["op_name"].replace("/", "_")
+    os.makedirs(output_dir, exist_ok=True)
     result_path = os.path.join(output_dir, f"{op_slug}.yaml")
     with open(result_path, "w") as f:
         yaml.dump(result, f, allow_unicode=True, default_flow_style=False)
@@ -1181,9 +1517,9 @@ def print_summary(results: list[dict]):
     success = sum(1 for r in results if r["status"] == "success")
     failed = sum(1 for r in results if r["status"] == "failed")
     errors = sum(1 for r in results if r["status"] in ("error", "timeout"))
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"评测完成: {total} 算子, 成功 {success}, 失败 {failed}, 异常 {errors}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     for r in results:
         if r["status"] != "success":
             print(f"  {r['status']:8s} | {r['op_name']}")
@@ -1193,38 +1529,64 @@ def print_summary(results: list[dict]):
 #  main
 # ══════════════════════════════════════════════════════════════════════
 
+
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="批量算子评测执行器")
     parser.add_argument("-c", "--config", help="评测配置文件路径")
-    parser.add_argument("--all", action="store_true",
-                        help="自动扫描 cann-bench 全量算子")
-    parser.add_argument("--keep-isolated", action="store_true",
-                        help="保留隔离目录 (调试用)")
-    parser.add_argument("--skip-isolation-check", action="store_true",
-                        help="跳过运行前的隔离检查")
-    parser.add_argument("--cann-bench-branch", default="master",
-                        help="cann-bench 分支")
-    parser.add_argument("--cann-bench-commit", default=None,
-                        help="cann-bench 钉版 commit (默认读 CANN_BENCH_COMMIT 环境变量,"
-                             " 否则用 setup_cann_bench.PINNED_COMMIT; 传 'none' 关闭钉版本)")
-    parser.add_argument("--update-cann-bench", action="store_true",
-                        help="强制更新 cann-bench")
-    parser.add_argument("--no-serve", action="store_true",
-                        help="回退到 opencode run pipe 模式")
-    parser.add_argument("--workflow", required=True,
-                        help="显式选择 plugins-official/ 下带 init.sh 的本地工作流目录")
-    parser.add_argument("--model",
-                        help="评测模型, 格式 provider/model (如 zhipuai-coding-plan/glm-5.2); "
-                             "不提供时交互问询; 用 opencode models 查看可用模型")
-    parser.add_argument("--allowed-models",
-                        help="模型白名单, 逗号分隔 (覆盖 config allowed_models; "
-                             "--all 模式下唯一指定方式)")
-    parser.add_argument("--prompt-template",
-                        help="提示词模板路径 (覆盖 config prompt_template; "
-                             "如 prompts/op_dev_resume_prompt.txt)")
-    parser.add_argument("--harness", default=HARNESS_DEFAULT,
-                        choices=HARNESS_CHOICES,
-                        help=f"评测 harness (默认: {HARNESS_DEFAULT})")
+    parser.add_argument(
+        "--all", action="store_true", help="自动扫描 cann-bench 全量算子"
+    )
+    parser.add_argument(
+        "--keep-isolated", action="store_true", help="保留隔离目录 (调试用)"
+    )
+    parser.add_argument(
+        "--skip-isolation-check", action="store_true", help="跳过运行前的隔离检查"
+    )
+    parser.add_argument("--cann-bench-branch", default="master", help="cann-bench 分支")
+    parser.add_argument(
+        "--cann-bench-commit",
+        default=None,
+        help="cann-bench 钉版 commit (默认读 CANN_BENCH_COMMIT 环境变量,"
+        " 否则用 setup_cann_bench.PINNED_COMMIT; 传 'none' 关闭钉版本)",
+    )
+    parser.add_argument(
+        "--cannbot-app-commit",
+        default=None,
+        help="cannbot 应用仓插件来源钉版 commit (默认读 CANNBOT_APP_COMMIT 环境变量,"
+        " 否则用内置 CANNBOT_APP_PINNED_COMMIT; 传 'none' 显式跟随 master 最新)",
+    )
+    parser.add_argument(
+        "--update-cann-bench", action="store_true", help="强制更新 cann-bench"
+    )
+    parser.add_argument(
+        "--no-serve", action="store_true", help="回退到 opencode run pipe 模式"
+    )
+    parser.add_argument(
+        "--workflow",
+        required=True,
+        help="选择工作流插件目录（先查本仓 plugins-official/，缺失则从 cannbot 应用仓拉取）",
+    )
+    parser.add_argument(
+        "--model",
+        help="评测模型, 格式 provider/model (如 zhipuai-coding-plan/glm-5.2); "
+        "不提供时交互问询; 用 opencode models 查看可用模型",
+    )
+    parser.add_argument(
+        "--allowed-models",
+        help="模型白名单, 逗号分隔 (覆盖 config allowed_models; "
+        "--all 模式下唯一指定方式)",
+    )
+    parser.add_argument(
+        "--prompt-template",
+        help="提示词模板路径 (覆盖 config prompt_template; "
+        "如 prompts/op_dev_resume_prompt.txt)",
+    )
+    parser.add_argument(
+        "--harness",
+        default=HARNESS_DEFAULT,
+        choices=HARNESS_CHOICES,
+        help=f"评测 harness (默认: {HARNESS_DEFAULT})",
+    )
     return parser
 
 
@@ -1275,8 +1637,11 @@ def _run_isolation_checks(args, harness: str, cann_bench_root: str) -> bool:
     if not check_task_dist_residue(cann_bench_root):
         return False
     # 仅 opencode harness: 评测前清理占用端口的残留 serve 进程
-    if harness == "opencode" and not args.no_serve \
-            and not check_stale_serve(SERVE_PORT):
+    if (
+        harness == "opencode"
+        and not args.no_serve
+        and not check_stale_serve(SERVE_PORT)
+    ):
         return False
     return True
 
@@ -1284,6 +1649,7 @@ def _run_isolation_checks(args, harness: str, cann_bench_root: str) -> bool:
 @dataclass
 class _EvalCtx:
     """单次评测的共享上下文 (供逐算子处理时避免长参数列表)。"""
+
     cann_bench_root: str
     config: dict | None
     template_path: str
@@ -1293,6 +1659,7 @@ class _EvalCtx:
     use_serve: bool
     keep_isolated: bool
     workflow: str
+    app_commit: str | None = None
 
 
 def _attempt_op(op: dict, ctx: _EvalCtx) -> tuple[dict, bool]:
@@ -1301,27 +1668,60 @@ def _attempt_op(op: dict, ctx: _EvalCtx) -> tuple[dict, bool]:
     op_name = op["op_name"]
     op_output_dir = os.path.join(RESULTS_DIR, op_name.replace("/", "_"))
     op_timeout = resolve_op_timeout(op, ctx.config)
-    print(f"  [TIMEOUT] {op_timeout}s"
-          f" (op={op.get('timeout', '-')}, category={op.get('category', '-')})")
+    print(
+        f"  [TIMEOUT] {op_timeout}s"
+        f" (op={op.get('timeout', '-')}, category={op.get('category', '-')})"
+    )
 
     example_src = op["example_path_abs"]
     result, delivery_ok = None, False
     for op_attempt in range(1, max(1, OP_RETRY) + 1):
         if op_attempt > 1:
-            print(f"  [RETRY] {op_name} 第 {op_attempt}/{OP_RETRY} 次尝试"
-                  f" (上次: {result['status']}, 交付完整: {delivery_ok})")
+            print(
+                f"  [RETRY] {op_name} 第 {op_attempt}/{OP_RETRY} 次尝试"
+                f" (上次: {result['status']}, 交付完整: {delivery_ok})"
+            )
         clean_task_dist_whl(op["op_name_abs"])
-        work_dir = prepare_isolated_work_dir(
-            op_name, op["op_name_abs"], example_src,
-            ctx.run_id, workflow=ctx.workflow,
-            harness=ctx.harness,
-        )
+        try:
+            work_dir = prepare_isolated_work_dir(
+                op_name,
+                op["op_name_abs"],
+                example_src,
+                ctx.run_id,
+                workflow=ctx.workflow,
+                harness=ctx.harness,
+                app_commit=ctx.app_commit,
+            )
+        except (ValueError, RuntimeError, subprocess.TimeoutExpired, OSError) as e:
+            # 工作流初始化/安装失败（如运行中插件缓存被清、网络抖动导致重新拉取失败、
+            # bash 缺失/超时、隔离目录文件操作失败），降级为单算子失败，避免一个算子
+            # 中断整批评测；main 启动时已预检过工作流。
+            print(f"  [WORKFLOW] {op_name} 工作流准备失败: {e}")
+            result = {
+                "op_name": op_name,
+                "status": "error",
+                "returncode": 1,
+                "stdout": "",
+                "stderr": str(e),
+                "duration_s": 0.0,
+                "model": ctx.model or "default",
+                "tokens": 0,
+                "cost": 0.0,
+                "op_attempt": op_attempt,
+            }
+            delivery_ok = False
+            break
         iso_example_path = os.path.join(work_dir, "example")
         prompt = build_prompt(ctx.template_path, op, example_path=iso_example_path)
-        cfg = OpRunConfig(use_serve=ctx.use_serve, model=ctx.model,
-                          timeout=op_timeout, harness=ctx.harness)
-        result = run_single_op(op_name, prompt, op_output_dir,
-                               work_dir=work_dir, cfg=cfg)
+        cfg = OpRunConfig(
+            use_serve=ctx.use_serve,
+            model=ctx.model,
+            timeout=op_timeout,
+            harness=ctx.harness,
+        )
+        result = run_single_op(
+            op_name, prompt, op_output_dir, work_dir=work_dir, cfg=cfg
+        )
         result["op_attempt"] = op_attempt
         persist_op_code(work_dir, op_name, op_name_abs=op["op_name_abs"])
         delivery_ok = delivery_complete(work_dir, op, op_attempt)
@@ -1343,16 +1743,17 @@ def _finalize_run(results: list[dict], ctx: _EvalCtx, workflow: str) -> int:
     with open(summary_path, "w") as f:
         yaml.dump(results, f, allow_unicode=True, default_flow_style=False)
     try:
-        report_paths = generate_report(results, ctx.run_id,
-                                       f"[{ctx.harness}] {ctx.model}",
-                                       workflow, RESULTS_DIR)
+        report_paths = generate_report(
+            results, ctx.run_id, f"[{ctx.harness}] {ctx.model}", workflow, RESULTS_DIR
+        )
         print(f"汇总报告: {report_paths['md']}")
         print(f"          {report_paths['html']}")
     except Exception as e:
         print(f"[WARN] 报告生成失败: {e}")
     print_summary(results)
-    passed = all(r["status"] == "success" and r.get("delivery_ok", True)
-                 for r in results)
+    passed = all(
+        r["status"] == "success" and r.get("delivery_ok", True) for r in results
+    )
     return 0 if passed else 1
 
 
@@ -1362,7 +1763,7 @@ def main():
     if not args.config and not args.all:
         parser.error("请指定 -c/--config 或 --all")
     try:
-        _workflow_init(args.workflow)
+        _workflow_init(args.workflow, commit=args.cannbot_app_commit)
     except ValueError as e:
         parser.error(str(e))
 
@@ -1382,8 +1783,10 @@ def main():
 
     try:
         cann_bench_root = ensure_cann_bench(
-            branch=args.cann_bench_branch, force_update=args.update_cann_bench,
-            commit=args.cann_bench_commit)
+            branch=args.cann_bench_branch,
+            force_update=args.update_cann_bench,
+            commit=args.cann_bench_commit,
+        )
     except RuntimeError as e:
         print(str(e))
         return 1
@@ -1407,24 +1810,35 @@ def main():
     if OP_RETRY > 1:
         print(f"算子级重跑: 最多 {OP_RETRY} 次/算子 (OP_RETRY)")
 
-    ctx = _EvalCtx(cann_bench_root=cann_bench_root, config=config,
-                   template_path=template_path, run_id=run_id, harness=harness,
-                   model=model, use_serve=(harness == "opencode" and not args.no_serve),
-                   keep_isolated=args.keep_isolated, workflow=args.workflow)
+    ctx = _EvalCtx(
+        cann_bench_root=cann_bench_root,
+        config=config,
+        template_path=template_path,
+        run_id=run_id,
+        harness=harness,
+        model=model,
+        use_serve=(harness == "opencode" and not args.no_serve),
+        keep_isolated=args.keep_isolated,
+        workflow=args.workflow,
+        app_commit=args.cannbot_app_commit,
+    )
     progress = EvalProgress(len(ops))
-    icons = {"success": "OK", "failed": "FAIL",
-             "timeout": "TIMEOUT", "error": "ERROR"}
+    icons = {"success": "OK", "failed": "FAIL", "timeout": "TIMEOUT", "error": "ERROR"}
     results = []
     try:
         for i, op in enumerate(ops):
             progress.start_op(i, op["op_name"])
             result, delivery_ok = _attempt_op(op, ctx)
             result["delivery_ok"] = delivery_ok
-            save_result(result, os.path.join(RESULTS_DIR, op["op_name"].replace("/", "_")))
+            save_result(
+                result, os.path.join(RESULTS_DIR, op["op_name"].replace("/", "_"))
+            )
             results.append(result)
             suffix = "" if delivery_ok else " (交付不完整: 缺 .whl)"
-            progress.write(f"  [{icons.get(result['status'], '?')}] "
-                           f"{result['duration_s']:.0f}s{suffix}")
+            progress.write(
+                f"  [{icons.get(result['status'], '?')}] "
+                f"{result['duration_s']:.0f}s{suffix}"
+            )
             progress.finish_op(result["status"], result["duration_s"])
     finally:
         progress.close()
