@@ -151,6 +151,14 @@ unsupported_points:
 ```
 
    停止设计，不生成 PLAN，也不进入 Step 4。
+
+   `unsupported` 的终止范围必须写清，避免被上层读成平台或算子不可实现：
+
+   - 只否定“本 skill 的 Blaze 路线”这一条实现路径，不构成对 DAV_3510 硬件能力、算子可实现性或性能目标的结论；
+   - `unsupported_points` 必须给出可交接的能力边界：`native_gap`、场景匹配结果（零命中或多命中及已检查的场景 ID）、已排除的候选路线；
+   - 本 skill 内不得改走 AscendC MatmulImpl、原生 Cube/RegBase 或手写 tensor_api 继续实现；
+   - 路线改派及其验证义务由调用方（如 `ascendc-tiling-design`）或用户决定，本 skill 只交付证据，不输出“平台不支持”。
+
 4. 唯一命中：读取该行的设计指导。场景指导检查自己声明的 Blaze 源码前提，以及是否消费 `matmul_base_analysis`。
 5. 场景前提缺失：生成一次无场景名的补充调查问题并返回 Step 2。若同一报告已完成一次补充且关键事实仍缺失，停止为“未完成设计，等待澄清”；不写最终 `implementation_route`，不生成 DESIGN/PLAN。
 6. 场景前提充分：写入：
@@ -173,6 +181,8 @@ selected_scenario: <唯一 scenario_id>
 | 官方 Blaze 方案以单一 device Kernel 覆盖算子全部计算步骤 | `implementation_route=blaze_native`，跳过注册表 | DESIGN + PLAN |
 | 官方方案有 `native_gaps`，场景唯一命中且前提充分 | `implementation_route=blaze_custom` | DESIGN + PLAN |
 | 官方方案有 `native_gaps`，场景零命中或多命中 | `implementation_route=unsupported` | 仅阻塞 DESIGN |
+
+表中的 `unsupported` 只表示当前 Blaze 官方方案与定制场景无法覆盖已冻结需求，不代表该需求在 DAV_3510 上不可实现；结论范围和交接要求见 2.4 第 3 条。
 
 ### 2.5 最终合同装配
 

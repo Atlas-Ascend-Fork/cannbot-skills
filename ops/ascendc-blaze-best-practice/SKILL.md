@@ -39,6 +39,7 @@ Blaze skill 不读取或依赖 `environment.md`、外部 manifest 或其他工�
 | 明确要求“开发算子”或等价的从零完整开发 | Step 1 → Step 2 → Step 3 → Step 4 |
 | 明确要求算子设计、方案分析并输出设计文档 | Step 2 → Step 3 |
 | 咨询、解释、评审、排障、能力查询 | 只读取相关 references |
+| 禁止（任何目的都适用） | 不按调用者身份增加模式；不因发现已有 DESIGN/PLAN 而单独进入 Step 4 |
 
 不要按调用者身份增加模式。不要因发现已有 DESIGN/PLAN 而单独进入 Step 4；direct invoke Developer 直接消费相同 DESIGN/PLAN，Blaze Step 4 只属于本 skill 的完整四步开发流程。
 
@@ -166,6 +167,10 @@ tile、Scale、padding 或 workaround：
 3. **分开声明验证层级。** 编译、静态检查、Skill 校验和 CPU Golden 只能证明
    对应层级；`device_verified` 必须来自真实设备路径，并在记录中保留
    `sandbox/device_visible`、设备节点、SoC/架构、完整命令、返回码和输出。
+   设备结论的交付核对还必须覆盖：先用 `ctest -N` 或等价命令证明预期用例名和非零
+   数量，再对本次 clean build 产物运行；交叉核对范围包含 DESIGN、PLAN、README、
+   精度报告、性能报告和执行记录；`unverified` 与 `NOT_EVALUATED` 的状态冲突同样按
+   失败处理，不能用 Full PASS 覆盖。
 4. **覆盖会改变失败边界的形状。** 在需求合同允许的支持域内，精度门禁至少
    包含单行与多行、M 奇偶、K/N 非对齐与 tail、跨 tile，以及连续重复 launch；
    首行、单 tile 或单次通过不能外推到完整支持域。每次失败先定位首个边界，再
@@ -230,6 +235,12 @@ unsupported_points: <仅 unsupported 填写>
 ```
 
 只在 Step 3 决定项目路线。官方 Blaze 覆盖全部 required partitions 时选择 `blaze_native` 且不读取场景注册表；存在证据闭合的 native gap 且场景唯一命中时选择 `blaze_custom`；证据充分且场景零命中或多命中时选择 `unsupported`。
+
+`native gap` 不是 SIMT fallback 的授权，也不是改走手写指令链或把计算步骤移到 host
+侧的理由；它只说明官方 Blaze 方案不覆盖该需求，处置只能是 `blaze_custom`（场景唯一
+命中）或 `unsupported`（零命中/多命中）。
+
+`unsupported` 只封闭本 skill 的 Blaze 路线：它不表示平台或算子不可实现，也不授权在本 skill 内改走 MatmulImpl 或原生 Cube 路线。DESIGN 必须交出可交接的能力边界（native gap、场景匹配结果、已排除候选），改派由调用方决定。
 
 ### 路线与 ABI 的负例边界
 
