@@ -24,7 +24,7 @@ from retrieval.cards import (_front_block, _headings, _parse_front, _signatures,
 from retrieval.errors import CliError
 from retrieval.facets import derive_facets, kind_of
 from retrieval.output import emit_stderr, emit_stdout
-from retrieval.root import is_probable_knowledge_root, score_knowledge_root
+from retrieval.root import is_trusted_knowledge_root, score_knowledge_root
 from retrieval.tokenizer import tokenize
 
 
@@ -245,7 +245,7 @@ def _runtime_index(idx):
 def load_index(auto_build=True):
     if not os.path.exists(INDEX_PATH):
         score, markers = score_knowledge_root(ROOT)
-        if auto_build and is_probable_knowledge_root(ROOT):
+        if auto_build and is_trusted_knowledge_root(ROOT):
             emit_stderr(
                 "no index at %s; auto-building for knowledge base root %s (markers: %s)"
                 % (INDEX_PATH, ROOT, ", ".join(markers) or "none")
@@ -263,7 +263,7 @@ def load_index(auto_build=True):
     if not stale:
         return _runtime_index(idx)
     score, markers = score_knowledge_root(ROOT)
-    if not auto_build or not is_probable_knowledge_root(ROOT):
+    if not auto_build or not is_trusted_knowledge_root(ROOT):
         raise CliError(
             "stale index at %s and knowledge base root %s is not safe to auto-build "
             "(score=%d, markers=%s): %s"

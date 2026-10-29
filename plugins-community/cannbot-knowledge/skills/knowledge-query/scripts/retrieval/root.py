@@ -25,6 +25,13 @@ from typing import Iterable
 from retrieval.errors import CliError
 
 MIN_KNOWLEDGE_SCORE = 6
+# Discovery source for cannbot installer dependency checkouts. Kept as one constant so
+# root discovery (_is_discoverable) and the readiness gate (is_cannbot_dependency_root)
+# share a single trust rule instead of two drifting heuristics.
+DEPENDENCY_DISCOVERY_SOURCE = "discover:cannbot-dependency"
+# Root selected in this process: {"path": str, "source": str}. Recorded when the
+# resolution is built, and consulted by the readiness gate.
+_SELECTED: dict[str, str | None] = {"path": None, "source": None}
 ROOT_ENV_NAMES = (
     "CANNBOT_KNOWLEDGE_ROOT",
     "OKF_KNOWLEDGE_ROOT",
@@ -127,12 +134,100 @@ def _is_discoverable(candidate: Candidate) -> bool:
     """
     if is_probable_knowledge_root(candidate.path):
         return True
-    return candidate.source == "discover:cannbot-dependency" and "ops/" in candidate.markers
+    return candidate.source == DEPENDENCY_DISCOVERY_SOURCE and "ops/" in candidate.markers
 
 
 def is_probable_knowledge_root(path: str | os.PathLike[str]) -> bool:
     score, markers = score_knowledge_root(path)
     return score >= MIN_KNOWLEDGE_SCORE and has_strong_knowledge_markers(markers)
+
+
+def _real_path(path: str | os.PathLike[str]) -> str | None:
+    """Return the real path used for identity comparisons, or None when unusable."""
+    try:
+        return os.path.realpath(os.path.abspath(str(path)))
+    except OSError:
+        return None
+
+
+def selected_dependency_root() -> str | None:
+    """The root chosen in this process by the cannbot dependency probe, if any.
+
+    Root discovery resolves every candidate path (``str(path.resolve())``), so a
+    checkout reached through a symlink -- e.g. the knowledge repo cached once under
+    ``~/.cache/cannbot/cannbot-knowledge`` and linked into several projects -- loses the
+    ``dependencies`` / ``cannbot-knowledge`` path segments.  The discovery *source*
+    survives that resolution, so it is the fact the trust decision must key on.
+    """
+    if _SELECTED.get("source") != DEPENDENCY_DISCOVERY_SOURCE:
+        return None
+    path = _SELECTED.get("path")
+    return str(path) if path else None
+
+
+def _is_selected_dependency_root(path: str | os.PathLike[str]) -> bool:
+    selected = selected_dependency_root()
+    if selected is None:
+        return False
+    return _real_path(selected) == _real_path(path)
+
+
+def _is_probed_dependency_root(path: str | os.PathLike[str]) -> bool:
+    """Re-run the discovery probe and compare by real path.
+
+    Same fact source as ``discover_candidates``, and symlink-safe: the probe yields the
+    in-project paths while this compares real paths, so a linked checkout still matches.
+    """
+    target = _real_path(path)
+    if target is None:
+        return False
+    try:
+        probed = _cannbot_dependency_paths(Path.cwd().resolve())
+    except OSError:
+        return False
+    return any(_real_path(candidate) == target for candidate in probed)
+
+
+def is_cannbot_dependency_root(path: str | os.PathLike[str]) -> bool:
+    """Whether `path` is a cannbot-installer dependency checkout of the knowledge repo.
+
+    The installer clones cannbot-knowledge into
+    ``<project>/.cannbot/dependencies/<plugin>/cannbot-knowledge`` and the queryable
+    root is its ``knowledge/`` subdirectory.  Such a checkout is installed by the
+    cannbot installer, so it is trusted with just an ``ops/`` content marker even
+    before the retrieval index is built -- the same trust rule ``_is_discoverable``
+    applies when auto-selecting a root.
+
+    Trust is keyed on the discovery fact, not on the path literal, because discovery
+    resolves candidates and a symlinked checkout no longer contains those segments.
+    """
+    expanded = Path(path).expanduser()
+    if not _safe_is_dir(expanded / "ops"):
+        return False
+    if _is_selected_dependency_root(expanded) or _is_probed_dependency_root(expanded):
+        return True
+    # Fallback for an explicitly configured root (CANNBOT_KNOWLEDGE_ROOT /
+    # --knowledge-root) whose layout did not go through the probe.  Deliberately uses
+    # the given path instead of Path.resolve() so the segments are still visible.
+    # The `.cannbot` segment is required: without it, any directory named
+    # ``.../dependencies/<x>/cannbot-knowledge/knowledge`` would be trusted and skip the
+    # MIN_KNOWLEDGE_SCORE gate, which is wider than what the installer produces.
+    literal = Path(os.path.abspath(str(expanded))).parts
+    return (
+        expanded.name == "knowledge"
+        and ".cannbot" in literal
+        and "dependencies" in literal
+        and "cannbot-knowledge" in literal
+    )
+
+
+def is_trusted_knowledge_root(path: str | os.PathLike[str]) -> bool:
+    """Whether `path` may be auto-built without requiring a pre-built index.
+
+    Covers first-class knowledge repositories (strong content markers) and
+    cannbot installer dependency checkouts (trusted by install provenance).
+    """
+    return is_probable_knowledge_root(path) or is_cannbot_dependency_root(path)
 
 
 def consume_knowledge_root_args(argv: list[str]) -> tuple[list[str], list[str]]:
@@ -234,7 +329,9 @@ def _dedupe(candidates: Iterable[Candidate]) -> list[Candidate]:
 def _choose_configured(candidates: list[Candidate]) -> Candidate | None:
     if not candidates:
         return None
-    valid = [c for c in candidates if c.score >= MIN_KNOWLEDGE_SCORE and has_strong_knowledge_markers(c.markers)]
+    # 显式配置（--knowledge-root / CANNBOT_KNOWLEDGE_ROOT）也要接受 cannbot 安装器的
+    # 依赖检出布局，否则用户按文档指向已安装的知识库副本时会因“没有索引”被判不合法。
+    valid = [c for c in candidates if is_trusted_knowledge_root(c.path)]
     return valid[0] if valid else None
 
 
@@ -331,6 +428,9 @@ def _configured_tiers(cli_roots, env_file):
 
 
 def _resolution(selected, candidates, env_file, configured, error=None):
+    if isinstance(selected, Candidate):
+        _SELECTED["path"] = selected.path
+        _SELECTED["source"] = selected.source
     result = {
         "selected": selected,
         "candidates": _dedupe(candidates),
