@@ -466,6 +466,66 @@ class TestBuildPrompt:
 
 
 # ══════════════════════════════════════════════════════════════════════
+#  resolve_agent (agent 判定优先级)
+# ══════════════════════════════════════════════════════════════════════
+
+
+class TestResolveAgent:
+    @staticmethod
+    def _make_work_dir(tmp_path, files):
+        """构造 work_dir/.opencode/agents 并写入给定文件名列表。"""
+        agents_dir = tmp_path / ".opencode" / "agents"
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        for name in files:
+            (agents_dir / name).write_text("")
+        return str(tmp_path)
+
+    @staticmethod
+    def test_env_overrides(monkeypatch, tmp_path):
+        monkeypatch.setenv("CANNBOT_AGENT", "custom")
+        work = TestResolveAgent._make_work_dir(
+            tmp_path, ["cannbot.md", "ops-direct-invoke-architect.md"]
+        )
+        assert run_eval.resolve_agent(work) == "custom"
+
+    @staticmethod
+    def test_new_plugin_build(monkeypatch, tmp_path):
+        monkeypatch.delenv("CANNBOT_AGENT", raising=False)
+        work = TestResolveAgent._make_work_dir(
+            tmp_path, ["ops-direct-invoke-architect.md"]
+        )
+        assert run_eval.resolve_agent(work) == run_eval.NEW_PLUGIN_AGENT
+
+    @staticmethod
+    def test_other_workflow_role_agents_build(monkeypatch, tmp_path):
+        # 非 ops-direct-invoke 前缀的角色 agent 也应判定为新插件 (build)
+        monkeypatch.delenv("CANNBOT_AGENT", raising=False)
+        work = TestResolveAgent._make_work_dir(tmp_path, ["architect.md", "developer.md"])
+        assert run_eval.resolve_agent(work) == run_eval.NEW_PLUGIN_AGENT
+
+    @staticmethod
+    def test_old_plugin_cannbot(monkeypatch, tmp_path):
+        monkeypatch.delenv("CANNBOT_AGENT", raising=False)
+        work = TestResolveAgent._make_work_dir(tmp_path, ["cannbot.md"])
+        assert run_eval.resolve_agent(work) == run_eval.DEFAULT_AGENT
+
+    @staticmethod
+    def test_old_plugin_with_role_agents_cannbot(monkeypatch, tmp_path):
+        # 旧插件: cannbot.md 与角色 agent 同在, 应优先 cannbot
+        monkeypatch.delenv("CANNBOT_AGENT", raising=False)
+        work = TestResolveAgent._make_work_dir(
+            tmp_path, ["cannbot.md", "architect.md", "developer.md"]
+        )
+        assert run_eval.resolve_agent(work) == run_eval.DEFAULT_AGENT
+
+    @staticmethod
+    def test_no_agents_default(monkeypatch, tmp_path):
+        monkeypatch.delenv("CANNBOT_AGENT", raising=False)
+        work = TestResolveAgent._make_work_dir(tmp_path, [])
+        assert run_eval.resolve_agent(work) == run_eval.DEFAULT_AGENT
+
+
+# ══════════════════════════════════════════════════════════════════════
 #  模型白名单
 # ══════════════════════════════════════════════════════════════════════
 
@@ -1461,7 +1521,9 @@ class TestPluginFetch:
         self._patch_plugin_dirs(monkeypatch, tmp_path)  # setenv none → 跟随 master
 
         cache_root = tmp_path / ".plugins" / "ops-direct-invoke"
-        init = cache_root / "repo" / "plugins-official" / "ops-direct-invoke" / "init.sh"
+        init = (
+            cache_root / "repo" / "plugins-official" / "ops-direct-invoke" / "init.sh"
+        )
         init.parent.mkdir(parents=True)
         init.write_text("#!/bin/sh\nstale\n")
         (cache_root / "commit").write_text("stale_sha\n")
@@ -1476,7 +1538,9 @@ class TestPluginFetch:
 
         monkeypatch.setattr(run_eval.subprocess, "run", counting_run)
         monkeypatch.setattr(
-            run_eval, "_git_head", lambda repo_dir: "feedfeedfeedfeedfeedfeedfeedfeedfeedfeed"
+            run_eval,
+            "_git_head",
+            lambda repo_dir: "feedfeedfeedfeedfeedfeedfeedfeedfeedfeed",
         )
 
         run_eval._fetch_plugin_init("ops-direct-invoke")
@@ -1550,7 +1614,9 @@ class TestPluginFetch:
         monkeypatch.setattr(run_eval, "_SKILLS_FORK", str(tmp_path / "empty-local"))
         self._patch_plugin_dirs(monkeypatch, tmp_path)
         monkeypatch.setattr(
-            run_eval.subprocess, "run", self._fake_git_run(tmp_path, "ops-direct-invoke")
+            run_eval.subprocess,
+            "run",
+            self._fake_git_run(tmp_path, "ops-direct-invoke"),
         )
         pin = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
         checked_out = []
@@ -1563,7 +1629,9 @@ class TestPluginFetch:
 
         init = run_eval._fetch_plugin_init("ops-direct-invoke", commit=pin)
         cache_root = tmp_path / ".plugins" / "ops-direct-invoke"
-        assert init == str(cache_root / "repo" / "plugins-official" / "ops-direct-invoke" / "init.sh")
+        assert init == str(
+            cache_root / "repo" / "plugins-official" / "ops-direct-invoke" / "init.sh"
+        )
         assert checked_out == [pin]
         assert (cache_root / "commit").read_text().strip() == pin
 
@@ -1572,14 +1640,18 @@ class TestPluginFetch:
         monkeypatch.setattr(run_eval, "_SKILLS_FORK", str(tmp_path / "empty-local"))
         self._patch_plugin_dirs(monkeypatch, tmp_path)
         monkeypatch.setattr(
-            run_eval.subprocess, "run", self._fake_git_run(tmp_path, "ops-direct-invoke")
+            run_eval.subprocess,
+            "run",
+            self._fake_git_run(tmp_path, "ops-direct-invoke"),
         )
         head = "feedfeedfeedfeedfeedfeedfeedfeedfeedfeed"
         monkeypatch.setattr(run_eval, "_git_head", lambda repo_dir: head)
 
         init = run_eval._fetch_plugin_init("ops-direct-invoke")
         cache_root = tmp_path / ".plugins" / "ops-direct-invoke"
-        assert init == str(cache_root / "repo" / "plugins-official" / "ops-direct-invoke" / "init.sh")
+        assert init == str(
+            cache_root / "repo" / "plugins-official" / "ops-direct-invoke" / "init.sh"
+        )
         assert (cache_root / "commit").read_text().strip() == head
 
     def test_resolve_full_commit_abbreviated(self, monkeypatch):
@@ -1599,7 +1671,9 @@ class TestPluginFetch:
         from unittest.mock import MagicMock
 
         full = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
-        monkeypatch.setattr(run_eval, "_resolve_full_commit", lambda repo_dir, commit: full)
+        monkeypatch.setattr(
+            run_eval, "_resolve_full_commit", lambda repo_dir, commit: full
+        )
         monkeypatch.setattr(
             run_eval.subprocess,
             "run",
@@ -1632,20 +1706,26 @@ class TestPluginFetch:
         monkeypatch.setattr(run_eval, "_git_head", lambda repo_dir: pin)
 
         assert run_eval._checkout_plugin_commit("/repo", pin, "master") == pin
-        assert any("--unshallow" in c for c in commands), "应按兜底 unshallow fetch 分支"
+        assert any("--unshallow" in c for c in commands), (
+            "应按兜底 unshallow fetch 分支"
+        )
 
     def test_cache_hit_mismatched_pin_refetches(self, monkeypatch, tmp_path):
         """钉版 commit 与缓存 sha 不一致时, 清理过期缓存重新拉取。"""
         monkeypatch.setattr(run_eval, "_SKILLS_FORK", str(tmp_path / "empty-local"))
         self._patch_plugin_dirs(monkeypatch, tmp_path)
         monkeypatch.setattr(
-            run_eval.subprocess, "run", self._fake_git_run(tmp_path, "ops-direct-invoke")
+            run_eval.subprocess,
+            "run",
+            self._fake_git_run(tmp_path, "ops-direct-invoke"),
         )
         pin = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
         stale = "cafecafecafecafecafecafecafecafecafe"
 
         cache_root = tmp_path / ".plugins" / "ops-direct-invoke"
-        stale_init = cache_root / "repo" / "plugins-official" / "ops-direct-invoke" / "init.sh"
+        stale_init = (
+            cache_root / "repo" / "plugins-official" / "ops-direct-invoke" / "init.sh"
+        )
         stale_init.parent.mkdir(parents=True)
         stale_init.write_text("#!/bin/sh\nstale\n")
         (cache_root / "commit").write_text(stale + "\n")
@@ -1719,7 +1799,9 @@ class TestPluginFetch:
             run_eval.subprocess.TimeoutExpired(cmd=["bash"], timeout=120),
         ],
     )
-    def test_attempt_op_workflow_oserror_timeout_degrade(self, monkeypatch, tmp_path, exc):
+    def test_attempt_op_workflow_oserror_timeout_degrade(
+        self, monkeypatch, tmp_path, exc
+    ):
         """工作流准备的 OSError/bash 超时也应降级为单算子失败, 不中断整批。"""
         monkeypatch.setattr(run_eval, "RESULTS_DIR", str(tmp_path / "results"))
         from unittest.mock import MagicMock

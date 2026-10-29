@@ -77,6 +77,9 @@ SERVE_RETRY = int(os.environ.get("SERVE_RETRY", "3"))
 # 每算子最大尝试次数 (含首次), 评分/交付异常时重跑; 1 = 不重跑
 OP_RETRY = int(os.environ.get("OP_RETRY", "1"))
 
+DEFAULT_AGENT = "cannbot"
+NEW_PLUGIN_AGENT = "build"
+
 
 def parse_model(model: str, harness: str = "opencode") -> tuple[str, str]:
     """解析 provider/model 格式 (如 zhipuai-coding-plan/glm-5.2)。
@@ -389,7 +392,9 @@ def _git_head(repo_dir: str) -> str:
     try:
         result = subprocess.run(
             ["git", "-C", repo_dir, "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return ""
@@ -401,7 +406,9 @@ def _resolve_full_commit(repo_dir: str, commit: str) -> str:
     try:
         result = subprocess.run(
             ["git", "-C", repo_dir, "rev-parse", "--verify", f"{commit}^{{commit}}"],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return ""
@@ -415,6 +422,7 @@ def _checkout_plugin_commit(repo_dir: str, commit: str, branch: str) -> str:
     抓取时兜底解除浅克隆全量 fetch 分支 (unshallow); 两者都拿不到 commit 时
     fail-fast 转 ValueError。
     """
+
     def _run(cmd, timeout=120):
         return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
@@ -910,7 +918,12 @@ def resolve_paths(op: dict, cann_bench_root: str) -> dict:
     return op
 
 
-def build_prompt(template_path: str, op: dict, example_path: str | None = None) -> str:
+def build_prompt(
+    template_path: str,
+    op: dict,
+    example_path: str | None = None,
+    workflow: str = "",
+) -> str:
     """渲染提示词模板。
 
     example_path 显式覆盖 op["example_path_abs"] (评测主流程在重试循环中
@@ -925,6 +938,7 @@ def build_prompt(template_path: str, op: dict, example_path: str | None = None) 
     vals["category"] = op.get("category", "")
     vals["op_short_name"] = op_short_name(op["op_name"])
     vals["cann_bench_root"] = op.get("cann_bench_root", "")
+    vals["workflow"] = workflow
     return template.format_map(vals)
 
 
@@ -1029,7 +1043,8 @@ def prepare_isolated_work_dir(
     # 恢复持久化的算子产物 (源码/测试/文档, 如有)
     restore_op_code(work_dir, op_name)
 
-    # 4) 仅 opencode harness: 将 AGENTS.md 软链接为 .opencode/agents/cannbot.md
+    # 4) 仅 opencode harness: 将 AGENTS.md 软链接为 .opencode/agents/cannbot.md。
+    #    旧插件产出根 AGENTS.md → 软链为 cannbot agent；新版插件不产出 AGENTS.md，不触发。
     if harness == "opencode":
         agents_md = os.path.join(work_dir, "AGENTS.md")
         agents_dir = os.path.join(work_dir, ".opencode", "agents")
@@ -1042,6 +1057,34 @@ def prepare_isolated_work_dir(
 
     print(f"  [WORKDIR] {work_dir}")
     return work_dir
+
+
+def resolve_agent(work_dir: str | None = None) -> str:
+    """选择主会话 agent 名。
+
+    优先级: CANNBOT_AGENT 环境变量 > 按工作区安装结果自动判断 > 旧版默认值。
+    新版插件不产出 AGENTS.md，只安装角色 agent（.md），入口为主会话 build；
+    旧版插件把 AGENTS.md 软链成 .opencode/agents/cannbot.md（仅作回落标记，
+    因为 runner 自己也会在 prepare_isolated_work_dir 造出该软链）。
+    """
+    explicit = (os.environ.get("CANNBOT_AGENT") or "").strip()
+    if explicit:
+        return explicit
+    if work_dir:
+        agents_dir = os.path.join(work_dir, ".opencode", "agents")
+        try:
+            names = os.listdir(agents_dir)
+        except OSError:
+            names = []
+        has_cannbot = os.path.isfile(os.path.join(agents_dir, "cannbot.md"))
+        has_role_agents = any(n.endswith(".md") and n != "cannbot.md" for n in names)
+        # 新版权威标记: 无 cannbot 入口却装了角色 agent → 主会话 build
+        if has_role_agents and not has_cannbot:
+            return NEW_PLUGIN_AGENT
+        # 旧插件标记: AGENTS.md 软链而来的 cannbot.md (仅回落)
+        if has_cannbot:
+            return DEFAULT_AGENT
+    return DEFAULT_AGENT
 
 
 def delivery_complete(work_dir: str, op: dict, op_attempt: int = 1) -> bool:
@@ -1251,15 +1294,17 @@ def run_via_serve(
     output_dir: str,
     model: str | None = None,
     timeout: int | None = None,
+    agent: str = DEFAULT_AGENT,
 ) -> dict:
     req_timeout = timeout if timeout is not None else OP_TIMEOUT
+    agent = agent or DEFAULT_AGENT  # 显式 None 时回落，避免 payload agent=null
     result = _new_serve_result(op_name, model, req_timeout)
     sse = _SseGuard()
     last_err = None
     attempt = 0
     for attempt in range(1, max(1, SERVE_RETRY) + 1):
         try:
-            _serve_post_message(prompt, output_dir, attempt, result, sse)
+            _serve_post_message(prompt, output_dir, attempt, result, sse, agent=agent)
             sse.stop()
             break
         except requests.Timeout:
@@ -1306,7 +1351,12 @@ def _serve_timeout_msg(req_timeout: int, attempt: int) -> str:
 
 
 def _serve_post_message(
-    prompt: str, output_dir: str, attempt: int, result: dict, sse: _SseGuard
+    prompt: str,
+    output_dir: str,
+    attempt: int,
+    result: dict,
+    sse: _SseGuard,
+    agent: str = DEFAULT_AGENT,
 ) -> str:
     """单次尝试: 建会话 → 起 SSE → 发消息 → 采集指标; 成功填 result, 返回 session_id。
 
@@ -1328,7 +1378,8 @@ def _serve_post_message(
 
     sse.start(session_id, output_dir, req_timeout)
 
-    payload = {"agent": "cannbot", "parts": [{"type": "text", "text": prompt}]}
+    payload = {"agent": agent, "parts": [{"type": "text", "text": prompt}]}
+    result["agent"] = agent
     # "default" = 未指定模型的哨兵 (真模型需 provider/model 格式, 不可能等于 "default")
     if model and model != "default":
         provider_id, model_id = parse_model(model)
@@ -1463,6 +1514,7 @@ class OpRunConfig:
     model: str | None = None
     timeout: int | None = None
     harness: str = HARNESS_DEFAULT
+    agent: str | None = None
 
 
 def run_single_op(
@@ -1484,7 +1536,12 @@ def run_single_op(
     ):
         print("  [MODE] serve API (CANNBot multi-agent)")
         return run_via_serve(
-            op_name, prompt, output_dir, model=cfg.model, timeout=cfg.timeout
+            op_name,
+            prompt,
+            output_dir,
+            model=cfg.model,
+            timeout=cfg.timeout,
+            agent=cfg.agent,
         )
 
     print(f"  [MODE] pipe ({cfg.harness} CLI)")
@@ -1586,6 +1643,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=HARNESS_DEFAULT,
         choices=HARNESS_CHOICES,
         help=f"评测 harness (默认: {HARNESS_DEFAULT})",
+    )
+    parser.add_argument(
+        "--agent",
+        default=None,
+        help="主会话 agent 名 (默认按工作区自动判断: 旧插件 cannbot / 新插件 build)",
     )
     return parser
 
@@ -1712,12 +1774,17 @@ def _attempt_op(op: dict, ctx: _EvalCtx) -> tuple[dict, bool]:
             delivery_ok = False
             break
         iso_example_path = os.path.join(work_dir, "example")
-        prompt = build_prompt(ctx.template_path, op, example_path=iso_example_path)
+        agent = resolve_agent(work_dir)
+        print(f"  [AGENT] {agent}")
+        prompt = build_prompt(
+            ctx.template_path, op, example_path=iso_example_path, workflow=ctx.workflow
+        )
         cfg = OpRunConfig(
             use_serve=ctx.use_serve,
             model=ctx.model,
             timeout=op_timeout,
             harness=ctx.harness,
+            agent=agent,
         )
         result = run_single_op(
             op_name, prompt, op_output_dir, work_dir=work_dir, cfg=cfg
@@ -1760,6 +1827,8 @@ def _finalize_run(results: list[dict], ctx: _EvalCtx, workflow: str) -> int:
 def main():
     parser = _build_arg_parser()
     args = parser.parse_args()
+    if args.agent:
+        os.environ["CANNBOT_AGENT"] = args.agent
     if not args.config and not args.all:
         parser.error("请指定 -c/--config 或 --all")
     try:
