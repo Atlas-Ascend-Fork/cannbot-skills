@@ -23,15 +23,18 @@ CATLASS DSL 是以 Python 语法编写的昇腾算子 DSL（`catlass.tla`），�
 
 - design/develop 前检查当前 Python 环境是否已安装 `ascend-catlass-dsl`，已安装时优先
   使用该版本的源码和配套样例核实 API 用法。
-- 本地未安装该包时，先复用已有 CATLASS 源码；没有可用源码时，从
-  [CANN CATLASS 仓库](https://gitcode.com/cann/catlass.git) 拉取到工作区：
+- 必须从 `https://gitcode.com/cann/catlass.git` 拉取 catlass 源码到工作区，已存在且与远程
+  一致时直接复用，不要重复拉取：
 
   ```bash
   git clone https://gitcode.com/cann/catlass.git .catlass-dsl/references/catlass
   ```
 
-- 优先查阅 `python/tla_dsl` 下的 Python DSL API 实现和相关 `.py` 样例，并记录源码路径
-  和 commit。源码用于 API 使用与样例参考，编译、运行和上板验证继续遵循各阶段环境门禁。
+- 优先查阅 `catlass/examples/python/tla_dsl/experimental` 和
+  `catlass/examples/python/tla_dsl/tla` 下的样例，必须主动筛查与待实现算子计算结构
+  相似的样例，并记录源码路径。源码用于 API 使用与样例参考，与已安装
+  `ascend-catlass-dsl` 版本不同时 API 用法以已安装版本为准，编译、运行和上板验证继续
+  遵循各阶段环境门禁。
 
 ## Skills（位于 __CANNBOT_SKILLS_ROOT__/）
 
