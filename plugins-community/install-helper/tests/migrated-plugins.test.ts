@@ -278,6 +278,25 @@ describe("migrated plugins — discovery (findPlugin)", () => {
     expect(getAllPlugins().filter((p) => p.id === "ops-direct-invoke")).toHaveLength(1);
   });
 
+  it("resolves perf-optimize and its historical aliases only from cannbot", async () => {
+    const { findPlugin, getAllPlugins, setCannbotPlugins } = await import("../src/core/registry.js");
+    const { isMigratedPlugin } = await import("../src/core/migrated-plugins.js");
+    setCannbotPlugins([]);
+
+    for (const name of ["ops-perf-optimize", "perf-optimize", "perf-optimization", "performance", "ops-perf-opt"]) {
+      const plugin = findPlugin(name);
+      expect(plugin?.id).toBe("ops-perf-optimize");
+      expect(plugin?.source).toBe("cannbot");
+      expect(findPlugin(name, { source: "skills" })).toBeUndefined();
+    }
+    expect(isMigratedPlugin("ops-perf-optimize")).toBe(true);
+    expect(getAllPlugins().filter((p) => p.id === "ops-perf-optimize")).toHaveLength(1);
+
+    setCannbotPlugins([cannbotEntry("ops-perf-optimize")]);
+    expect(findPlugin("ops-perf-optimize")?.version).toBe("9.9.9");
+    expect(getAllPlugins().filter((p) => p.id === "ops-perf-optimize")).toHaveLength(1);
+  });
+
   it("does not leak tombstones into the --source skills scope", async () => {
     const { findPlugin, setCannbotPlugins } = await import("../src/core/registry.js");
     setCannbotPlugins([]);

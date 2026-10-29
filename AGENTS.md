@@ -106,6 +106,8 @@ cannbot-skills/
 
 > Ascend C 直调插件 `ops-direct-invoke` 已从本仓迁出，入口与开发说明见 [cannbot 应用仓](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke)。
 
+> 算子性能调优插件 `ops-perf-optimize` 已从本仓迁出，入口与开发说明见 [cannbot 应用仓](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-perf-optimize)。
+
 ## Skills 分类
 
 项目 skills 目录按功能分类，包括：

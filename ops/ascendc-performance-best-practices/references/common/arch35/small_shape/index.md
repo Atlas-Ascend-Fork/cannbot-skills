@@ -289,6 +289,5 @@ EOF
 ## 相关技能
 
 - 性能剖析与上板采集：`ops-profiling` / `ascendc-perf-optimize`
-- 官方工作流编排（baseline→analysis→implementation→integration）：`cannbot-skills/plugins-official/ops-perf-optimize`
 - API 约束与 C API 用法：`ascendc-api-best-practices` / `ascendc-docs-search`
 - 精度调试：`ascendc-precision-debug`

@@ -16,6 +16,17 @@ import type { PluginEntry } from "../types/index.js";
 // these entries do not download source or provide missing plugin assets.
 export const MIGRATED_PLUGINS: PluginEntry[] = [
   {
+    id: "ops-perf-optimize",
+    dir: "",
+    displayName: "算子性能调优",
+    script: "cannbot",
+    aliases: ["perf-optimize", "perf-optimization", "performance"],
+    skills: 0,
+    agents: 0,
+    description: "AscendC 算子性能调优工作流；已迁移至 cannbot 仓，经托管安装器安装（仅 project 级）",
+    source: "cannbot",
+  },
+  {
     id: "ops-direct-invoke",
     dir: "",
     displayName: "AscendC Kernel 直调",

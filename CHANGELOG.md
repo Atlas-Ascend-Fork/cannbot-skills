@@ -2,6 +2,10 @@
 
 > **记录规则**：单条不超过 **200 字**，按【领域】+ 问题 + 修复要点组织；技术细节、验证数据与发布过程放 PR 描述 / commit message，不写入日志。
 
+### 【2026-10-29】
+#### 变更 Changes
+- 【插件清理】删除 `plugins-official/ops-perf-optimize` 旧副本与本地市场、安装清单入口，统一由 cannbot 应用仓维护；保留公共性能 Skills，安装助手保留原插件名及别名并委托 cannbot 安装，同步迁移说明与 ST 统计。
+
 ### 【2026-10-28】
 #### 变更 Changes
 - 【算子性能进化】`plugins-community/ops-perf-evolution` 插件更名为 `ascendc-ops-perf-evolution`（目录、AGENTS.md、init.sh、市场注册与三仓安装链路同步更新），老用户按新名检索即可找到。

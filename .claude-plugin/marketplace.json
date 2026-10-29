@@ -702,25 +702,6 @@
       ]
     },
     {
-      "name": "ops-perf-optimize",
-      "source": "./plugins-official/ops-perf-optimize",
-      "description": "AscendC 算子性能调优 Team。五阶段工作流（基线评估→前处理→诊断分析→实施验证→后处理）：冻结输入与逐 case 证据门禁、多轮候选优化、精度诊断与原工程回集成。",
-      "version": "4.1.0",
-      "author": {
-        "name": "CANNBot"
-      },
-      "keywords": [
-        "ascendc",
-        "perf-optimize",
-        "operator",
-        "performance"
-      ],
-      "category": "development",
-      "dependencies": [
-        "ops-perf-optimize-skills"
-      ]
-    },
-    {
       "name": "ops-perf-evolution-skills",
       "description": "Ascend C 算子性能进化优化 Skills（5 个）。进化知识库、策略库、世界模型、报告生成、ops 仓库算子评估。",
       "source": "./community/ops",
