@@ -92,8 +92,10 @@ FA按[分层参考资料](references/flash_attention/arch35/guide.md#从语义�
 目标为 arch35 且源码、伪代码或 profiling 显示融合算子包含 `mm`/`matmul`/`mmad` 单元时，对每个单元分别执行以下步骤，并在报告中保留 `mm_route`、`mm_shape`、`mm_layout` 和证据路径：
 
 1. 先读取 MatMul 族的性能模型、基本块切分、流水和模板，记录 `M/N/K`、dtype、L1/L0 容量、`k-tail`、`unitflag`、`Fixpipe` 和同步约束。低 AIC MAC 利用率、较小 K 或外层融合本身都不能单独推出“AIV 替换 MM”。
-2. 候选顺序固定为：Blaze 路线（仅 DAV_3510，按「MatMul Blaze 确定性路由」判定）→ 保留 Cube MMAD 的低阶流水重建 → 现有高阶 MatMul API 的数据流/tiling 优化 → 有独立实测对照后才允许评估 AIV 替换。低阶流水重建应核验 `A2/B2/CO1` LocalTensor、`LoadData2DParamsV2`、`MmadParams`/`Mmad`、`Fixpipe`、`DataCopyCO12DstParams` 和 `MTE1`/`MTE2`/`MTE3` 事件配对。
-3. 必须把“替换 MM 计算引擎”和“用低阶接口重建 MM 内部流水”分别记录为不同路线；不能把前者的性能假设套在后者上。只有在 Blaze 路线、低阶 Cube 路线、Cube 高阶路线和 AIV 路线有同 case、同环境、同协议的可比较证据时，才可选择 AIV 路线。
+2. 评估顺序固定为：Blaze 路线（仅 DAV_3510，按「MatMul Blaze 确定性路由」判定）→ 保留 Cube MMAD 的低阶（小接口）流水重建 → 现有高阶 MatMul API 的数据流/tiling 优化 → 有独立实测对照后才允许评估 AIV 替换。低阶流水重建应核验 `A2/B2/CO1` LocalTensor、`LoadData2DParamsV2`、`MmadParams`/`Mmad`、`Fixpipe`、`DataCopyCO12DstParams` 和 `MTE1`/`MTE2`/`MTE3` 事件配对。
+3. **Blaze 不可用或失败后，继续独立评估低阶 Cube**：Blaze 判为 `unsupported`、因 `environment_blocked` 无法实施，或其候选构建、运行、精度、性能验证失败时，在 `mm_route` 中保留对应候选身份、原因和证据，随后评估目标 SDK 原生的 `L1 → L0A/L0B → Mmad → Fixpipe` 流水。该路线不依赖 Blaze 的 ops-tensor 源码或组件；Blaze 失败只约束对应候选，不得据此跳过低阶流水、直接退回高阶 API，或判定 Cube MMAD 整体不可用。
+4. **仅保留高阶 MatMul API 前，必须闭合低阶路线证据**：对每个 MM 单元给出同 case 的低阶候选功能/性能验证，或针对其 shape、dtype、布局、资源和同步约束的低阶不可实施证据。证据不足时记录待验证项并安排有界探针，不能按不可行处理。其他模板或 launch 模型（包括高阶 Matmul/MIX 探针）的失败，不得外推成所有低阶 `Mmad` 或 MIX 路线的禁用理由。
+5. 必须把“替换 MM 计算引擎”和“用低阶接口重建 MM 内部流水”分别记录为不同路线；不能把前者的性能假设套在后者上。只有在 Blaze 路线、低阶 Cube 路线、Cube 高阶路线和 AIV 路线有同 case、同环境、同协议的可比较证据时，才可选择 AIV 路线。
 
 主算子族确定后，如源码显示多个源可能写同一目标，还须叠加[公共写入归约选路](references/common/indexed_write_reduction.md)，即使主族不是 Scatter；该页只提供算法候选，不能将 arch35 Scatter 的实现 API 用到其他代际。
 
@@ -107,7 +109,7 @@ FA按[分层参考资料](references/flash_attention/arch35/guide.md#从语义�
 
 每个 DAV_3510 量化 case 都须在方案中记录 `quant_vf_route`：命中信号、选中 ID、被排除 ID 及理由、`preconditions` 判定、readiness 和目标工程验证方案。两个量化条目当前均为 `annotated_excerpt`，只能补齐目标上下文并重验，不能表述为可直接复制的完整模板。
 
-**MatMul Blaze 确定性路由**：DAV_3510 的 matmul 族选路必须先完成 Blaze 路线判定（`blaze_native` / `blaze_custom` / `blaze_migration` / `unsupported`，见 [Blaze 路线评估](references/matmul/arch35/blaze_design.md)），再进入 AscendC 策略选型；判定为 `unsupported` 时记录 `unsupported_points` 证据后继续。ops-tensor 只读且 commit 进证据身份；不得因源码未用 Blaze 而跳过评估，环境不可得时记 `environment_blocked` 降级。命中 Blaze 路线后跳转 `ascendc-blaze-best-practice`（迁移路线为 `ascendc-blaze-migration`）执行，不在本知识库复述其方法。
+**MatMul Blaze 确定性路由**：DAV_3510 的 matmul 族选路必须先完成 Blaze 路线判定（`blaze_native` / `blaze_custom` / `blaze_migration` / `unsupported`，见 [Blaze 路线评估](references/matmul/arch35/blaze_design.md)），再进入 AscendC 策略选型。判定为 `unsupported` 时记录 `unsupported_points`；ops-tensor 环境不可得时记录缺失原因 `environment_blocked`。ops-tensor 始终只读，源码可获取时将其 commit 纳入证据身份；不得因原实现未用 Blaze 而跳过判定。Blaze 不可用或候选验证失败后，无论独立 MatMul 还是融合算子内嵌 MM，均执行「融合算子内嵌 MatMul 路由（arch35）」第 3、4 项的低阶 Cube 评估；参考文档中的“回退 AscendC 策略”也按此执行，不表示直接选择高阶 MatMul API。命中 Blaze 路线后跳转 `ascendc-blaze-best-practice`（迁移路线为 `ascendc-blaze-migration`）执行，不在本知识库复述其方法。
 
 ### SIMT 进阶优化门控（算子族优先）
 
