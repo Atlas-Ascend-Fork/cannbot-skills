@@ -30,6 +30,7 @@
 ### 【2026-10-22】
 #### 缺陷修复 Bug Fixes
 - 【GitCode 工具】非幂等 POST 在连接异常、超时或服务端错误后直接返回失败，避免结果未知时重复写入；保留明确限流拒绝后的受控重试。
+- 【PyPTO 验证】超时回收以整个进程组为准，在测试主进程先退出时继续清理忽略 TERM 的编译子进程，避免遗留后台任务。
 
 #### 变更 Changes
 - 【插件清理】删除 `plugins-community/collaborative-agent-kernel-evolution`（cake）插件目录：该插件已迁移至 [cannbot](https://gitcode.com/cann/cannbot) 仓同名路径维护，安装方式不变（install-helper 自动指向 cannbot 仓）。同步移除市场注册 `cake` 条目、OAT.xml 的 Chart.js filteritem、`tests/unit/test-cake-absolute-paths.sh` 门禁及其在 run-tests.sh 的登记。

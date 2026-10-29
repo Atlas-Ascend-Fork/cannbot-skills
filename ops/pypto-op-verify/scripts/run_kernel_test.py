@@ -231,13 +231,18 @@ class MonitoredProcess:
         except ProcessLookupError:
             return
         deadline = time.monotonic() + 2.0
-        while self.running and time.monotonic() < deadline:
-            time.sleep(0.1)
-        if self.running:
+        while time.monotonic() < deadline:
+            self.proc.poll()
             try:
-                os.killpg(self.pgid, signal.SIGKILL)
+                os.killpg(self.pgid, 0)
             except ProcessLookupError:
-                pass
+                break
+            time.sleep(0.1)
+        # The leader may have exited while a compiler descendant ignored TERM.
+        try:
+            os.killpg(self.pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         try:
             self.proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
