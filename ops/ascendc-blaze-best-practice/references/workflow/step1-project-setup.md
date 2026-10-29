@@ -1,6 +1,6 @@
 # Step 1: Project Setup
 
-> **定位**：建立当前算子工程、根级 Blaze 源码版本、只读源码区和版本一致性记录。Step 1 保留 clone、递归 submodule 初始化和版本确认；不调查 Blaze 组装方案、不选择路线、不创建场景实现。
+> **定位**：建立当前算子工程、根级 Blaze 源码版本、只读源码区和版本一致性记录。Step 1 保留 clone 或本地预置源复制、递归 submodule 初始化和版本确认；不调查 Blaze 组装方案、不选择路线、不创建场景实现。
 
 ## 1. 路径合同和目录结构
 
@@ -59,9 +59,30 @@ mkdir -p <project-root>/operators/<operator_name>/op_tiling
 
 ## 2. Blaze 源码版本门禁
 
-### 2.1 首次拉取
+### 2.1 源码获取
 
-`<project-root>/ops-tensor/` 不存在时，从授权仓库递归拉取 ops-tensor 及全部 submodule：
+按以下顺序判定来源，命中即停止。无论哪一级，最终事实根只能是 `<project-root>/ops-tensor/`，并保持只读。
+
+| 级别 | 条件 | 动作 |
+|---|---|---|
+| L1 | `<project-root>/ops-tensor/` 已存在 | 不重新获取，直接进入 2.2 |
+| L2 | `<project-root>/.cannbot/ops-tensor` 存在且完整，或调用方传入 `local_blaze_source` 指向完整 ops-tensor（绝对路径） | 解引用复制到 `<project-root>/ops-tensor/`，再核对 submodule；把来源路径和 HEAD 写入抽象版本记录 |
+| L3 | 网络可达 | 从授权仓库递归 clone |
+| L4 | 以上均不可用 | 记录 `source_unavailable`，停止 Step 1，不得进入 Blaze 能力判定 |
+
+L2 的本地来源：
+
+```bash
+mkdir -p <project-root>/ops-tensor
+cp -aL <local-source>/. <project-root>/ops-tensor/
+test ! -L <project-root>/ops-tensor
+git -C <project-root>/ops-tensor submodule sync --recursive
+git -C <project-root>/ops-tensor submodule update --init --recursive
+```
+
+`cp -aL` 必须解引用软链：`<local-source>` 可能是安装期建出的符号链接，`cp -a` 只复制链接本身，会让事实根仍指向安装目录并随其更新静默漂移；复制后必须确认目标是实体目录。
+
+L3 的授权仓库来源：
 
 ```bash
 git clone --recurse-submodules \
@@ -71,7 +92,7 @@ git -C <project-root>/ops-tensor submodule sync --recursive
 git -C <project-root>/ops-tensor submodule update --init --recursive
 ```
 
-clone 目标只能是 `<project-root>/ops-tensor/`。不得拉取到 `operators/`、当前算子目录、其他项目或其他临时位置。
+获取目标只能是 `<project-root>/ops-tensor/`。不得拉取到 `operators/`、当前算子目录、其他项目或其他临时位置，也不得直接把 `<local-source>` 当作事实根。`source_unavailable` 只表示本次获取失败，不表示 Blaze 不支持该需求。
 
 ### 2.2 已存在源码
 
@@ -91,6 +112,8 @@ git -C <project-root>/ops-tensor ls-tree HEAD include/tensor_api
 ```
 
 命令输出仅用于建立抽象一致性状态。不要把提交 ID、manifest/hash、文件哈希或时间戳写入 Blaze Skill 合同。dirty、detached、ahead/diverged、remote 不匹配、父仓 gitlink 不一致、未初始化或不匹配的递归 submodule 都必须停止。
+
+本节 `fetch`、`checkout` 和 `pull --ff-only` 只适用于来源是授权网络仓的 checkout（L1 的原始 clone 或 L3）。经 §2.1 L2 从本地预置源复制来的 checkout 不执行任何联网步骤：只做 `submodule`、父仓 gitlink 和 worktree 一致性核对，并沿用来源 checkout 记录的 remote 与 HEAD；本地存在未提交修改时仍按 dirty 停止。
 
 ## 3. 同源只读区
 
@@ -147,7 +170,8 @@ operators_root
 operator_name
 operator_root
 blaze_source_root
-source_version_status: current_checkout | same_investigation_source | consistent
+source_version_status: current_checkout | same_investigation_source | consistent | source_unavailable
+source_origin: network_clone | local_staged | unavailable
 checkout_consistency: confirmed | blocking
 submodule_status
 read_only_source_regions

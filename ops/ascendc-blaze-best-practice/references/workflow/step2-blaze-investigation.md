@@ -5,7 +5,7 @@
 ## 1. 输入、输出与边界
 
 ```text
-输入：project_root、operator_name、用户需求、target_chip、npu_arch；可选 cann_version、Step 1 抽象版本记录、Step 3 语义化补充调查问题
+输入：project_root、operator_name、用户需求、target_chip、npu_arch；可选 cann_version、local_blaze_source（本地预置 ops-tensor 绝对路径）、Step 1 抽象版本记录、Step 3 语义化补充调查问题
 blaze_source_root：<project-root>/ops-tensor/
 operator_root：<project-root>/operators/<operator_name>/
 输出：operators/<operator_name>/docs/blaze/blaze-investigation-report.md
@@ -18,6 +18,8 @@ operator_root：<project-root>/operators/<operator_name>/
 - 源码或 submodule 缺失、不一致时停止，给出由 Step 1 或 direct init 恢复的条件；不得在 Step 2 clone、pull、checkout、切换版本或执行 submodule update。
 - 只读核对项目内 `op_kernel/include/blaze/`、`tensor_api/` 是否存在且与当前根源码同源。设计请求跳过 Step 1 时，副本缺失不阻塞 Investigation，也不由 Step 2 复制；在报告中记录 `missing_for_exact_materialization`，由 Step 3 为实施阶段编译一次性原样物化 action。已存在但来源或内容不一致则记录 `blocking`。
 - 不回退搜索 `operators/<operator_name>/`、其他项目或历史工程中的 ops-tensor。
+- Step 1 按 L2 登记并复制到 `<project-root>/ops-tensor/` 的本地预置源就是当前唯一事实根，不属于回退搜索；未被登记的外部 ops-tensor 仍不得作为事实源。
+- 源码缺失只阻断源码事实采集，不得据此推断 Blaze 能力不覆盖，也不得写 `native_gaps` 或 `unsupported`；此时停止 Investigation，返回 [Step 1](step1-project-setup.md)（或由 direct init）执行 §2.1 的获取级别判定；Step 2 自身不执行任何获取动作。
 - 调查范围来自数学语义、dtype、format、layout、topology、shape、额外输入输出和明确约束，而不是预设场景名称。
 - Blaze 源码事实只来自当前 `<project-root>/ops-tensor/` 的源码、官方文档、example 和 UT。Asset、项目实现、其他 Skill 和历史验证工程都不是 Blaze 源码能力证据。
 - 不读取 `references/scenarios/index.md`、任何场景设计/开发指导或依赖 Skill；Step 2 不知道项目是否将采用定制场景。

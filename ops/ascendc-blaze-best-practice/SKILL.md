@@ -19,14 +19,14 @@ design_path: operators/<operator_name>/docs/DESIGN.md
 plan_path: operators/<operator_name>/docs/PLAN.md
 ```
 
-只把 `<project-root>/ops-tensor/` 作为 Blaze 源码事实根；它与 `<project-root>/operators/` 同级。不得回退读取算子目录内、其他项目或历史工程的 ops-tensor。`project_contract_id` 是逻辑合同 ID，不是路径变量。
+只把 `<project-root>/ops-tensor/` 作为 Blaze 源码事实根；它与 `<project-root>/operators/` 同级。不得回退读取算子目录内、其他项目或历史工程的 ops-tensor；经 Step 1 按获取级别登记并复制到该位置的本地预置源，不属于回退读取。`project_contract_id` 是逻辑合同 ID，不是路径变量。
 
 统一使用以下模板；本文中的 DESIGN、PLAN 分别指其生成的 `DESIGN.md`、`PLAN.md`：
 
 - [Blaze DESIGN 模板](references/kernel-design/blaze-design-template.md)
 - [Blaze PLAN 模板](references/kernel-design/blaze-plan-template.md)
 
-Blaze skill 不读取或依赖 `environment.md`、外部 manifest 或其他工作流产物。调用方可以直接传入已经确认的 `target_chip`、`npu_arch` 和可选 `cann_version`。
+Blaze skill 不读取或依赖 `environment.md`、外部 manifest 或其他工作流产物。调用方可以直接传入已经确认的 `target_chip`、`npu_arch`、可选 `cann_version` 和可选 `local_blaze_source`（本地预置 ops-tensor 的绝对路径）。
 
 `assets/` 是本 Skill 的版本化可复用资产来源：普通算子 Step 4 将其视为只读
 结构起点并复制到项目内适配；只有明确的 Skill 维护计划才可直接修复资产原文件，
@@ -53,7 +53,7 @@ Blaze skill 不读取或依赖 `environment.md`、外部 manifest 或其他工�
 
 ### Step 1: Project Setup
 
-创建 `operator_root`，在 `blaze_source_root` clone 或更新授权 ops-tensor，递归初始化 submodule，确认抽象版本一致性，并建立根源码、项目 Blaze 副本、项目 tensor_api 副本三个只读区。不要预先实现公式、Tiling、Golden、固定工程或场景 recipe。
+创建 `operator_root`，在 `blaze_source_root` clone、从本地预置源（`<project-root>/.cannbot/ops-tensor` 或调用方传入的 `local_blaze_source`）复制或更新授权 ops-tensor，递归初始化 submodule，确认抽象版本一致性，并建立根源码、项目 Blaze 副本、项目 tensor_api 副本三个只读区。不要预先实现公式、Tiling、Golden、固定工程或场景 recipe。
 
 → [Step 1: Project Setup](references/workflow/step1-project-setup.md)
 
