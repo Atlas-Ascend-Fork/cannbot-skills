@@ -179,7 +179,7 @@ npu-smi info -t usages -i <device_id>
 ## 5. 第三层 冒烟 — 整体算子生成能力（建设中）
 
 - **定位**：三层看护的第三层，对接 cann-bench，看护「AI 生成算子代码 → 编译 → 精度 → 性能」端到端能力，是代码上库后的**长期防线**
-- **已具备**：① benchmark 批量评测框架（`tests/benchmark/run_eval.py`，提示词→多 Agent 生成→编译→评分→whl）；② cann_bench 模式已接入合入门禁（`gate_check.sh` 自动 clone cann-bench）；③ 历史 A5 记录包含 `ops-direct-invoke`（mish）、`ops-direct-invoke-flash`（mish、sigmoid）3 个用例；其中 `ops-direct-invoke` 旧插件已于 2026-10-23 迁出，现行入口见 [cannbot](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke)
+- **已具备**：① benchmark 批量评测框架（`tests/benchmark/run_eval.py`，提示词→多 Agent 生成→编译→评分→whl）；② cann_bench 模式已接入合入门禁（`gate_check.sh` 自动 clone cann-bench）；③ 历史 A5 记录包含 `ops-direct-invoke`（mish）、`ops-direct-invoke-flash`（mish、sigmoid）3 个用例；其中 `ops-direct-invoke` 旧插件已于 2026-10-23 迁出、`ops-direct-invoke-flash` 旧插件已于 2026-10-29 迁出，现行入口见 [cannbot](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke)
 - **下一步**：补齐 Daily 周期调度 → 扩展算子覆盖面（level1~level3）→ 建立长期趋势报告与异常告警
 
 ---
@@ -189,6 +189,8 @@ npu-smi info -t usages -i <device_id>
 > 统计口径：**代码仓内所有符合结构要求的 Skill/Team**（Skill 含 `SKILL.md`；Team 含 `AGENTS.md` + `.claude-plugin/plugin.json`），与是否携带 evals **无关**——无 evals 的实体计 0 用例。用例数仅统计已启用（`config.disabled` 非 true）。数据源：2026-08-29 的 `ST_COVERAGE_REPORT.md` 历史快照。以下数字不代表当前仓库全量。
 
 > 2026-10-23 本次清理仅带来 `ops-direct-invoke` Team 减少 1、启用用例变化 0、公共 Skill 数不变；本次未重新统计完整覆盖数据。
+
+> 2026-10-29 本次清理带来 `ops-perf-optimize`、`ops-direct-invoke-flash` 两个 Team 各减少 1（后者迁出 9 个启用用例），公共 Skill 数不变；本次未重新统计完整覆盖数据。
 
 | 覆盖对象        |                                数量                                |
 | --------------- | :----------------------------------------------------------------: |

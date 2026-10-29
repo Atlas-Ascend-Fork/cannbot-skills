@@ -143,7 +143,7 @@ export function findPlugin(
   if (aliasMatch) return aliasMatch;
 
   // A removed plugin must not resolve to a different local plugin by prefix
-  // (e.g. ops-direct-invoke -> ops-direct-invoke-flash during fallback).
+  // during fallback.
   if (!wantCannbot && tombstone) return undefined;
 
   if (wantCannbot) {

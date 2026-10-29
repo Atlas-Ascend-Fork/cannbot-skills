@@ -5,6 +5,7 @@
 ### 【2026-10-29】
 #### 变更 Changes
 - 【插件清理】删除 `plugins-official/ops-perf-optimize` 旧副本与本地市场、安装清单入口，统一由 cannbot 应用仓维护；保留公共性能 Skills，安装助手保留原插件名及别名并委托 cannbot 安装，同步迁移说明与 ST 统计。
+- 【插件清理】删除 `plugins-official/ops-direct-invoke-flash` 旧副本与本地市场、安装清单入口，统一由 cannbot 应用仓维护；安装助手保留原插件名及 `flash`、`kernel-flash` 别名并委托 cannbot 安装，同步迁移说明与 ST 统计。
 
 ### 【2026-10-28】
 #### 变更 Changes

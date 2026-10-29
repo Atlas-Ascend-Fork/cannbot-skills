@@ -75,25 +75,25 @@ function cannbotPluginEntry(id: string): PluginEntry {
   };
 }
 
-/** Creates a minimal skills-repo checkout holding the frozen local copy of
- *  ops-direct-invoke-flash: the plugin-local skill, the reviewer agent and
- *  the AGENTS.md referenced by the embedded registry entry (the ops/ and
- *  infra/ installSkills sources are intentionally absent — a frozen
- *  pre-migration snapshot may lag behind the cannbot release). */
+/** Creates a minimal skills-repo checkout holding a local copy of
+ *  torch-compile: one graph skill, the agent and the AGENTS.md referenced by
+ *  the embedded registry entry (the other graph/ installSkills sources are
+ *  intentionally absent — a frozen snapshot may lag behind the cannbot
+ *  release). */
 function makeLocalSkillsRepo(): string {
   const repo = join(testDir, "skills-repo");
-  const pluginDir = join(repo, "plugins-official", "ops-direct-invoke-flash");
-  mkdirSync(join(pluginDir, "skills", "ops-direct-invoke-flash"), { recursive: true });
+  mkdirSync(join(repo, "graph", "torch-npugraph-ex-knowledge"), { recursive: true });
   writeFileSync(
-    join(pluginDir, "skills", "ops-direct-invoke-flash", "SKILL.md"),
-    "---\nname: ops-direct-invoke-flash\ndescription: frozen local copy\n---\n# frozen local copy\n"
+    join(repo, "graph", "torch-npugraph-ex-knowledge", "SKILL.md"),
+    "---\nname: torch-npugraph-ex-knowledge\ndescription: frozen local copy\n---\n# frozen local copy\n"
   );
+  const pluginDir = join(repo, "plugins-official", "torch-compile");
   mkdirSync(join(pluginDir, "agents"), { recursive: true });
   writeFileSync(
-    join(pluginDir, "agents", "ops-direct-invoke-flash-reviewer.md"),
-    "---\nname: ops-direct-invoke-flash-reviewer\ndescription: reviewer\n---\nbody\n"
+    join(pluginDir, "agents", "torch-npugraph-ex.md"),
+    "---\nname: torch-npugraph-ex\ndescription: agent\n---\nbody\n"
   );
-  writeFileSync(join(pluginDir, "AGENTS.md"), "# ops-direct-invoke-flash local instructions\n");
+  writeFileSync(join(pluginDir, "AGENTS.md"), "# torch-compile local instructions\n");
   return repo;
 }
 
@@ -390,8 +390,8 @@ describe("cannbot-delegate", () => {
 
   it("installPluginRouted falls back to the local legacy entry when the tool is outside the delegation matrix", async () => {
     // qoder is not in DELEGATE_TOOLS: an implicit cannbot-first resolution
-    // must fall back to the frozen local copy and produce the legacy layout
-    useFakeInstaller("ops-direct-invoke-flash");
+    // must fall back to the local copy and produce the legacy layout
+    useFakeInstaller("torch-compile");
     const repo = makeLocalSkillsRepo();
     const target = join(testDir, "fallback-qoder-project");
     mkdirSync(target, { recursive: true });
@@ -399,13 +399,13 @@ describe("cannbot-delegate", () => {
 
     const { installPluginRouted } = await import("../src/core/cannbot-delegate.js");
     const result = await installPluginRouted({
-      pluginId: "ops-direct-invoke-flash",
+      pluginId: "torch-compile",
       tool: "qoder",
       level: "project",
       repoPath: repo,
       installPath: target,
       yes: true,
-      plugin: cannbotPluginEntry("ops-direct-invoke-flash"),
+      plugin: cannbotPluginEntry("torch-compile"),
     });
 
     expect(result.errors).toEqual([]);
@@ -413,8 +413,8 @@ describe("cannbot-delegate", () => {
     expect(result.skillsCount).toBe(1);
     expect(result.agentsCount).toBe(1);
     // legacy qoder layout: skills under .qoder/skills, agents as real copies
-    expect(existsSync(join(target, ".qoder", "skills", "ops-direct-invoke-flash", "SKILL.md"))).toBe(true);
-    expect(existsSync(join(target, ".qoder", "agents", "ops-direct-invoke-flash-reviewer.md"))).toBe(true);
+    expect(existsSync(join(target, ".qoder", "skills", "torch-npugraph-ex-knowledge", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(target, ".qoder", "agents", "torch-npugraph-ex.md"))).toBe(true);
     // legacy project-root instructions file, no cannbot registry artifacts
     expect(existsSync(join(target, "AGENTS.md"))).toBe(true);
     expect(existsSync(join(target, ".qoder", "cannbot-plugin.json"))).toBe(false);
@@ -427,22 +427,22 @@ describe("cannbot-delegate", () => {
     // upstream delegation is project-only: a global-level request for a
     // cannbot-resolved plugin falls back to the local copy and installs into
     // the legacy global skills root (~/.config/opencode/skills)
-    useFakeInstaller("ops-direct-invoke-flash");
+    useFakeInstaller("torch-compile");
     const repo = makeLocalSkillsRepo();
 
     const { installPluginRouted } = await import("../src/core/cannbot-delegate.js");
     const result = await installPluginRouted({
-      pluginId: "ops-direct-invoke-flash",
+      pluginId: "torch-compile",
       tool: "opencode",
       level: "global",
       repoPath: repo,
       yes: true,
-      plugin: cannbotPluginEntry("ops-direct-invoke-flash"),
+      plugin: cannbotPluginEntry("torch-compile"),
     });
 
     expect(result.errors).toEqual([]);
     expect(result.success).toBe(true);
-    expect(existsSync(join(sandboxHome, ".config", "opencode", "skills", "ops-direct-invoke-flash", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(sandboxHome, ".config", "opencode", "skills", "torch-npugraph-ex-knowledge", "SKILL.md"))).toBe(true);
     expect(existsSync(join(sandboxHome, ".config", "opencode", "AGENTS.md"))).toBe(true);
     // the fallback warning carries the level-boundary reason
     expect(result.warnings.join(" ")).toContain("仅支持 project 级安装");
@@ -452,20 +452,20 @@ describe("cannbot-delegate", () => {
   it("explicit --source cannbot keeps the hard error for unsupported tools", async () => {
     // even with a local copy available, an explicit --source cannbot must
     // not silently downgrade to it — the boundary error stays final
-    useFakeInstaller("ops-direct-invoke-flash");
+    useFakeInstaller("torch-compile");
     makeLocalSkillsRepo();
     const target = join(testDir, "explicit-cannbot-qoder");
     mkdirSync(target, { recursive: true });
 
     const { installPluginRouted } = await import("../src/core/cannbot-delegate.js");
     const result = await installPluginRouted({
-      pluginId: "ops-direct-invoke-flash",
+      pluginId: "torch-compile",
       tool: "qoder",
       level: "project",
       repoPath: join(testDir, "skills-repo"),
       installPath: target,
       source: "cannbot",
-      plugin: cannbotPluginEntry("ops-direct-invoke-flash"),
+      plugin: cannbotPluginEntry("torch-compile"),
     });
 
     expect(result.success).toBe(false);

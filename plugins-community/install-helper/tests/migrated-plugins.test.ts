@@ -267,15 +267,31 @@ describe("migrated plugins — discovery (findPlugin)", () => {
       expect(plugin?.source).toBe("cannbot");
       expect(findPlugin(name, { source: "skills" })).toBeUndefined();
     }
-    for (const name of ["ops-direct-invoke-flash", "flash", "kernel-flash", "ops-direct-invoke-fl"]) {
-      expect(findPlugin(name, { source: "skills" })?.id).toBe("ops-direct-invoke-flash");
-    }
     expect(isMigratedPlugin("ops-direct-invoke")).toBe(true);
     expect(getAllPlugins().filter((p) => p.id === "ops-direct-invoke")).toHaveLength(1);
 
     setCannbotPlugins([cannbotEntry("ops-direct-invoke")]);
     expect(findPlugin("ops-direct-invoke")?.version).toBe("9.9.9");
     expect(getAllPlugins().filter((p) => p.id === "ops-direct-invoke")).toHaveLength(1);
+  });
+
+  it("resolves direct-invoke-flash and its historical aliases only from cannbot", async () => {
+    const { findPlugin, getAllPlugins, setCannbotPlugins } = await import("../src/core/registry.js");
+    const { isMigratedPlugin } = await import("../src/core/migrated-plugins.js");
+    setCannbotPlugins([]);
+
+    for (const name of ["ops-direct-invoke-flash", "flash", "kernel-flash", "ops-direct-invoke-fl"]) {
+      const plugin = findPlugin(name);
+      expect(plugin?.id).toBe("ops-direct-invoke-flash");
+      expect(plugin?.source).toBe("cannbot");
+      expect(findPlugin(name, { source: "skills" })).toBeUndefined();
+    }
+    expect(isMigratedPlugin("ops-direct-invoke-flash")).toBe(true);
+    expect(getAllPlugins().filter((p) => p.id === "ops-direct-invoke-flash")).toHaveLength(1);
+
+    setCannbotPlugins([cannbotEntry("ops-direct-invoke-flash")]);
+    expect(findPlugin("ops-direct-invoke-flash")?.version).toBe("9.9.9");
+    expect(getAllPlugins().filter((p) => p.id === "ops-direct-invoke-flash")).toHaveLength(1);
   });
 
   it("resolves perf-optimize and its historical aliases only from cannbot", async () => {

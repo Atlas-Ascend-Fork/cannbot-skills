@@ -6,6 +6,8 @@
 
 > **2026-10-29 迁出增量**：删除 `ops-perf-optimize` 旧副本，Team 再减少 1；该副本没有 `evals/evals.json`，启用用例变化为 0，公共 Skill 数不变。下表保留历史条目并标注迁出，未重新生成全量报告。
 
+> **2026-10-29 迁出增量（Flash）**：删除 `ops-direct-invoke-flash` 旧副本（含 `evals/evals.json`，9 个启用用例），Team 再减少 1；本仓统计不再包含该 9 个用例，下表保留历史条目并标注迁出，未重新生成全量报告。
+
 > **统计口径**：统计代码仓内所有符合结构要求的 Skill（`skill_dirs` 下含 `SKILL.md`）与 Team（`team_dirs` 下含 `AGENTS.md` + `.claude-plugin/plugin.json`），与是否携带 `evals/evals.json` 无关——无 evals 的实体用例数计 0。
 
 ## 1. 五维看护说明
@@ -176,7 +178,7 @@
 | catlass-op-generator | 0 |   |   |   |   |   |
 | model-infer-optimize | 7 | √ |   | √ |   | √ |
 | [ops-direct-invoke（2026-10-23 已迁出）](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke) | 0 |   |   |   |   |   |
-| ops-direct-invoke-flash | 9 | √ |   | √ |   | √ |
+| [ops-direct-invoke-flash（2026-10-29 已迁出）](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke-flash) | 9 | √ |   | √ |   | √ |
 | ops-registry-invoke | 13 | √ |   | √ | √ | √ |
 | pypto-op-orchestrator | 3 | √ |   | √ |   | √ |
 | tilelang-op-orchestrator | 3 | √ |   | √ |   | √ |

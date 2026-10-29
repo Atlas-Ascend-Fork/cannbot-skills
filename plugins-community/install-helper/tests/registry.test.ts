@@ -58,6 +58,7 @@ describe("registry", () => {
     const plugin = findPlugin("flash");
     expect(plugin).toBeDefined();
     expect(plugin!.id).toBe("ops-direct-invoke-flash");
+    expect(plugin!.source).toBe("cannbot");
   });
 
   it("findPlugin finds by prefix", async () => {
@@ -65,6 +66,7 @@ describe("registry", () => {
     const plugin = findPlugin("ops-direct-invoke-fl");
     expect(plugin).toBeDefined();
     expect(plugin!.id).toBe("ops-direct-invoke-flash");
+    expect(plugin!.source).toBe("cannbot");
   });
 
   it("findPlugin returns undefined for non-existent", async () => {

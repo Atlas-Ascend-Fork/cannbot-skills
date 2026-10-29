@@ -295,7 +295,7 @@ describe.skipIf(!isLinux || !scriptAvailable)("interactive install (real PTY)", 
   it("A: install without --yes prompts for an unowned AGENTS.md; Enter keeps it", async () => {
     const { sandbox, project, env } = makeProject("a");
     const session = new PtySession(process.execPath, [
-      CLI_PATH, "install", "ops-direct-invoke-flash", "--tool", "opencode", "--level", "project",
+      CLI_PATH, "install", "torch-compile", "--tool", "opencode", "--level", "project",
     ], { cwd: project, env });
     try {
       await session.expect("检测到非 CANNBot 安装的配置文件", 180_000);
@@ -306,7 +306,7 @@ describe.skipIf(!isLinux || !scriptAvailable)("interactive install (real PTY)", 
 
       expect(readFileSync(join(project, "AGENTS.md"), "utf-8")).toBe("# User config\nKeep me safe.\n");
       expect(lstatSync(join(project, "AGENTS.md")).isSymbolicLink()).toBe(false);
-      expect(existsSync(join(project, ".opencode", "skills", "ops-direct-invoke-flash"))).toBe(true);
+      expect(existsSync(join(project, ".opencode", "skills", "torch-npugraph-ex-knowledge"))).toBe(true);
       expect(existsSync(join(project, ".opencode", "AGENTS.md"))).toBe(true);
     } finally {
       session.close();
@@ -318,7 +318,7 @@ describe.skipIf(!isLinux || !scriptAvailable)("interactive install (real PTY)", 
     const { sandbox, project, env } = makeProject("b");
     try {
       const install = new PtySession(process.execPath, [
-        CLI_PATH, "install", "ops-direct-invoke-flash", "--tool", "opencode", "--level", "project",
+        CLI_PATH, "install", "torch-compile", "--tool", "opencode", "--level", "project",
       ], { cwd: project, env });
       try {
         await install.expect("检测到非 CANNBot 安装的配置文件", 180_000);
@@ -337,7 +337,7 @@ describe.skipIf(!isLinux || !scriptAvailable)("interactive install (real PTY)", 
       expect(readFileSync(join(project, backups[0]), "utf-8")).toBe("# User config\nKeep me safe.\n");
 
       const uninstall = new PtySession(process.execPath, [
-        CLI_PATH, "uninstall", "ops-direct-invoke-flash", "--tool", "opencode", "--level", "project",
+        CLI_PATH, "uninstall", "torch-compile", "--tool", "opencode", "--level", "project",
       ], { cwd: project, env });
       try {
         await uninstall.expect("恢复用户文件", 120_000);
@@ -352,7 +352,7 @@ describe.skipIf(!isLinux || !scriptAvailable)("interactive install (real PTY)", 
       expect(readFileSync(join(project, "AGENTS.md"), "utf-8")).toBe("# User config\nKeep me safe.\n");
       expect(lstatSync(join(project, "AGENTS.md")).isSymbolicLink()).toBe(false);
       expect(readdirSync(project).filter((f) => f.includes(".cannbot-backup.")).length).toBe(0);
-      expect(existsSync(join(project, ".opencode", "skills", "ops-direct-invoke-flash"))).toBe(false);
+      expect(existsSync(join(project, ".opencode", "skills", "torch-npugraph-ex-knowledge"))).toBe(false);
     } finally {
       rmSync(sandbox, { recursive: true, force: true });
     }
@@ -365,16 +365,16 @@ describe.skipIf(!isLinux || !scriptAvailable)("interactive install (real PTY)", 
       await pickIndexed(session, "选择安装类型", "安装 Plugin");
       await pickOpenCode(session);
       await pickIndexed(session, "选择安装位置", "project");
-      const pluginCtx = await pickIndexed(session, "选择要安装的插件", "快速版", "[cannbot]");
+      const pluginCtx = await pickIndexed(session, "选择要安装的插件", "torch.compile 图模式", "[cannbot]");
 
       // confirm step: summary must reflect tool / level / plugin
       await session.expect("[4/4]", 60_000);
       const confirmCtx = await session.expect("❯", 60_000);
       const flat = stripAnsi(confirmCtx);
       expect(flat).toContain("project");
-      expect(flat).toContain("快速版");
+      expect(flat).toContain("torch.compile 图模式");
       expect(flat).toContain("OpenCode");
-      expect(stripAnsi(pluginCtx)).toContain("快速版");
+      expect(stripAnsi(pluginCtx)).toContain("torch.compile 图模式");
       session.send("\r"); // 确认安装
 
       await session.expect("检测到非 CANNBot 安装的配置文件", 180_000);
@@ -385,7 +385,7 @@ describe.skipIf(!isLinux || !scriptAvailable)("interactive install (real PTY)", 
 
       expect(readFileSync(join(project, "AGENTS.md"), "utf-8")).toBe("# User config\nKeep me safe.\n");
       expect(lstatSync(join(project, "AGENTS.md")).isSymbolicLink()).toBe(false);
-      expect(existsSync(join(project, ".opencode", "skills", "ops-direct-invoke-flash"))).toBe(true);
+      expect(existsSync(join(project, ".opencode", "skills", "torch-npugraph-ex-knowledge"))).toBe(true);
       expect(existsSync(join(project, ".opencode", "AGENTS.md"))).toBe(true);
     } finally {
       session.close();
@@ -397,7 +397,7 @@ describe.skipIf(!isLinux || !scriptAvailable)("interactive install (real PTY)", 
     const { sandbox, project, env } = makeProject("d");
     env.CANNBOT_QODER_LAYOUT = "cli"; // deterministic even without qodercn on PATH
     const session = new PtySession(process.execPath, [
-      CLI_PATH, "install", "ops-direct-invoke-flash", "--tool", "qoder", "--level", "project",
+      CLI_PATH, "install", "torch-compile", "--tool", "qoder", "--level", "project",
     ], { cwd: project, env });
     try {
       await session.expect("检测到非 CANNBot 安装的配置文件", 180_000);
@@ -407,8 +407,8 @@ describe.skipIf(!isLinux || !scriptAvailable)("interactive install (real PTY)", 
       expect(await session.waitForExit()).toBe(0);
 
       // qodercn layout: skills in .qoder/skills, agents as copies in .qoder/agents
-      expect(existsSync(join(project, ".qoder", "skills", "ops-direct-invoke-flash"))).toBe(true);
-      const agentPath = join(project, ".qoder", "agents", "ops-direct-invoke-flash-reviewer.md");
+      expect(existsSync(join(project, ".qoder", "skills", "torch-npugraph-ex-knowledge"))).toBe(true);
+      const agentPath = join(project, ".qoder", "agents", "torch-npugraph-ex.md");
       expect(existsSync(agentPath)).toBe(true);
       expect(lstatSync(agentPath).isSymbolicLink()).toBe(false);
       // project-root AGENTS.md (qodercn memory) preserved as the user's file

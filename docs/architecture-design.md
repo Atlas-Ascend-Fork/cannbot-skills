@@ -15,7 +15,6 @@ cannbot-skills/
 ├── graph/                           # 图模式 Skills
 ├── runtime/                         # Runtime Skills
 ├── plugins-official/                # 官方应用 Plugins
-│   ├── ops-direct-invoke-flash/     # AscendC Kernel 直调开发（Flash 版）
 │   ├── ops-registry-invoke/         # AscendC 算子注册调用开发
 │   ├── pypto-op-orchestrator/       # PyPTO 算子开发
 │   ├── torch-compile/               # torch.compile 图模式
@@ -32,7 +31,7 @@ cannbot-skills/
 └── tests/                           # 自动化测试框架
 ```
 
-> `ops-direct-invoke` 已迁至 [cannbot 应用仓](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke)，不再位于本仓目录树中。
+> `ops-direct-invoke`、`ops-direct-invoke-flash` 已迁至 cannbot 应用仓（[直调](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke) / [快速版](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke-flash)），不再位于本仓目录树中。
 
 ## 逻辑架构视图
 

@@ -124,7 +124,6 @@ const STATIC_SKILL_CATEGORIES: SkillCategory[] = [
       { id: "catlass-op-design", description: "Catlass 算子设计", source: "ops" },
       { id: "catlass-op-develop", description: "Catlass 算子开发", source: "ops" },
       { id: "catlass-op-perf-tune", description: "Catlass 性能调优", source: "ops" },
-      { id: "ops-direct-invoke-flash", description: "从零构建 Ascend C 核函数", source: "plugins-official/ops-direct-invoke-flash/skills" },
     ],
   },
   {

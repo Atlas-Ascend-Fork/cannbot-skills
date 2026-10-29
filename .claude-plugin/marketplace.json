@@ -332,25 +332,6 @@
       ]
     },
     {
-      "name": "ops-direct-invoke-flash",
-      "source": "./plugins-official/ops-direct-invoke-flash",
-      "description": "Ascend C / Ascend950 Reg API Kernel 从零构建 Skill。支持从 CPU 函数、数学公式、代码片段或文本描述出发，文档先行设计、分阶段实现、本地 + 远程 NPU 验证，并由子 Agent 评审；首装拉取 asc-devkit / cann-samples 参考仓库（离线可降级）。",
-      "version": "1.2.2",
-      "author": {
-        "name": "CANNBot"
-      },
-      "keywords": [
-        "ascend-c",
-        "reg-api",
-        "ascend950",
-        "kernel",
-        "operator",
-        "from-scratch"
-      ],
-      "category": "development",
-      "dependencies": []
-    },
-    {
       "name": "ops-registry-invoke-skills",
       "description": "Ascend C 注册调用算子开发 Skills（21 个）。API 检索、Tiling 设计、精度调试、性能采集、环境检查、代码模板、测试设计、UT 开发等。",
       "source": "./ops",

@@ -20,7 +20,7 @@ CANNBot 是 [CANN](https://hiascend.com/software/cann) 社区的 Infra 智能体
 
 **面向用户**：CANN / 昇腾 NPU 各领域开发者（算子开发、图模式、模型推理、Runtime 等），同时欢迎社区开发者共建 Skills 和 Agents。
 
-> 📣 **迁移公告**：本仓 `plugins-official/` 与 `plugins-community/` 插件正逐步迁移至应用仓 [cannbot](https://gitcode.com/cann/cannbot) 统一维护。已迁移：官方 `ops-direct-invoke`、`ops-registry-invoke`、`ops-perf-optimize`、`model-infer-optimize`，社区 `collaborative-agent-kernel-evolution`、`tilelang2ascendc-ops-generator`。`ops-direct-invoke`、`ops-perf-optimize`、`ascendc-port-orchestrator`、`collaborative-agent-kernel-evolution` 的本仓副本已删除，其余已迁移插件在本仓冻结，一段时间后删除；`install.sh` / `install-helper` 将已迁移插件交由 cannbot 的已发布安装包提供，支持的工具与安装级别以安装助手及应用仓说明为准。
+> 📣 **迁移公告**：本仓 `plugins-official/` 与 `plugins-community/` 插件正逐步迁移至应用仓 [cannbot](https://gitcode.com/cann/cannbot) 统一维护。已迁移：官方 `ops-direct-invoke`、`ops-direct-invoke-flash`、`ops-registry-invoke`、`ops-perf-optimize`、`model-infer-optimize`，社区 `collaborative-agent-kernel-evolution`、`tilelang2ascendc-ops-generator`。`ops-direct-invoke`、`ops-direct-invoke-flash`、`ops-perf-optimize`、`ascendc-port-orchestrator`、`collaborative-agent-kernel-evolution` 的本仓副本已删除，其余已迁移插件在本仓冻结，一段时间后删除；`install.sh` / `install-helper` 将已迁移插件交由 cannbot 的已发布安装包提供，支持的工具与安装级别以安装助手及应用仓说明为准。
 
 ## 🚀 快速开始
 
@@ -75,7 +75,7 @@ npx skills add https://gitcode.com/cann/cannbot-skills.git --skill ascendc-env-c
 
 | 领域 / 路径 | 适用场景 | 入口插件 |
 |------------|---------|---------|
-| **Ascend C 直调** | `<<<>>>` 直接调用核函数 | [ops-direct-invoke（cannbot）](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke) / [ops-direct-invoke-flash](plugins-official/ops-direct-invoke-flash/AGENTS.md) |
+| **Ascend C 直调** | `<<<>>>` 直接调用核函数 | [ops-direct-invoke（cannbot）](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke) / [ops-direct-invoke-flash（cannbot）](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke-flash) |
 | **Ascend C 注册调用** | ACLNN/GEIR 接入框架的标准算子 | [ops-registry-invoke](plugins-official/ops-registry-invoke/AGENTS.md) |
 | **Catlass** | CATLASS C++ 算子五阶段工作流 | [六个 CATLASS C++ Skills](ops/catlass-cpp-interface/SKILL.md)（插件入口位于 [cannbot](https://gitcode.com/cann/cannbot/tree/master/plugins-official/catlass-op-generator)） |
 | **PyPTO** | 昇腾原生 Python Tile 算子编程 | [pypto-op-orchestrator](plugins-official/pypto-op-orchestrator/AGENTS.md) |

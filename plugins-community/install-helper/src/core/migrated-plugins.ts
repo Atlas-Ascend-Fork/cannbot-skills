@@ -38,6 +38,17 @@ export const MIGRATED_PLUGINS: PluginEntry[] = [
     source: "cannbot",
   },
   {
+    id: "ops-direct-invoke-flash",
+    dir: "",
+    displayName: "AscendC Kernel 直调（快速版）",
+    script: "cannbot",
+    aliases: ["flash", "kernel-flash"],
+    skills: 7,
+    agents: 1,
+    description: "从数学公式或代码片段快速构建 Ascend C 核函数的工作流；已迁移至 cannbot 仓，经托管安装器安装（仅 project 级）",
+    source: "cannbot",
+  },
+  {
     id: "triton-op-generator",
     dir: "",
     displayName: "Triton 算子开发",
