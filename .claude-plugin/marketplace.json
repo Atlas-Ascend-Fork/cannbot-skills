@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "ops-direct-invoke-skills",
-      "description": "Ascend C Kernel 直调算子开发 Skills（40+ 个）。API 检索、Tiling 设计、精度调试、性能采集、环境检查、代码模板等。",
+      "description": "Ascend C Kernel 直调算子开发 Skills（40+ 个）。API 检索、Tiling 设计、Tensor API/Blaze 路线、精度调试、性能采集、环境检查、代码模板等。",
       "source": "./ops",
       "strict": false,
       "version": "1.0.5",
@@ -44,7 +44,28 @@
         "./ops-simulator",
         "./ascendc-docs-gen",
         "./ascendc-whitebox-design",
-        "./ascendc-ut-develop"
+        "./ascendc-ut-develop",
+        "./ascendc-tensor-api-best-practice"
+      ]
+    },
+    {
+      "name": "ascendc-tensor-api-best-practice",
+      "description": "在 Ascend 950 / DAV_3510 上用户明确指定 Tensor API 时的实现路线权威源（硬约束，不由 Blaze 优先选型改写），Tensor API 为主、C API 为辅，覆盖 API 分工、Layout、内存预算、工具链、精度与性能。",
+      "source": "./ops",
+      "strict": false,
+      "version": "1.0.0",
+      "author": {
+        "name": "CANNBot"
+      },
+      "keywords": [
+        "tensor-api",
+        "ascend950",
+        "dav-3510",
+        "ascendc"
+      ],
+      "category": "skills",
+      "skills": [
+        "./ascendc-tensor-api-best-practice"
       ]
     },
     {

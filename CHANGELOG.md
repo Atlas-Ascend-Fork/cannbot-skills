@@ -14,6 +14,10 @@
 #### 新特性 New Features
 - 【算子生成】`plugins-community/catlass-dsl-generator` 新增骨架门禁、探针与调研预算、无性能目标时三轮性能收口，沉淀 14 条实现模式知识条目。
 
+### 【2026-10-24】
+#### 新特性 New Features
+- 【算子】新增 `ascendc-tensor-api-best-practice`：在 Ascend 950 / DAV_3510 上用户明确指定 Tensor API 时的实现路线权威源（硬约束，不由 Blaze 优先选型改写），Tensor API 为主、C API 为辅，覆盖 API 分工、数据流与 Layout、内存预算、工具链、精度、性能以及无真机验证、环境矩阵与验收检视清单。
+
 ### 【2026-10-23】
 #### 变更 Changes
 - 【插件清理】删除 `plugins-official/ops-direct-invoke` 旧副本及注册、测试入口，统一指向 [cannbot 应用仓](https://gitcode.com/cann/cannbot/tree/master/plugins-official/ops-direct-invoke)；保留公共 Skills 与 Flash 插件，同步安装说明与 ST 统计。
