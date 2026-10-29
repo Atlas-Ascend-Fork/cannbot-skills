@@ -69,6 +69,7 @@ FA按[分层参考资料](references/flash_attention/arch35/guide.md#从语义�
 |---------|---------|------|
 | **数据依赖写与重复目标归约** | arch22 / arch35 的通用算法选路；具体 API 和收益按目标核验 | [目标所有权、暂存分组与数值顺序](references/common/indexed_write_reduction.md) |
 | **尾块处理（Tail Block）** | arch35；数据量不能被 tile 大小整除 | [尾块处理指南](references/common/arch35/tail_block_design.md) |
+| **小 shape / 时延主导（latency-bound）优化** | arch35；单 case 约 1–10us、固定开销主导：测空核 floor/roofline，逐杆单变量 A/B 与退化即回滚 | [小 shape 时延优化指南](references/common/arch35/small_shape/index.md) |
 | **数据搬运（DataCopy）** | arch22；910B 搬运经验，A3 需复验 | [数据搬运](references/common/arch22/datacopy_optimization_design.md) |
 | **UB/TBuf 常驻复用与 Bank 冲突** | 两代分别使用各自 bank 规则；容量与 padding 按目标取证 | [arch22 Bank 冲突](references/common/arch22/ub_bank_conflict.md) · [arch35 常驻复用与 Bank 冲突](references/common/arch35/ub_resident_design.md) |
 | **CV 融合（Cube-Vector 协同）** | arch35；Cube（MMAD）与 Vector（激活/Cast/量化/归约）需协同的融合算子：选数据通路（分离/GM中转/L0C→UB直通）、`__mix__(1,2)` 编程模型、CrossCore 同步纪律、双 AIV 分工 | ✅ [CV融合设计](references/common/arch35/cv_fusion_design.md) |

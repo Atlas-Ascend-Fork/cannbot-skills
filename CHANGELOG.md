@@ -9,6 +9,7 @@
 ### 【2026-10-27】
 #### 新特性 New Features
 - 【算子生成】`catlass-dsl-generator` 性能收口瓶颈取证前置 makespan 零成本判定（`ceil(总块数/核数) × 单块耗时` 与实测吻合即任务铺放空转，含无 profiler 时的消融取证路径），新增 `optimization/makespan-scheduling-gap` 知识条目与尾轮条目交叉引用。
+- 【算子性能】`ops/ascendc-performance-best-practices` 新增 arch35 小 shape（latency-bound）优化指南：测空核 floor/roofline、逐杆单变量 A/B 与退化即回滚、7 类可选优化杆及实测反模式。
 
 ### 【2026-10-26】
 #### 新特性 New Features
