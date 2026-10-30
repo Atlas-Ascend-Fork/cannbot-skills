@@ -10,6 +10,7 @@
 ### 【2026-10-28】
 #### 变更 Changes
 - 【算子性能进化】`plugins-community/ops-perf-evolution` 插件更名为 `ascendc-ops-perf-evolution`（目录、AGENTS.md、init.sh、市场注册与三仓安装链路同步更新），老用户按新名检索即可找到。
+- 【代码检视】完善 MC2 接口、通信计算、资源与工程测试规则，拆为四份主题文件；条款内补齐适用前提和目标版本查证要求。选规支持已确认关联的 helper，保留既有检视编排；同步目录、旧编号映射及行为评测。
 
 ### 【2026-10-27】
 #### 新特性 New Features

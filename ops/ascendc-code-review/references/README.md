@@ -27,10 +27,21 @@
 | 7 | ascendc-error-code.md | CANN错误码 | ERR | C++ | All | 必须触发（无条件启用，不参与内容筛查） | 通用分组（容量2） | 4 | ERR-1 检测 EZ0001、EZ0002、EZ0003、EZ0005、EZ0006、EZ0007 及旧宏；ERR-2 语义/注册/Arglist；ERR-3 首报唯一性；ERR-4 失败返回诊断；唯一基准 cann-error-code-standard |
 | 8 | ascendc-red-line.md | 高频问题清单 | RED | C++ | All | 必须触发（无条件启用，不参与内容筛查） | 通用分组（容量3），**最高优先级** | 10 | 生产环境总结的红线问题（除零/越界/溢出/未初始化/数据竞争等） |
 | 9 | ascendc-topk.md | 高频问题清单 | TOPK | C++ | All | 必须触发（无条件启用，不参与内容筛查） | 通用分组（容量3），**最高优先级** | 14 | 检视实践中高频风险点（野指针/特殊值/返回值校验/atomic 清零等） |
-| 10 | mc2-specific.md | 领域专项 | MC2 | C++ | Host, Kernel | 关键词触发（hccl_、expert、dispatch 等 26 个） | 通用分组（容量5） | 19 | MC² 通算融合算子：通信同步/MoE 专家路由/量化精度/CCU 硬件约束 |
+| 10 | [mc2-specific.md](mc2-specific.md) | 领域总览 | MC2 | 不限 | All | 主题文件按关键词或已确认关联关系选规 | 总览不派发；主题文件见下表 | 41（主题文件合计） | MC2 适用范围、主题文件及条款导航 |
 | 11 | ascendc-simt.md | 领域专项 | SIMT | C++ | Kernel | 关键词触发（Simt、simt_api/asc_simt.h） | 通用分组（容量5） | 15 | SIMT API C 风格转换规则（Simt::GetThreadNum→blockDim.x、VF_CALL→asc_vf_call 等 15 条 API 转换），含检视前置要求（先经 /ascendc-docs-search 查 SIMT 头文件核实转换规则）与执行流程（头文件位置/变量名冲突/参数传递/启动方式/UB 使用/线程数/VF 调用检视步骤，吸收原 simt-constraints.md 约束清单），由 simt-api-analysis.md + simt-constraints.md 合并 |
 | 12 | ascendc-kernel-rules.md | AscendC Kernel编码 | KERNEL | C++ | Kernel | 关键词触发（AscendC::、DataCopy、EnQue、TILING_KEY_IS 等 22 个） | 通用分组（容量5） | 13 | Kernel 侧编码规范（KERNEL-1~5 API 使用与硬件约定 + 6~8 TilingKey注册/派发/命名 + 9 核内同步推荐 Lock/Unlock + 10 SetFlag/WaitFlag 配对 + 11 禁 PipeBarrier<PIPE_ALL> + 12 禁 __VEC_SCOPE__ 用具名 VF 函数+asc_vf_call + 13 VF 内禁 if 分支），由 api+perf+op-conventions 合并 |
 | 13 | blaze-specific.md | 领域专项 | BLAZE | C++ | Host, Kernel | 关键词触发（blaze/、Blaze::、GemmUniversal、BlockMmad 等 14 个） | 通用分组（容量5） | 21 | Blaze 矩阵乘框架（ops-tensor）：架构分层/核心类模板参数兼容/策略注册与声明头-聚合头约定/编码约束（高阶API禁令、头文件路径与自包含、tile 转发头与 arch35 约定、名称空间、架构宏统一、Params 结构）/命名规范/Tile 层接口风格统一与对外接口严格控制/AIC-AIV Mix 同步（含核类型守卫）/交付件完整性，有 `排除场景` 声明（third_party、纯构建、纯脚本改动排除） |
+
+## MC2 主题文件
+
+| 文件 | 语言 | 侧别 | 触发机制 | 每组容量 | 条款数 |
+|---|---|---|---|---|---|
+| [mc2-interface-tiling.md](mc2-interface-tiling.md) | 不限 | All | 关键词或已确认关联，按声明排除 | 5 | 8 |
+| [mc2-communication-compute.md](mc2-communication-compute.md) | 不限 | All | 关键词或已确认关联，按声明排除 | 5 | 14 |
+| [mc2-resources-errors.md](mc2-resources-errors.md) | 不限 | All | 关键词或已确认关联，按声明排除 | 5 | 8 |
+| [mc2-integration-tests.md](mc2-integration-tests.md) | 不限 | All | 关键词或已确认关联，按声明排除 | 5 | 11 |
+
+侧别为文件级声明；选规时继续按各条款的侧别和实际变更筛选。MC2-9.8 仅检查本次公共修改对调用者的影响，包含受影响的非 MC2 调用者。
 
 ## 特殊机制注记
 
@@ -39,7 +50,7 @@
 | ascendc-red-line.md / ascendc-topk.md | 最高优先级：独立成组、不参与跨条款合并、必进第一波（`steps/common.plan-design.md` Step 6.2/7） |
 | cpp-style.md | 16 条单独成 1 组（组名 style），全文 Read，结果以 yaml `category: style` 字段输出（无文本前缀），不走假设检验，违反计入报告问题数（severity 取条款声明） |
 | cpp-secure.md / ascendc-red-line.md / ascendc-topk.md | `触发: 必须触发` = 不依赖代码命中关键词，无条件激活且不参与 Step 5 内容筛查 |
-| mc2-specific.md | 有 `排除场景` 声明（纯通信中转/纯计算无集合通信时排除），plan-design Step 3 读取应用 |
+| mc2-specific.md | 总览提供主题导航；四份主题文件声明适用与排除条件，plan-design Step 3 按关键词或已确认的调用、注册、构建关系选规 |
 
 ## 维护说明
 
