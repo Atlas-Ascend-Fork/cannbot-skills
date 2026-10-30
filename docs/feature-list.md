@@ -250,6 +250,34 @@
 | **model-infer-sota-implementer** | 按 Plan 用单点技术 skill 实施单个优化并保留 enable 开关、自验证（model-infer-optimize） |
 | **model-infer-sota-reviewer** | 只复核不改码，验证 Plan 是否真实生效、精度/性能是否达验收口径（model-infer-optimize） |
 
+## 推荐模型推理优化
+
+> 以下 Skill 位于 `community/model/` 目录，属实验/非正式版本，可能存在平台或能力限制。
+> 对应的编排插件（agent / workflow / hooks / 内置 GE_SESSION_DEMO 框架）维护在 cannbot 仓 `plugins-community/recommend-infer-optimize`。
+
+### Skills（18 个）
+
+| Skill | 功能 |
+|-------|------|
+| **model-recommend-ascend-env-baseline** | 环境基线自检与工作流路由（条目 0）：NPU / CANN / GE 组件核对、GE_SESSION_DEMO 编译，约定全局产物目录 |
+| **model-recommend-baseline-run** | 单卡基线运行（条目 2）：prepare / compile / run 三步采集首基线时延、QPS、HBM 峰值与精度验证 |
+| **model-recommend-concurrency-strategy-analysis** | 并发与限核策略分析（条目 3）：给出 THREAD_NUM / CORE_NUM / GRAPH_MAX_PARALLEL / batch_size 组合并 sweep 校准 |
+| **model-recommend-custom-op-development** | 自定义算子开发与 GE 接入（条目 12）：msopgen 工程 → 算子包部署 → onnx 节点入图 → 精度与性能验证 |
+| **model-recommend-flash-attention-fusion** | FA 族融合（条目 7）：确认 GE 内置 FlashAttention 算子支持性，经图融合 pass 替换 attention 子图 |
+| **model-recommend-fusion-operator-adaptation** | 既有算子与图优化适配（条目 7）：图编译内置优化、onnx 等价改写、精度模式路由，不新增算子实现 |
+| **model-recommend-fusion-planning-estimation** | 融合规划与理论收益估计（条目 10）：Roofline bound 判定与候选排序，决定 kernel 开发优先级 |
+| **model-recommend-ge-graph-optimization** | GE 图模式与 shape 策略（条目 6）：all_static / all_dynamic / custom 选型、编译选项调优、dump_graph 验证 |
+| **model-recommend-kernel-generation** | AscendC Kernel 生成（条目 11）：msopgen 工程与 Matmul 高阶 API，产出可上机 kernel 并完成 GE 集成 |
+| **model-recommend-memory-access-optimize** | 访存优化（条目 9）：查表 / Gather / 大 GEMM / elementwise 访存链的等价改写与 kernel 侧双缓冲预取 |
+| **model-recommend-multi-thread-optimization** | 多线程与图并行（条目 8）：RunGraphAsync 并发提交、图实例并行与限核实施，sweep 三阶段寻优 |
+| **model-recommend-optimization-loop** | 持续优化循环编排（贯穿条目 5→14）：选动作 → 执行 → 采集 → 分析 → 收益判定 → 动作表更新，loop_state.json 管状态 |
+| **model-recommend-performance-analysis** | 性能分析（条目 5）：三表报告（kernel / overlap / 融合模式）、bound 判定与优化建议 |
+| **model-recommend-precision-comparison** | 精度对比门禁（条目 4）：标杆建立、verify.py 判定、dump_data 逐节点定位 |
+| **model-recommend-profiling-deep-analysis** | Profiling 四项专项（条目 5）：算子执行时间、多流掩盖、H2D/D2H 通信、host bound 分析 |
+| **model-recommend-regression-baseline-mgmt** | 回归验收与基线管理（条目 14）：优化台账、逐项三关验收、perf_ledger、最终报告与下一步动作表 |
+| **model-recommend-runtime-debug** | 运行时诊断（条目 13）：GE 初始化 / onnx 解析 / aicore timeout / OOM / 卡死 / 错误码与 plog 排查 |
+| **model-recommend-structure-analysis** | 模型结构与显存分析（条目 1）：onnx 结构档案、算子构成（AIC/AIV）、链路清单、显存估算与可执行判定 |
+
 ## NPU 模型训练精度诊断
 
 ### Skills

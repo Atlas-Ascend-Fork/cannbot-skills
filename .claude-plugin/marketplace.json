@@ -141,6 +141,45 @@
       ]
     },
     {
+      "name": "model-recommend-skills",
+      "description": "推荐模型推理整网优化 Skill（18 个）。覆盖环境基线、模型分析、单卡基线、并发与限核策略、精度门禁、性能分析与四项专项、GE 图模式、算子与图适配、FA 融合、多线程、访存、融合规划、Kernel 生成、自定义算子、运行时诊断、回归验收与持续优化循环编排。",
+      "source": "./community/model",
+      "strict": false,
+      "version": "1.0.0",
+      "author": {
+        "name": "CANNBot"
+      },
+      "keywords": [
+        "recommend",
+        "recsys",
+        "npu",
+        "inference",
+        "optimize",
+        "skills"
+      ],
+      "category": "skills",
+      "skills": [
+        "./model-recommend-ascend-env-baseline",
+        "./model-recommend-baseline-run",
+        "./model-recommend-concurrency-strategy-analysis",
+        "./model-recommend-custom-op-development",
+        "./model-recommend-flash-attention-fusion",
+        "./model-recommend-fusion-operator-adaptation",
+        "./model-recommend-fusion-planning-estimation",
+        "./model-recommend-ge-graph-optimization",
+        "./model-recommend-kernel-generation",
+        "./model-recommend-memory-access-optimize",
+        "./model-recommend-multi-thread-optimization",
+        "./model-recommend-optimization-loop",
+        "./model-recommend-performance-analysis",
+        "./model-recommend-precision-comparison",
+        "./model-recommend-profiling-deep-analysis",
+        "./model-recommend-regression-baseline-mgmt",
+        "./model-recommend-runtime-debug",
+        "./model-recommend-structure-analysis"
+      ]
+    },
+    {
       "name": "torch-npugraph-ex-skills",
       "description": "PyTorch 昇腾 NPU npugraph_ex Skills（7 个）。覆盖图模式知识、代码模板、问题分诊、编译错误、运行时错误、性能诊断和自定义算子入图。",
       "source": "./graph",
