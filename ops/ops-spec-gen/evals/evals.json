@@ -16,7 +16,7 @@
         "eval_mode": "text"
       },
       "prompt": "ops-spec-gen 技能的主要功能是什么？它有哪两种运行模式？可以加载技能，不需要执行其他外部工具调用。",
-      "expected_output": "回复应说明 ops-spec-gen 的两个主要模式：生成模式用于创建 spec.yaml 脚手架文件，校验模式用于执行 9 阶段 L0 验证以确保算子规格定义的正确性和完整性。",
+      "expected_output": "回复应说明 ops-spec-gen 的两个主要模式：生成模式用于创建 spec.yaml 脚手架文件，校验模式用于执行完整 12-stage L0 校验以确保算子规格定义的正确性和完整性。",
       "files": [],
       "expectations": []
     },

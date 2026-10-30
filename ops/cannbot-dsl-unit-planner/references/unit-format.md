@@ -24,9 +24,11 @@ unit:
     - source: <设计实际文件与章节>
       commitment: <受约束的执行域/数据通路/同步/资源/复杂度等>
       obligation_ids: [VO-U01-CORE] # 可引用自身或依赖闭包义务
-      review_evidence: [] # 或 [{artifact: <计划核对的产物>, check: <检查内容>, pass_criteria: <通过判据>}]
+      review_evidence: [] # 或 [{artifact: <计划核对的产物>, check: <检查内容>, pass_criteria: <通过判据>, reject_examples: [<看似满足但不算通过的做法>]}]
   scope:
     supported_domain: <完成时支持的布局、dtype、分支、属性、可选输入及规模>
+    domain_constraints: # 可机器校验的声明域；必填，无法写出时返回设计修订
+      - {input: <公开输入名>, metric: dimension, axis: -1, relation: multiple_of, value: 64}
     implementation_surfaces: [<设计中的模块、阶段或分支>]
     source_files: [] # 只填已确认的实际路径
     out_of_scope: [<后续能力>]
@@ -48,6 +50,15 @@ unit:
 
 `supported_domain`、`dependency_reasons`、`design_constraints` 与 `feasibility_checks` 描述实现范围与设计承诺；Unit kind 表达能力类型，检验义务使用 numerical、semantic、device。无相关设计承诺时 `design_constraints` 可为空；约束引用自身或前序义务，增量只记录新增或改变的约束。修订已有 Unit 时由规划 Agent 补充实际事实，不虚填已验证。
 
+`domain_constraints` 是 `supported_domain` 的可执行子集，测试生成节点写入 TDD 用例后会逐条核对 active 用例的 `inputs_json`（含 `execution.calls`）；用例输入越界或字段缺失即终止该节点，`expected` 为 `raises_error` 的错误路径用例不参与校验。字段含义：
+
+- `input`：公开输入名；`metric: value` 时为 spec 声明的标量属性名。
+- `metric`：`dimension`（单轴长度，须配 `axis`，支持负轴）、`numel`（元素总数）、`dtype`、`value`（标量属性值）。
+- `relation`：`eq`、`ne`、`le`、`lt`、`ge`、`gt`、`multiple_of`、`in`；`value` 为数值、字符串、布尔或列表。
+- `default`：可选，仅 `metric: value`；用例未提供该标量属性时按此值比较。
+
+只声明公开输入自身的属性，不写由多个输入推导出的量；跨输入关系（例如两维必须整除、某维不得超过另一输入的长度）无法表达的，保留在 `supported_domain` 并列为未机器校验项。本 Unit 相对前序收窄或放宽输入域时，按本 Unit 实际允许的取值声明，不照抄已失效的前序约束（例如前序要求某维等于 1、本 Unit 允许更大值时，不要继续写 `eq: 1`）。有可执行义务却无法写出任何可机器校验的约束时，按缺少依据的未决项记录并返回设计修订，不留空冒充已声明；不得用自然语言描述代替 `domain_constraints`。声明域必须覆盖设计文档中的最小合法输入；设计未给出最小输入，或最小输入与 spec 的 `shape_constraints` 冲突时，返回设计修订，不自行收窄声明域，也不通过调整用例形状迁就。
+
 关键未决项格式（置于 `implementation` 内）：
 
 ```yaml
@@ -58,7 +69,7 @@ feasibility_checks:
     required_evidence: <补证适用环境、真实形状/执行路径及成功判据>
     before_step: <本 Unit 首次依赖该能力的动作>
     obligation_ids: [<验证该补证判据的真实义务 ID>]
-    review_evidence: [] # 独立检查按 artifact/check/pass_criteria 声明
+    review_evidence: [] # 独立检查按 artifact/check/pass_criteria/reject_examples 声明
     on_failure: <返回具体设计章节，阻断本能力及依赖后继>
 ```
 
@@ -70,9 +81,9 @@ feasibility_checks:
 
 验证义务必须有可执行判定：numerical 检查独立参考结果；semantic 检查输出形状、类型、与输入的关系或可观察行为；device 检查实际设备行为。错误码行为须有公开接口异常验证。性能目标写入设计验证方案，明确测量条件与通过判据，不用普通数值验证代替性能证据；无法判定的义务应指出缺口，不能仅关联 Case ID 算覆盖。
 
-结构检查的 `check` 与 `pass_criteria` 应覆盖设计可能被数学等价路线替代的风险，`artifact` 指明源码、编译产物或外部设备证据；不以静态常量、阶段名称或 Host 按预期生成的事件自证。可执行义务中多块/复用的 `coverage_axes` 使用实际有效工作量与状态存活条件，具体判别示例见 [可实现性与边界检查](decomposition-checks.md)。
+结构检查的 `check`、`pass_criteria` 与 `reject_examples` 应覆盖设计可能被数学等价路线替代的风险，`artifact` 指明源码、编译产物或外部设备证据；不以静态常量、阶段名称或 Host 按预期生成的事件自证。`reject_examples` 至少写一条“看似满足、实际替换”的具体做法并明确判失败，只写正向存在性判据不可验收。可执行义务中多块/复用的 `coverage_axes` 使用实际有效工作量与状态存活条件，具体判别示例见 [可实现性与边界检查](decomposition-checks.md)。
 
-`design_constraints` 与 `feasibility_checks` 每项至少填写 obligation_ids 或 review_evidence，后者每项必须有 artifact、check、pass_criteria。不要只写自由文本 evidence。可测试内容写到义务，源码/编译/设备检查由调用方验收。
+`design_constraints` 与 `feasibility_checks` 每项至少填写 obligation_ids 或 review_evidence，后者每项必须有 artifact、check、pass_criteria、reject_examples（至少一条明确判失败的做法）。不要只写自由文本 evidence。可测试内容写到义务，源码/编译/设备检查由调用方验收。
 
 `input_conditions` 描述检验义务成立所需的输入事实，例如 `{input: x, metric: dimension, axis: -1, relation: ge, value: 129}`；数值取自当前设计，不使用案例中的固定阈值。metric 为 dimension（必须有 axis）、numel、count 或 unique_count；count/unique_count 可按 axis 逐行检查，并以 where 的 min（含下界）、max（不含上界）、eq 过滤有效值。过滤边界为有限数或 `{input: <公开输入名>, dimension: <轴>}`；relation 为 eq/ne/ge/gt/le/lt，value 为有限数。条件应在实际输入上成立；无法表达的事实明确证据缺口。coverage_axes 仍描述需要覆盖的完整行为，不以输入谓词替代设计符合性检查。
 

@@ -5,7 +5,7 @@ description: "生成或校验算子 spec.yaml（算子的 L0 数学约束唯一�
 
 # 算子 spec.yaml 生成与校验
 
-为 CANNBot 算子产出符合 schema 的 `spec.yaml`，并对其执行完整 12-stage L0 校验：
+为 CANNBot 算子产出符合 schema 的 `spec.yaml`，并对其执行完整 12-stage L0 校验，确保算子规格定义的正确性与完整性：
 - **stage 1** schema_static — JSON Schema 字段静态校验
 - **stage 2** category_paradigm_consistency — category↔paradigm 一致性 + paradigm_groups + paradigm 内部约束
 - **stage 3** shape_closure — numpy_expr 求值 `outputs[].shape_rule`（含 `data_dependent` 分流）
@@ -120,6 +120,8 @@ python3 scripts/generate_spec.py \
 - `math_semantics.reference_oracle.api` — 真实的 torch/numpy/scipy API 全限定名
 - `dtype_policy.supported_combinations` — 显式枚举 (input dtypes) → output dtypes
 - `numerical_tolerance.per_dtype` — 覆盖 supported_combinations 中所有 output dtype
+- 生成 spec 时，为所有数值/枚举断言建立“支持域声明表”（写入调用方的 spec 执行记录）：`shape_constraints.symbols.*.range` 的下界/上界分别成行（缺失写“未声明”）、`kind=const` 的 value、`kind=rank` 的无数值声明、`attributes.*` 的数值/枚举与默认值、`outputs.*.shape_bounds`、`dtype_policy.supported_combinations`、`numerical_tolerance.*`、`reduction.fixed_value`、`boundary_conditions`/`extreme_inputs` 的数值阈值、`global_constraints` 的跨字段关系；缺失的界不得补数。
+- 每行标注 `specified`/`derived`/`implicit`/`platform`/`implementation`/`not_applicable`；无来源不得写 `specified`；`platform`/`implementation` 作为限制记录，不得作为需求界。
 
 按需补充（生成器已自动注入按 paradigm 必含的最低 case，stage 6 通过；下面这些是把生成器的占位描述改成项目语境下的真值）：
 - `boundary_conditions` — 校核 / 补全自动注入的退化 case 描述（详见 cheatsheet §B6）
