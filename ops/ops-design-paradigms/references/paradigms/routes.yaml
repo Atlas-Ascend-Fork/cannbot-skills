@@ -39,3 +39,5 @@ routes:
       - references/paradigms/reduction/patterns.md
     Contraction:
       - references/paradigms/contraction/patterns.md
+    Histogram:
+      - references/paradigms/histogram/patterns.md
