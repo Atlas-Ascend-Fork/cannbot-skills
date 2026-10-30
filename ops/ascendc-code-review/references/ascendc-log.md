@@ -21,7 +21,7 @@
 | LOG-1 | 语义可映射时使用目标版本正式入口，不推荐治理废弃宏 | 错误码规范 | Host | 中 |
 | LOG-2 | 日志中打印算子名称必须从 TilingContext 获取，禁止自定义算子名字符串 | 日志规范 | Host | 中 |
 
-## LOG-1: 语义可映射时核验正式错误上报入口 `[适用: Host]`
+## LOG-1: 语义可映射时核验正式错误上报入口
 
 **严重级别**：中
 
@@ -55,7 +55,7 @@ OP_LOGE_FOR_INVALID_SHAPE(context->GetNodeName(), "x", actualShape, expectedShap
 
 ---
 
-## LOG-2: 日志中打印算子名称必须从 TilingContext 获取，禁止自定义算子名字符串 `[适用: Host]`
+## LOG-2: 日志中打印算子名称必须从 TilingContext 获取，禁止自定义算子名字符串
 
 **严重级别**：中
 

@@ -117,20 +117,11 @@ FAIL/SUSPICIOUS 结果必须附代码片段：
 
 ## 红线问题
 
-**Host 侧**：
-1. 除法/求余操作必须除零保护
-2. 数组访问必须越界保护
-3. 加法/乘法/减法操作必须溢出和减翻保护
-4. 指针操作必须先赋值后访问并进行指针保护
-5. 变量使用前必须有效初始化
-6. 资源申请/使用/释放必须匹配
+红线问题的唯一权威清单是 `{skill_base}/references/ascendc-red-line.md`，共 10 条，严重级别均为高。回答「有哪些红线/高危问题」类问题或执行红线检视时，必须 Read 该文件获取条款详情，禁止凭记忆或从其他文件转述：
 
-**Kernel 侧（SIMT API）**：
-1. SIMT kernel 必须将 C++ 风格 API 转换为 C 风格 API（如 `GetThreadNum` → `blockDim.x`）
-2. `Simt::UintDiv` 必须保留，禁止转换
-3. 变量名不能命名为 `threadIdx`、`blockIdx`、`blockDim`、`gridDim`
-4. 头文件 `simt_api/asc_simt.h` 必须在 namespace 外部
-5. 转换后必须通过编译验证
+- **All 侧 7 条**：RED-1 除法/余数除零保护、RED-2 数组索引校验、RED-3 有符号整数运算不溢出、RED-4 无符号整数运算不回绕、RED-5 禁止使用未初始化的变量、RED-6 指针使用前判空、RED-7 需要避免数据竞争
+- **Host 侧 1 条**：RED-8 资源泄露防护
+- **Kernel 侧 2 条**：RED-9 gm 内存偏移或大小必须用 int64 表示、RED-10 支持 superKernel 场景禁止直接对 GM 地址读写（需改用 GetValue/SetValue）
 
 ---
 
