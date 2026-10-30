@@ -29,21 +29,21 @@ gitcode-pr-handler / gitcode-toolkit skill，请先安装"，停止执行，
 从 changed_files 筛出 DSL 算子文件（`*.py`，排除测试/文档）；无算子
 文件 → 告知用户并结束。记录各文件的 diff 变更行区间。
 
-### 阶段2：派发可读性检视子 Agent
+### 阶段2：并行派发双规则线检视子 Agent
 
-同 `workflows/file-review.md` 阶段1，每个变更算子文件派 1 个子 Agent，
-**额外传入 diff 变更行区间**：FAIL/SUSPICIOUS 必须锚定区间内，区间外
-标 `out_of_diff: true` 只进附录。
+同 `workflows/file-review.md` 阶段1，每个变更算子文件派 2 个子 Agent
+（可读性线 + 执行约束线），**额外传入 diff 变更行区间**：FAIL/SUSPICIOUS
+必须锚定区间内，区间外标 `out_of_diff: true` 只进附录。
 
 ### 阶段3：撰写报告
 
 按 `steps/report-write.md` 模板输出
 `./{算子名}_pr{number}_review_report.md`，头部注明 PR 链接与
-merge_base；out_of_diff 历史问题只进附录"上下文观察"，不进统计。
+merge_base；out_of_diff 历史问题只进"上下文观察"，不进统计。
 
 报告撰写遵循与文件检视相同的三原则（清晰、可读、简洁），完整要求见
-`workflows/file-review.md` 阶段2：结论先行、全部问题一张表一行一条、
-证据链一行压缩、片段非必要不给、待确认写明确认什么、不写元信息。
+`workflows/file-review.md` 阶段2：一个小标题一条发现、结论先行、
+分组按判定语义、证据克制、待验证/待确认写清缺什么、不写元信息。
 
 ### 回评（可选）
 
