@@ -24,6 +24,21 @@ MTE 与 Vector 同步的核心机制。
 GM → MTE2 (异步) → UB → Vector (同步) → MTE3 (异步) → GM
 ```
 
+搬运单元分工（各通路的 DMA 引擎）：
+
+| 搬运单元 | 主要方向 | Ascend C 常见接口 |
+| --- | --- | --- |
+| **MTE2** | GM → UB / L1 / L0A/B | `DataCopy`, `DataCopyPad`, ND2NZ |
+| **MTE3** | UB / L1 → GM | `DataCopy`, `DataCopyPad`, NZ2ND |
+| **MTE1** | L1 → L0A / L0B | `LoadData` |
+| **FixPipe** | L0C → GM / L1 | `DataCopy`, `Fixpipe` |
+
+官方硬件说明也是这样划分：MTE2 负责 GM 向片上存储搬入，MTE3 主要负责向 GM 搬出，MTE1 负责 L1→L0A/L0B，而 FixPipe 专门处理 Cube 结果从 L0C 搬出，并能随路做格式转换、量化等。
+
+**来源**：官方文档 `SIMD-API/basic_api/data_move_guide/GM_L1_or_L0_data_move.md` 的数据搬运通路表。
+
+接口族的完整清单与 DAV_2201 支持情况见 [api-nd2nz-nz2nd-nddma.md](api-nd2nz-nz2nd-nddma.md) 的「通路概览」。
+
 ### 问题场景
 
 ```cpp

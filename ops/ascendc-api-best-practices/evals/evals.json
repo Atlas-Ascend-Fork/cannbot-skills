@@ -163,7 +163,7 @@
       "config": {
         "max_tokens": 100000,
         "ascend_platforms": [
-          "A2"
+          "A5"
         ],
         "eval_mode": "text"
       },
@@ -178,7 +178,7 @@
       "config": {
         "max_tokens": 100000,
         "ascend_platforms": [
-          "A2"
+          "A5"
         ],
         "eval_mode": "text"
       },
@@ -193,7 +193,7 @@
       "config": {
         "max_tokens": 100000,
         "ascend_platforms": [
-          "A2"
+          "A5"
         ],
         "eval_mode": "text"
       },
@@ -204,6 +204,17 @@
     },
     {
       "id": 14,
+      "title": "Nd2NzParams 的字段数与字段单位（关键能力）",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2",
+          "A3"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "我在 Atlas A2 上用 DataCopy 做 ND→NZ 布局转换，给 Nd2NzParams 的 dstNzC0Stride 填了 16，以为这个 16 就是元素个数，结果搬出来的 NZ 布局不对。这个字段的单位到底是什么？Nd2NzParams 一共有哪些字段？",
+      "expected_output": "回复应指出 Nd2NzParams 共 8 个字段：ndNum、nValue、dValue、srcNdMatrixStride、srcDValue、dstNzC0Stride、dstNzNStride、dstNzMatrixStride。应强调 dstNzC0Stride 与 dstNzNStride 的单位是 C0_SIZE（32 字节），不是 element；srcDValue、srcNdMatrixStride、dstNzMatrixStride 的单位才是 element。应说明 srcDValue 是源矩阵一行的行 pitch（一行包含的元素个数），不是有效列数。可提醒跨代字段宽度不同：DAV_2201 上全为 uint16_t，DAV_3510 上 dValue 为 uint32_t、srcNdMatrixStride/srcDValue 为 uint64_t、dstNzMatrixStride 为 uint32_t。",
       "title": "per-channel 系数取数优化（关键能力）",
       "config": {
         "max_tokens": 100000,
@@ -219,6 +230,17 @@
     },
     {
       "id": 15,
+      "title": "L0C 回写 dstStride 单位随输出格式变化（关键能力）",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A2",
+          "A3"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "我在 Atlas A2 上把 Mmad 的结果从 L0C 搬回 GM，用 DataCopyCO12DstParams，看到 srcStride 和 dstStride 就默认都是 32 字节为单位，结果地址错位。这两个 stride 的单位到底是什么？",
+      "expected_output": "回复应指出不能默认所有 stride 都是 32B。DataCopyCO12DstParams 的 srcStride 单位是 C0_Size = 16 × sizeof(srcType)；dstStride 的单位取决于是否开启 NZ2ND——NZ→NZ 时为 32B（datablock），NZ→ND 时为 element（目的矩阵 row pitch）。应提醒这与普通 GM↔UB DataCopyParams 的 gap（32B、tail→next head）语义不同，L0C 回写不能用普通 DataCopyParams 理解。可补充 FixpipeParamsV220 的 unitFlag 用于 Mmad 与 Fixpipe 的细粒度 overlap，以及随路 NZ2ND 可用 Nz2NdParams{ndNum, srcNdStride, dstNdStride}。",
       "title": "标量访问合法性判定（关键能力）",
       "config": {
         "max_tokens": 100000,

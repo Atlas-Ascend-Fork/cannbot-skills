@@ -44,6 +44,10 @@ AscendC::ReduceMin<T>(dst, src, tmpBuffer, count, calIndex);
 - `count`：元素个数（int32_t）
 - `calIndex`：是否计算索引（bool，默认 false）
 
+### 归约域与 axis 语义
+
+Level 2 接口**没有 axis 参数**：它对 `src` 起始地址起的 `count` 个**连续元素**做归约，结果只写 `dst[0]`（单元素）。等价于只归约**最后一维（-1 轴）**，且要求该轴在 UB 内连续；跨行、多轴或非连续轴的归约，需按 `rowOffset` 逐行调用，或改用 Pattern 接口（`AR` 沿列 / `RA` 沿行，显式表达 axis）。
+
 ### tmpBuffer 类型要求
 
 **tmpBuffer 类型必须与 dst/src 相同**：
@@ -91,6 +95,39 @@ __aicore__ inline void ProcessRow(
     AscendC::Div<T>(yLocal[rowOffset], xLocal[rowOffset], rowTmp, rLength);
 }
 ```
+
+### 完整示例：LayerNorm（两次 ReduceSum 求均值/方差）
+
+LayerNorm 与 Softmax 的差异：不需要 ReduceMax（没有 exp 溢出风险），但要沿特征轴做**两次** ReduceSum——一次求均值、一次求方差，再用 Rstd 归一化。
+
+```cpp
+AscendC::LocalTensor<T> rowTmp = rowBuf.Get<T>();
+AscendC::LocalTensor<T> xTmp = xBuf.Get<T>();        // 存 (x - mean)^2
+AscendC::LocalTensor<T> reduceTmp = reduceBuf.Get<T>();
+
+// 1. mean = ReduceSum(x) / N
+AscendC::ReduceSum<T, true>(rowTmp, xLocal[rowOffset], reduceTmp,
+    static_cast<int32_t>(rLength));
+float mean = rowTmp.GetValue(0) / static_cast<float>(rLength);
+
+// 2. var = ReduceSum((x - mean)^2) / N
+AscendC::Adds<T>(xLocal[rowOffset], xLocal[rowOffset], -mean, rLength);  // x - mean
+AscendC::Mul<T>(xTmp, xLocal[rowOffset], xLocal[rowOffset], rLength);    // (x - mean)^2
+AscendC::ReduceSum<T, true>(rowTmp, xTmp, reduceTmp,
+    static_cast<int32_t>(rLength));
+float var = rowTmp.GetValue(0) / static_cast<float>(rLength);
+
+// 3. y = (x - mean) * rstd * gamma + beta
+float rstd = 1.0f / sqrtf(var + eps);   // 标量侧；也可改用 Rsqrt 向量指令
+AscendC::Muls<T>(yLocal[rowOffset], xLocal[rowOffset], rstd, rLength);
+// 之后按 gamma * y + beta 再做 Mul / Adds
+```
+
+- 两次 `ReduceSum` 的 `count` 都传 `rLength`（有效元素数），`rowOffset` 仍用 `rLengthAlign`。
+- `tmpBuffer` 类型必须与 `T` 相同；`dst` 起始地址需 8 字节对齐（见「错误6」）。
+- `eps` 按精度要求取经验值（FP16 常用 1e-5，FP32 常用 1e-6），不是接口约束。
+- 数值稳定策略（两遍 vs Welford、大维退化）见 `ascendc-regbase-best-practice` 技能
+  的 `references/paradigms/numerical_stable/patterns.md`「Normdenom 场景」。
 
 ---
 

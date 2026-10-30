@@ -208,6 +208,10 @@ struct BinaryRepeatParams {
 迭代 2: dst[2cols:3cols]= src0[2cols:3cols]- src1[0:cols]  ← 重复读取
 ```
 
+**收益**（相对 Duplicate 预生成广播 buffer + 逐行计算）：
+- `src1` 只需申请**一行** UB 空间（`alignedCols` 个元素），不需要 `Duplicate` 生成 R 行广播 buffer，src1 侧 UB 占用约为原来的 `1/R`；
+- 一条指令覆盖 R 行，替代 R 次逐行 `Add/Sub` 调用，同时减少指令下发次数与源数据的重复搬移量。
+
 ### 分批处理
 
 #### 方案1：逐行循环（低效）

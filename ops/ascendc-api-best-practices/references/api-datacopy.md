@@ -1,6 +1,8 @@
 # DataCopy / DataCopyPad 使用指南
 
-GM ↔ UB 数据搬运的完整指南。
+GM ↔ UB、UB ↔ UB 数据搬运的完整指南（含 `DataCopyParams` gap 地址公式与参数单位速查）。多维切片见 [api-nd2nz-nz2nd-nddma.md](api-nd2nz-nz2nd-nddma.md)。
+
+> **边界**：本文只讲 GM↔UB / UB↔UB 的**纯搬运**；Cube 通路（ND2NZ / LoadData / Fixpipe）见各自家族文档。全局接口选型与跨接口 stride 对照见 [api-quickref.md](api-quickref.md)。
 
 ---
 
@@ -8,16 +10,24 @@ GM ↔ UB 数据搬运的完整指南。
 
 1. [选择规则](#选择规则)
 2. [32 字节对齐要求](#32-字节对齐要求)
-3. [DataCopyPad 参数详解](#datacopypad-参数详解)
-4. [使用场景示例](#使用场景示例)
-5. [stride 参数详解](#stride-参数详解)
-6. [常见错误与调试](#常见错误与调试)
+3. [连续 DataCopy 与 32B 截断](#连续-datacopy-与-32b-截断)
+4. [DataCopyPad 参数详解](#datacopypad-参数详解)
+5. [SetPadValue](#setpadvalue)
+6. [使用场景示例](#使用场景示例)
+7. [stride 参数详解](#stride-参数详解)
+8. [DataCopyParams 与 gap 地址公式](#datacopyparams-与-gap-地址公式)
+9. [二维 stride 搬运示例](#二维-stride-搬运示例)
+10. [性能规则：64B pitch 与 2D 合并搬运](#性能规则64b-pitch-与-2d-合并搬运)
+11. [逐 chunk 循环中的 DataCopy 快路径](#逐-chunk-循环中的-datacopy-快路径datacopypad-开销规避)
+12. [UB 内搬运 DataCopy 与 Copy 的区别](#ub-内搬运-datacopy-与-copy-的区别)
+13. [参数单位速查](#参数单位速查)
+14. [常见错误与调试](#常见错误与调试)
 
 ---
 
 ## 选择规则
 
-**原则：优先使用 DataCopyPad**
+**原则：不确定是否 32 字节对齐时，优先使用 DataCopyPad**（已确认严格 32B 对齐且连续时，`DataCopy(..., count)` 更直接，见「连续 DataCopy 与 32B 截断」）
 
 | 场景 | API | 原因 |
 |-----|-----|------|
@@ -83,7 +93,7 @@ AscendC::DataCopyPad(xLocal, xGm, copyParams, padParams);
 
 ## 32 字节对齐要求
 
-**DataCopy 要求 32 字节对齐**，非对齐会导致数据错误。
+**DataCopy 要求 32 字节对齐**。不满足时的具体后果见下节「连续 DataCopy 与 32B 截断」——**静默向下截断**，不报错。
 
 | 数据类型 | 对齐元素数 | 最小对齐字节数 |
 |---------|-----------|--------------|
@@ -91,6 +101,41 @@ AscendC::DataCopyPad(xLocal, xGm, copyParams, padParams);
 | float (4 bytes) | 8 | 32 |
 | int32_t (4 bytes) | 8 | 32 |
 | fp8 (1 byte) | 32 | 32 |
+
+---
+
+## 连续 DataCopy 与 32B 截断
+
+```cpp
+// GM -> UB
+DataCopy(LocalTensor<T> dst, GlobalTensor<T> src, uint32_t count);
+// UB -> GM
+DataCopy(GlobalTensor<T> dst, LocalTensor<T> src, uint32_t count);
+```
+
+`count` 是**元素数量**，不是 byte 数、也不是 32B block 数：
+
+```cpp
+LocalTensor<half> xLocal;
+GlobalTensor<half> xGm;
+DataCopy(xLocal, xGm, 128);   // 128 half × 2B = 256B = 8 个 DataBlock
+```
+
+### ⚠️ 最关键约束：非 32B 整数倍时向下截断（不报错）
+
+`count * sizeof(T)` 必须是 32B 的整数倍。**不满足时不会搬全部数据，而是向下截断到完整 32B**：
+
+```cpp
+DataCopy<half>(dst, src, 17);   // 17 half = 34B → 只搬 16 half = 32B
+```
+
+头文件实现说明：`In NPU mode, no error is reported. The value is rounded down by 32B.` 这是**静默丢数据**——不中断执行，只表现为尾部数据不对，比报错更难查。（NPU 模式下 `ASCENDC_ASSERT` 仍会打印 `KERNEL_ERROR` 日志，但**不会终止执行**；因此不能靠「运行没报错」判断搬运完整。）
+
+地址对齐要求：UB 侧地址必须 32B 对齐，GM 侧至少按元素类型对齐。
+
+> 因此：**连续 + 长度 32B 对齐时优先 `DataCopy(..., count)`；不确定对齐一律 `DataCopyPad`。**
+
+**来源**：`asc/include/basic_api/kernel_operator_data_copy_intf.h`（`DataCopy(count)` 无 arch 守卫，DAV_2201 与 DAV_3510 均可用）；截断语义见 `impl/basic_api/kernel_operator_data_copy_intf_impl.h`。
 
 ---
 
@@ -155,6 +200,90 @@ DataCopyPad(gmOut[off], stridedBuf[row * 32], copyParams);  // src 每行 32B �
 constexpr uint32_t MAX_BLOCK_COUNT = 4095;
 tileRows = std::max(1u, std::min(tileRows, MAX_BLOCK_COUNT));
 ```
+
+### DataCopyExtParams 字段与单位（GM → UB）
+
+```cpp
+struct DataCopyExtParams {
+    uint16_t blockCount;
+    uint32_t blockLen;
+#if defined(__NPU_ARCH__) && (__NPU_ARCH__ == 3510)
+    int64_t  srcStride;   // DAV_3510（950）
+    int64_t  dstStride;
+#else
+    uint32_t srcStride;   // DAV_2201（A2/A3）
+    uint32_t dstStride;
+#endif
+    uint32_t rsv;         // 保留字段，默认 0
+};
+```
+
+| 参数 | 类型（2201 / 3510） | GM → UB 单位 |
+|---|---|---|
+| `blockCount` | `uint16_t` | 次 |
+| `blockLen` | `uint32_t` | **Byte** |
+| `srcStride` | `uint32_t` / `int64_t` | **Byte** |
+| `dstStride` | `uint32_t` / `int64_t` | **32B DataBlock** |
+| `rsv` | `uint32_t` | 保留字段，默认 0 |
+
+这与普通 `DataCopyParams` 最大的区别：普通 `blockLen` 以 32B 为单位，`DataCopyPad` 的 `blockLen` 以 **1 byte** 为单位——因为它必须能表达 `47B`、`59 × sizeof(float)`、`126B` 等非对齐长度。
+
+### 跨代字段宽度差异
+
+`DataCopyExtParams` 的 `srcStride` / `dstStride` 在 **DAV_3510 上是 `int64_t`**，在 **A2/A3（DAV_2201）上是 `uint32_t`**。字段宽度变化会影响聚合初始化与溢出行为，跨代移植时需确认。
+
+### DataCopyPadExtParams：padding 单位是 element
+
+```cpp
+template <class T>
+struct DataCopyPadExtParams {
+    bool isPad;
+    uint8_t leftPadding;
+    uint8_t rightPadding;
+    T paddingValue;
+};
+```
+
+| 参数 | 含义 |
+|---|---|
+| `isPad` | 是否明确指定 pad value |
+| `leftPadding` | 左侧补几个 **元素** |
+| `rightPadding` | 右侧补几个 **元素** |
+| `paddingValue` | 填充值 |
+
+> ⚠️ `leftPadding` / `rightPadding` 单位 = **element，不是 byte**。例如 `T = half`、`blockLen = 20 * sizeof(half)`（40B）、`rightPadding = 12`，表示 `20 half 原数据 + 12 half padding = 32 half = 64B`。
+> 【推断】官方另有「left/right padding 各自占用字节数不超过 32B」的约束，本机头文件中未见对应注释，使用时以官方文档为准。
+
+### CopyOut 方向没有 DataCopyPadExtParams
+
+`DataCopyPad(GlobalTensor, LocalTensor, DataCopyExtParams)` **只有 3 个参数**——UB → GM 方向不存在 `DataCopyPadExtParams` 重载。框架按 `blockLen` 截断，自动丢弃 UB 尾部 dummy，无需也不能指定填充值。
+
+---
+
+## SetPadValue
+
+```cpp
+SetPadValue(value);
+```
+
+可提前设置 DMA padding 寄存器：
+
+```cpp
+SetPadValue((half)0);
+
+DataCopyPadExtParams<half> pad;
+pad.isPad = false;
+DataCopyPad(...);
+```
+
+但 `SetPadValue` 的语义不如 `pad.isPad = true; pad.paddingValue = ...` 明确。**若 padding 会参与后续计算，应显式走后者**，不要依赖 unspecified / dummy 值：
+
+```cpp
+pad.isPad = true;
+pad.paddingValue = 0;
+```
+
+`SetPadValue` 在 DAV_2201 与 DAV_3510 均可用。
 
 ---
 
@@ -286,6 +415,8 @@ UB（对齐存储）:  [row0: 13+3=16][row1: 13+3=16][row2: 13+3=16]...
 
 **stride 含义**：相邻数据块之间的间隔（前一块尾部到后一块头部的距离）
 
+> **记忆规则**：`DataCopyPad` 中 **GM 一侧的 stride 是 byte；UB 一侧的 stride 是 32B DataBlock**（GM→UB 与 UB→GM 两个方向都适用）。而 `DataCopyParams` 的 `srcGap`/`dstGap` 是**两侧都按 32B**，语义为 tail → next head（见「DataCopyParams 与 gap 地址公式」）。
+
 ### UB → GM 多行搬运（CopyOut）
 
 ```cpp
@@ -314,6 +445,80 @@ copyParams.srcStride = (paddedColsT - cols) * sizeof(T) / 32;
 
 ---
 
+## DataCopyParams 与 gap 地址公式
+
+普通 GM↔UB `DataCopy` 做高性能 stride 搬运最重要的一组参数：
+
+```cpp
+DataCopy(dst, src, DataCopyParams params);
+
+struct DataCopyParams {
+    uint16_t blockCount;
+    uint16_t blockLen;
+    uint16_t srcGap;   // 旧名 srcStride（deprecated）
+    uint16_t dstGap;   // 旧名 dstStride（deprecated）
+};
+```
+
+头文件中 `srcGap` / `srcStride` 以 `union` 并存，语义相同——**`Gap` 与 `Stride` 在这里是同义词，不是两种单位**。
+
+| 参数 | 单位 | 含义 |
+|---|---:|---|
+| `blockCount` | block 个数 | 一共搬多少段（≤ 4095） |
+| `blockLen` | 32B | 每一段实际搬多少 |
+| `srcGap` | 32B | 两段**源**数据之间跳过多少 |
+| `dstGap` | 32B | 两段**目的**数据之间跳过多少 |
+
+### gap 是「上一段尾 → 下一段头」，不是 pitch
+
+以 `blockCount = 3`、`blockLen = 2`、`srcGap = 1`、`dstGap = 0` 为例（每个 DataBlock = 32B）：
+
+- 源：`[64B 有效][32B 跳过][64B 有效][32B 跳过][64B 有效]`
+- 目的：`[64B 有效][64B 有效][64B 有效]`
+
+地址公式：
+
+```text
+src_i = src_base + i × (blockLen + srcGap) × 32
+dst_i = dst_base + i × (blockLen + dstGap) × 32
+```
+
+> ⚠️ `srcGap` / `dstGap` 是「上一段**尾** → 下一段**头**的空隙」，**不是常规数组意义上的 pitch**。只有 `gap = 0` 才意味着连续。
+> 这与 `LoadData2D` 的 `srcStride`（**头 → 头**，`= 1` 表示连续）语义相反，不要跨接口套用——见 [api-loaddata.md](api-loaddata.md)。
+
+---
+
+## 二维 stride 搬运示例
+
+GM `shape = [16, 8192 float]`，每行 `8192 × 4B = 32KB`，但每行只取前 `512 float = 2048B`，搬 16 行并在 UB 紧密排列：
+
+```cpp
+constexpr uint32_t H = 16;
+constexpr uint32_t valid = 512;
+constexpr uint32_t pitch = 8192;
+
+DataCopyParams p;
+p.blockCount = H;
+p.blockLen   = valid * sizeof(float) / 32;              // 512*4/32 = 64
+p.srcGap     = (pitch - valid) * sizeof(float) / 32;    // (8192-512)*4/32 = 960
+p.dstGap     = 0;
+
+DataCopy(xLocal, xGm, p);
+```
+
+含义：GM 中每行先搬 2048B、再跳过 30720B；经 DMA 后 UB 中紧密排列为 `[2048B][2048B]…`。
+
+这通常明显优于拆成 16 次小 `DataCopy`：
+
+```cpp
+// ❌ 能用一次 DataCopyParams 描述二维块搬运时，不要拆成大量小 DataCopy
+for (int i = 0; i < 16; ++i) {
+    DataCopy(...);
+}
+```
+
+---
+
 ## 性能规则：64B pitch 与 2D 合并搬运
 
 多行搬运场景（如批量归约把 GM 的分片数据搬入 UB）的两条性能规则：
@@ -323,6 +528,8 @@ copyParams.srcStride = (paddedColsT - cols) * sizeof(T) / 32;
 3. **累加/归约循环内 blockCount 必须 > 1**：归约/累加循环搬运多行数据时，`blockCount` 必须等于本批行数（多行一次搬运）。`blockCount=1` 逐行搬运 = **性能反模式**——flag/同步次数 = 行数 × 段数 × 来源数 爆炸（生产踩坑：归约逐行搬运曾是某多行归约实现的性能缺陷根因之一）
 
 > ⚠️ **硬件隐式上限（DAV_3510 实测）**：2D DataCopyPad 当 `srcStride > 0` 或 `dstStride > 0`（行间跳步）时，`blockCount` 存在 **~29-32 行隐式上限**，超出行**静默丢弃为零**（无报错、无异常，输出呈周期性零值分布，period=blockCount）。防御三法（可并用）：① host 侧钳制单批行数 ≤ 32（strided 场景）；② strided 场景退化 1D 逐行 DataCopyPad（blockCount=1 无 stride，绕开限制——非 strided 场景仍保留 2D 批量）；③ 用例必须覆盖 strided 边界场景（隐式上限类缺陷只在边界用例下暴露，常规用例无法发现）。
+>
+> **证据状态**：本条为 DAV_3510 上的实测结论，本机 CANN 头文件与官方文档均**无对应说明**（未引证，平台/CANN 构建号待补）。已据此设计规避方案的调用方见 `ascendc-mc2-best-practice`（`references/foundations/apace/fundamentals/fusion.md` 的归约搬入/输出条款、`references/foundations/apace/review-checklist.md` R17 门禁），**修改本条前需同步核对那两处**。
 
 ```cpp
 // ✅ 2D 合并搬运：tileM 行一次完成，行 pitch 64B 对齐
@@ -343,9 +550,10 @@ copyParams.dstStride  = (paddedCols - cols) * sizeof(T) / 32;      // UB 行间�
 - **全对齐 chunk 用 `DataCopy`，仅尾部残差用 `DataCopyPad`**：保持 `CHUNK` 为 32 的
   倍数、`offset` 为 `CHUNK` 倍数 → 源/目的地址天然 32B 对齐，主体循环走无 pad 开销
   的快路径；仅最后一chunk 任意长度走 `DataCopyPad`
-- **`DataCopy` 3 参重载仅 `__NPU_ARCH__ == 3510`（950PR/910C）可用**：编译必须
-  `export SOC_VERSION=ascend950pr_9579`（npu-smi Chip Name 精确拼接；setup.py 默认
-  回退 `Ascend910B2` 须显式覆盖，否则 3510 分支构造/重载缺失编译失败）
+- **`Copy`（UB→UB，count 模式）仅 `__NPU_ARCH__ == 3510` 可用**：该重载在头文件中被
+  `#if (__NPU_ARCH__ == 3510)` 包住，Atlas A2/A3 不可用
+- **`DataCopy(GM↔UB, count)` 没有 arch 守卫**：DAV_2201 与 DAV_3510 均可用，A2 上使用它
+  **不需要**任何额外的 `SOC_VERSION` 配置
 
 ```cpp
 if (nRaw == CHUNK) {   // 全 chunk：天然 32B 对齐
@@ -354,6 +562,87 @@ if (nRaw == CHUNK) {   // 全 chunk：天然 32B 对齐
     DataCopyPad(local_, gm_[offset], cp, pp);
 }
 ```
+
+---
+
+## UB 内搬运 DataCopy 与 Copy 的区别
+
+当前 API 同时存在：
+
+```cpp
+DataCopy(UB, UB, ...)   // UB 内搬运
+Copy(...)               // UB 内 Vector 型搬运
+```
+
+官方 API 表把它们明确分成两类，可以粗略理解（【推断】模型类比，非 API 事实）：
+
+| 接口 | 模型 |
+|---|---|
+| `DataCopy` | 更接近 memory-transfer / DataBlock 模型 |
+| `Copy` | 更接近 Vector 数据访问模型，支持 mask、repeat、block stride 等 |
+
+**不要因为都能完成 `UB A → UB B`，就认为底层机制和参数模型相同**——它们的 stride 单位、mask 语义与平台可用性都不同（`Copy` 的 count 模式仅 DAV_3510 可用，见本文「逐 chunk 循环中的 DataCopy 快路径」）。
+
+---
+
+## 参数单位速查
+
+```cpp
+// ==================================================
+// 1. 普通连续 DataCopy
+// ==================================================
+DataCopy(dst, src, count);
+// count: elements
+// count * sizeof(T) 必须是 32B 的整数倍（否则向下截断，见「连续 DataCopy 与 32B 截断」）
+
+
+// ==================================================
+// 2. 普通 block / stride DataCopy
+// ==================================================
+DataCopyParams p;
+p.blockCount = ...;  // blocks（≤ 4095）
+p.blockLen   = ...;  // 32B
+p.srcGap     = ...;  // 32B, tail -> next head
+p.dstGap     = ...;  // 32B, tail -> next head
+
+DataCopy(dst, src, p);
+
+
+// ==================================================
+// 3. GM -> UB 非对齐
+// ==================================================
+DataCopyExtParams p {
+    blockCount,      // 次
+    blockLenBytes,   // Byte
+    srcGapBytes,     // GM 侧：Byte
+    dstGap32B,       // UB 侧：32B DataBlock
+    0                // rsv：保留字段，默认 0
+};
+DataCopyPadExtParams<T> pad {
+    isPad,
+    leftPaddingElements,   // element
+    rightPaddingElements,  // element
+    paddingValue
+};
+DataCopyPad(dstLocal, srcGM, p, pad);
+
+
+// ==================================================
+// 4. UB -> GM 非对齐
+// ==================================================
+DataCopyExtParams p {
+    blockCount,      // 次
+    blockLenBytes,   // Byte
+    srcGap32B,       // UB 侧：32B DataBlock
+    dstGapBytes,     // GM 侧：Byte
+    0                // rsv：保留字段，默认 0
+};
+DataCopyPad(dstGM, srcLocal, p);   // 无 DataCopyPadExtParams
+```
+
+> 上面骨架是「可复制粘贴」形态，单位注释即最终口径；规则的推导与记忆法见本文「stride 参数详解」与「DataCopyParams 与 gap 地址公式」。
+
+其余接口族（ND2NZ / NZ2ND / NDDMA / LoadData / Fixpipe）的单位见 [api-nd2nz-nz2nd-nddma.md](api-nd2nz-nz2nd-nddma.md)、[api-loaddata.md](api-loaddata.md)、[api-cross-gen-fixpipe.md](api-cross-gen-fixpipe.md) 与 [api-quickref.md](api-quickref.md) 的跨接口速查表。
 
 ---
 
