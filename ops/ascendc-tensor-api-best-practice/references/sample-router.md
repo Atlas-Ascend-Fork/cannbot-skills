@@ -4,12 +4,21 @@
 >
 > 注意：master 分支样例目录已扁平化，矩阵类样例直接位于 `07_tensor_api/` 顶层；若本地工作区检出的是 feature/tensor_api_from_9.0.0 等旧分支，矩阵类样例位于 `matrix_compute/` 子目录下。
 
+## 本地官方源码仓
+
+本地源码仓的路线审计、事实源分层、能力族映射和 L3 算子路径统一以
+[source-map.md](source-map.md) 为权威源。先运行其检查脚本并记录 commit，再引用具体实现。
+
 ## 目录结构（master 分支）
 
 | 目录 | 用途 |
 |---|---|
 | `<selected_root>/examples/01_simd_cpp_api/07_tensor_api/` | 全部官方样例（顶层扁平结构） |
 | `experimental/reg_vector_compute/` | 实验性 Reg Tensor 向量计算样例 |
+
+每个样例默认是独立可构建目录：`CMakeLists.txt`、`<op_name>.asc`、`data_utils.h`、
+中英文 README 和 `scripts/{gen_data.py,verify_result.py}`。开发新算子或样例且用户未
+特别指定时，应保持同构结构，不默认拆分 kernel/host 为 .cpp。
 
 ## 矩阵计算样例
 

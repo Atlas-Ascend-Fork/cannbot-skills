@@ -185,6 +185,10 @@ __global__ __vector__ void add_vector(__gm__ T* src0, __gm__ T* src1, __gm__ T* 
 
 ## 8. Host 侧启动与 ACL 生命周期（direct launch）
 
+默认工程形态与官方 `07_tensor_api` 样例一致：kernel 和 host `main()` 位于同一
+`<op_name>.asc`，CMake 以 `LANGUAGES ASC CXX` 构建单个 `demo` 可执行文件。只有
+用户明确要求或目标工程已有约束时，才拆分 .cpp/host 入口。
+
 host 侧 `main()` 的最小序列（完整见 `launcher-development.md`）：
 
 ```cpp
@@ -219,4 +223,4 @@ aclrtMemcpy(c_host, size, c_dev, size, ACL_MEMCPY_DEVICE_TO_HOST);  // D2H
 - `$ASC_DEVKIT_ROOT/include/tensor_api/`（tensor.h、tensor/pointer.h、atom/cube/mmad_atom.h、arch/cube/mmad_trait.h、utils/utils.h）
 - `$ASC_DEVKIT_ROOT/include/c_api/`（asc_simd.h、sync/sync.h、utils/sys_init.h、utils/sys_var.h）
 
-`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时运行 `../scripts/ensure_docs.py` 自动获取。
+`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时在 skill 根目录运行 `scripts/ensure_docs.py` 自动获取。

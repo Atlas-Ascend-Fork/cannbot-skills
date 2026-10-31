@@ -1,3 +1,16 @@
+---
+type: reference
+status: stable
+platforms:
+- '950'
+sources:
+- resource: project execution records
+  role: primary
+- resource: asc-devkit master
+  role: supporting
+updated_at: '2026-10-29'
+---
+
 # 验证策略与调试方法论（无真机/异地开发）
 
 本参考在实现、联调和功能精度验收节点按 implementation_route=tensor_api_custom 条件加载。
@@ -80,3 +93,14 @@ demo 链路与 torch 链路输出 bit 级一致 = 构建无污染；不一致 = 
 | 性能调试 | msOpProf + Task Duration | 见 [performance-analysis.md](performance-analysis.md) §2 |
 | Tiling 调试 | Host 侧 gdb | Tiling 跑在 Host CPU，普通 gdb 即可 |
 | Kernel 调试 | 孪生调试 / 上板调试 | Device 侧 kernel，走编程指南的 debug_and_tuning |
+
+## 6. 外部知识检索
+
+遇到准确 API 名、错误码、平台差异或历史排障经验时，按
+[knowledge-integration.md](knowledge-integration.md) 查询 `~/cannbot-knowledge`。高价值入口：
+
+| 主题 | 卡片 |
+|---|---|
+| MTE2 并行通道实测 | `~/cannbot-knowledge/knowledge/ops/ascendc/concepts/mte2_parallel_channels.md` |
+| UB bank conflict 实测 | `~/cannbot-knowledge/knowledge/ops/ascendc/concepts/ub_bank_conflict_behavior.md` |
+| A5 每核存储与 UB 双口径 | `~/cannbot-knowledge/knowledge/common/platforms/concepts/ascend950_per_core_memory.md` |

@@ -68,4 +68,4 @@ Kernel 用 Tensor API 侧核 ID `block_idx` + Tiling 参数算出本核 GM 偏�
 - `$ASC_DEVKIT_ROOT/docs/zh/guide/operator_practice/simd_operator_optimization/tiling_strategy/`（核间负载均衡）
 - 样例：`$ASC_DEVKIT_ROOT/examples/01_simd_cpp_api/02_features/02_tiling_selector/vector_tiling_strategy/`
 
-`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时运行 `../scripts/ensure_docs.py` 自动获取。字段类型与对齐事实以当前头文件/手册为准。
+`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时在 skill 根目录运行 `scripts/ensure_docs.py` 自动获取。字段类型与对齐事实以当前头文件/手册为准。

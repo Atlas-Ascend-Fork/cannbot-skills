@@ -115,4 +115,4 @@ AIC 写、AIV 读同一块 UB，需用**槽位轮流 + 块级同步**串起（`p
 - `$ASC_DEVKIT_ROOT/examples/01_simd_cpp_api/05_best_practices/03_fusion_compute/ssbuf_aiv_aic_comm/`（SSBuffer 跨核消息）
 - `$ASC_DEVKIT_ROOT/docs/zh/guide/programming_guide/advanced_programming/inter_core_communication/ssbuffer_inter_core_memory_feature.md`
 
-`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时运行 `../scripts/ensure_docs.py` 自动获取。
+`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时在 skill 根目录运行 `scripts/ensure_docs.py` 自动获取。

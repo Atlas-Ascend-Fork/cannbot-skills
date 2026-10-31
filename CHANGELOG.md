@@ -2,6 +2,10 @@
 
 > **记录规则**：单条不超过 **200 字**，按【领域】+ 问题 + 修复要点组织；技术细节、验证数据与发布过程放 PR 描述 / commit message，不写入日志。
 
+### 【2026-10-30】
+#### 变更 Changes
+- 【算子】`ascendc-tensor-api-best-practice` 新增 L3 算法实现路由、本地官方源码仓映射、路径一致性检查与 cannbot-knowledge 检索证据规则，并澄清 A5 UB 容量口径与默认 .asc 工程结构。
+
 ### 【2026-10-29】
 #### 变更 Changes
 - 【插件清理】删除 `plugins-official/ops-perf-optimize` 旧副本与本地市场、安装清单入口，统一由 cannbot 应用仓维护；保留公共性能 Skills，安装助手保留原插件名及别名并委托 cannbot 安装，同步迁移说明与 ST 统计。
@@ -16,7 +20,6 @@
 #### 新特性 New Features
 - 【算子生成】`catlass-dsl-generator` 性能收口瓶颈取证前置 makespan 零成本判定（`ceil(总块数/核数) × 单块耗时` 与实测吻合即任务铺放空转，含无 profiler 时的消融取证路径），新增 `optimization/makespan-scheduling-gap` 知识条目与尾轮条目交叉引用。
 - 【算子性能】`ops/ascendc-performance-best-practices` 新增 arch35 小 shape（latency-bound）优化指南：测空核 floor/roofline、逐杆单变量 A/B 与退化即回滚、7 类可选优化杆及实测反模式。
-
 ### 【2026-10-26】
 #### 新特性 New Features
 - 【算子生成】`plugins-community/catlass-dsl-generator` 新增骨架门禁、探针与调研预算、无性能目标时三轮性能收口，沉淀 14 条实现模式知识条目。

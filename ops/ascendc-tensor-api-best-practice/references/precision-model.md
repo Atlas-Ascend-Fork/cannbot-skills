@@ -1,3 +1,16 @@
+---
+type: reference
+status: stable
+platforms:
+- '950'
+sources:
+- resource: project execution records
+  role: primary
+- resource: asc-devkit master
+  role: supporting
+updated_at: '2026-10-29'
+---
+
 # 精度模型与排障方法论（A5 Cube matmul）
 
 本参考在测试设计、联调和功能精度验收节点按 implementation_route=tensor_api_custom 条件加载。
@@ -174,4 +187,4 @@ MX 是块格式：k 个私有元素共享一个缩放因子 X，块内元素同�
 - `$ASC_DEVKIT_ROOT/docs/zh/guide/operator_practice/simd_operator_optimization/matrix_compute/fp_buffer_quantization.md`
 - `$ASC_DEVKIT_ROOT/docs/zh/guide/operator_practice/simd_operator_impl/matrix_advanced_api/feature_scenarios/{mx_matmul_scenario,matmul_output_quant_dequant}.md`
 
-`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时运行 `../scripts/ensure_docs.py` 自动获取。
+`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时在 skill 根目录运行 `scripts/ensure_docs.py` 自动获取。

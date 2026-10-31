@@ -6,7 +6,8 @@
 
 手册或官方样例缺失时运行：
 
-    python3 ops/ascendc-tensor-api-best-practice/scripts/ensure_docs.py
+    cd <skill-root>
+    python3 scripts/ensure_docs.py
 
 脚本自动 clone 或 fast-forward `~/asc-devkit`；该工作区被非 master 分支占用或与 master 历史分叉时，自动维护 `~/asc-devkit-master` 浅镜像提供手册与样例，不修改主工作区。dirty、origin 不匹配时阻断。`--check-only` 不联网。输出 JSON 的 `selected_root` 为事实源根目录（显式传 `--asc-devkit-root` 时不启用 fallback）。
 
@@ -15,9 +16,55 @@
 - 目标芯片：Ascend 950PR / 950DT。
 - 目标架构：dav-3510。
 - ASC 编译参数：--npu-arch=dav-3510 -xasc。
-- direct launch kernel 使用 .cpp，不使用 .asc。
+- 用户未特别指定时，开发算子或样例默认采用 asc-devkit
+  `examples/01_simd_cpp_api/07_tensor_api/` 官方样例工程结构；kernel 与 host `main()`
+  位于同一 `<op_name>.asc` 联合体文件，不默认拆成 .cpp。
+- CMake 使用 `LANGUAGES ASC CXX` 构建单个 `demo`；配置期硬检查 run mode 只允许 `npu`/`sim`、
+  目标架构必须是 `dav-3510`，不满足直接 FATAL。
 - Tensor API 唯一公共入口：#include "tensor_api/tensor.h"。
 - 禁止直接 include impl/ 或内部子目录头文件。
+
+## 1.1 默认工程结构
+
+以官方样例目录为模板：
+
+    <op_name>/
+      CMakeLists.txt
+      <op_name>.asc
+      data_utils.h
+      README.md
+      README_en.md
+      scripts/
+        gen_data.py
+        verify_result.py
+
+CMake 合同：
+
+    cmake_minimum_required(VERSION 3.16)
+    set(CMAKE_ASC_RUN_MODE "npu" CACHE STRING "Run mode: npu, sim")
+    set(CMAKE_ASC_ARCHITECTURES "dav-3510" CACHE STRING "NPU architecture")
+    find_package(ASC REQUIRED)
+    project(<op_name> LANGUAGES ASC CXX)
+    add_executable(demo <op_name>.asc)
+    target_compile_options(demo PRIVATE
+      $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=${CMAKE_ASC_ARCHITECTURES}>
+    )
+
+官方样例还提供两条硬约束：非 `npu/sim` 的 run mode 直接 FATAL；目标架构不是
+`dav-3510` 直接 FATAL。依赖 experimental API 的样例必须增加
+`CANN_ASC_USE_EXPERIMENTAL=ON` 门禁，并给 ASC 编译加
+`-DCANN_ASC_USE_EXPERIMENTAL`。
+
+运行流程：
+
+    mkdir -p build && cd build
+    cmake -DCMAKE_ASC_ARCHITECTURES=dav-3510 ..
+    make -j
+    python3 ../scripts/gen_data.py
+    ./demo
+    python3 ../scripts/verify_result.py output/output.bin output/golden.bin
+
+切换 `sim` 模式使用 `-DCMAKE_ASC_RUN_MODE=sim`；切换前清理 CMake 缓存。
 
 ## 2. CANN 版本矩阵
 

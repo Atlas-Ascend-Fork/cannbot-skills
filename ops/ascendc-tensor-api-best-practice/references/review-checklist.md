@@ -6,8 +6,9 @@
 
 | 检查 | 判定 |
 |---|---|
-| API 边界 | Tensor API 主体，C API 只做辅助控制 |
+| API 边界 | tensor.h 主体 + experimental/vector_ops.h Reg Vector，C API 只做辅助控制 |
 | 禁用 API | 无 TPipe/TQue/TQueBind/TBufPool |
+| Experimental Reg Vector | 设计记录 devkit commit、架构条件、dtype/mask 语义和验证证据 |
 | 初始化与收尾 | asc_init 与最终 asc_sync_pipe(PIPE_ALL) 存在 |
 | 同步 | lock/unlock、notify/wait 配对；事件 ID 不使用 6/7 |
 | 尾块 | M/N/K 显式处理，padding 不参与 golden |

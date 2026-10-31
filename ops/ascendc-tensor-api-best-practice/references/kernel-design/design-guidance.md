@@ -22,7 +22,9 @@
 - **用户硬约束**：只写用户明确提的（单 Kernel、数据驻留、精度 1e-3、性能目标），不脑补。
 
 ### §2 API 分工
-- 只分两行：Tensor/Layout/Copy/Mmad 归 Tensor API；初始化/同步/锁/事件/原子归 C API。
+- 至少分三行：Tensor/Layout/Copy/Mmad 归 Tensor API 基础入口（tensor.h）；寄存器驻留
+  Vector 归 Tensor API Experimental（vector_ops.h）；初始化/同步/锁/事件/原子归 C API。
+  Experimental Reg Vector 不是 C API 辅助路径，必须记录 devkit commit、架构条件和 mask 语义。
 - 「证据」栏填头文件/手册/样例的具体出处，不写「官方说」。分工边界见 [api-dataflow-layout.md](../api-dataflow-layout.md) §API 边界。
 
 ### §3 数据流与 Layout（核心栏）
@@ -53,6 +55,9 @@
 
 ### §9 构建合同
 - `npu_arch` 填 `dav-3510`（小写连字符，仅编译参数）；include 策略、link set、run modes 见 [build-and-toolchain.md](../build-and-toolchain.md)。
+- 用户未特别指定时，project layout 固定为官方样例同构：`CMakeLists.txt`、
+  `<op_name>.asc`、`data_utils.h`、README 和 `scripts/{gen_data.py,verify_result.py}`；
+  只有用户明确要求或宿主工程已有约束时，才设计 .cpp 拆分入口。
 
 ### §10 验证与性能
 - 每个 case 填 shape/dtype/目标/基线/采样/精度。基线 = 对标谁（官方算子耗时或 roofline 理论值），达标线见 [performance-analysis.md](../performance-analysis.md)。
@@ -72,4 +77,4 @@
 
 - 填写范本：`$ASC_DEVKIT_ROOT/examples/01_simd_cpp_api/07_tensor_api/{matmul_bias_fusion, custom_op_tensor_api}/`
 
-`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时运行 `../scripts/ensure_docs.py` 自动获取。
+`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时在 skill 根目录运行 `scripts/ensure_docs.py` 自动获取。

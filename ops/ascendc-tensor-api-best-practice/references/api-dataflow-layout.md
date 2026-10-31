@@ -11,15 +11,23 @@
 | 切片 / squeeze | Tensor API | `slice` / `squeeze` |
 | 数据搬运抽象 | Tensor API | `make_copy` / `copy` |
 | 矩阵计算抽象 | Tensor API | `make_mmad` / `mmad` |
+| Experimental Reg Vector（vector reg 接口） | Tensor API Experimental | `asc::te::experimental::reg_tensor` / `load` / `store` / 算子族 |
+| Reg Vector 内 UB 访问同步 | Tensor API Experimental | `mem_bar<src, dst>()` |
 | 初始化 | C API | `asc_init` |
 | 管道与事件同步 | C API | `asc_sync_pipe` / `asc_sync_notify` / `asc_sync_wait` |
 | 锁 | C API | `asc_lock` / `asc_unlock` |
 | 原子操作 | C API | atomic 系列 |
 | 缓存控制 | C API | cache_ctrl 系列 |
 | 系统变量与杂项 | C API | sys_var / misc 系列 |
-| Scalar/Vector/Cube/Reg compute | C API 辅助路径 | 仅在官方授权或辅助控制时使用 |
+| Scalar/Vector/Cube 传统计算原语 | C API 辅助路径 | 仅在官方授权或辅助控制时使用 |
 
 禁止项：TPipe、TQue、TQueBind、TBufPool；用 C API 承担主体计算；缺失 `asc_init` 或最终 `asc_sync_pipe(PIPE_ALL)`；事件 ID 使用 6 或 7；凭命名猜测 API 语义。
+
+基础入口 `tensor.h` 只包含 Tensor/Layout/Pointer/Atom/Copy/Mmad 与 legacy；寄存器驻留
+Vector 计算集中在 `experimental/vector_ops.h`，不是 C API 辅助路径。使用前必须声明
+experimental 路线并记录 devkit commit；架构、dtype、mask 语义和官方样例证据见
+[experimental-reg-vector.md](experimental-reg-vector.md)。Reg Vector 的 `mem_bar` 只同步
+VF 内 UB 访问，不替代 MTE/Cube/Vector 的 C API 事件同步。
 
 ## 数据流
 
@@ -58,7 +66,7 @@ DESIGN 必须包含逐级内存预算表，记录 buffer 数、元素数、dtype
 - Tensor API 手册与样例：`$ASC_DEVKIT_ROOT/docs/zh/api/SIMD-API/tensor_api/`
 - 官方样例：`$ASC_DEVKIT_ROOT/examples/01_simd_cpp_api/07_tensor_api/`
 
-`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时运行 `../scripts/ensure_docs.py` 自动获取。引用接口前必须核对手册或头文件；冲突时以当前 SDK 头文件为准，并在设计文档记录差异。
+`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时在 skill 根目录运行 `scripts/ensure_docs.py` 自动获取。引用接口前必须核对手册或头文件；冲突时以当前 SDK 头文件为准，并在设计文档记录差异。
 
 ## Pattern 与物理排列
 

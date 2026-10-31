@@ -1,3 +1,16 @@
+---
+type: reference
+status: stable
+platforms:
+- '950'
+sources:
+- resource: asc-devkit optimization guides
+  role: primary
+- resource: project execution records
+  role: supporting
+updated_at: '2026-10-29'
+---
+
 # 寄存器驻留 Vector 高性能模式（Reg Compute）
 
 本参考在性能优化与性能验收节点按 implementation_route=tensor_api_custom 条件加载，覆盖 Cube 之外的 Vector 路径——即本 Skill 的差异化主体。与 [performance-patterns.md](performance-patterns.md)（Cube/Matmul 家族）互补。
@@ -146,5 +159,6 @@ Reg 计算支持非 32B 对齐访问，靠非对齐读写寄存器缓存跨边�
 - `$ASC_DEVKIT_ROOT/docs/zh/guide/operator_practice/typical_operator_cases/simd_operator_impl/gelu_reg_vector_operator/`（入门 → 中级 → 高阶阶梯）
 - `$ASC_DEVKIT_ROOT/docs/zh/guide/operator_practice/simd_operator_optimization/pipeline_scheduling/enable_double_buffer.md`
 - 样例：`$ASC_DEVKIT_ROOT/examples/01_simd_cpp_api/05_best_practices/{00_vector_compute/add_high_performance, 02_reg_compute/{gelu,softmax}_high_performance}`
+- 代表性外部知识卡：`~/cannbot-knowledge/knowledge/ops/ascendc/apis/simd_api/tensor_api/reg_vector_compute/reg_tensor/reg_tensor.md`、`~/cannbot-knowledge/knowledge/ops/ascendc/concepts/ub_bank_conflict_behavior.md`。采用前按 [knowledge-integration.md](knowledge-integration.md) 读完整卡并记录 status、来源和平台。
 
-`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时运行 `../scripts/ensure_docs.py` 自动获取。上述 API 名与容量事实以当前头文件/手册为准。
+`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时在 skill 根目录运行 `scripts/ensure_docs.py` 自动获取。上述 API 名与容量事实以当前头文件/手册为准。

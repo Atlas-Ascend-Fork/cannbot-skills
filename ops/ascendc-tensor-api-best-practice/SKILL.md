@@ -21,6 +21,14 @@ description: 在 Ascend 950 / DAV_3510 上以 Tensor API 为主、C API 为辅�
 
 本地手册或官方样例缺失时运行 [ensure_docs.py](scripts/ensure_docs.py)：主工作区 `~/asc-devkit` 在 master 上时自动 clone 或 fast-forward；若被其他分支占用（如 vendor 头锁定的 feature 分支）或与 master 历史分叉，脚本自动维护独立的 master 浅镜像 `~/asc-devkit-master` 提供手册与样例，不修改主工作区。输出 JSON 的 `selected_root` 即当前事实源根目录。仓库 dirty 或 origin 不匹配时阻断，不强制覆盖。
 
+除 asc-devkit 外，可按 [source-map.md](references/source-map.md) 检索本地官方源码仓 `~/ops-tensor`、`~/ops-nn`、`~/ops-transformer`、`~/cann-samples`。在 skill 根目录运行 [ensure_sources.py](scripts/ensure_sources.py) 记录各仓 commit 与可用性；这些仓只读，脚本不 clone、不 fetch、不修改。asc-devkit 手册与头文件仍是 API/ABI/Layout 权威源；源码仓只用于算法结构、tiling、边界处理和组件架构参考，引用前必须完成 source-map 的路线审计。
+
+事实源优先级固定为：asc-devkit 手册与 Tensor API 头文件 > asc-devkit `07_tensor_api/` 官方样例
+（Tensor API 调用形态的第一参考）> 本地源码仓的算法/tiling/边界参考。官方样例不可用时，
+本地源码仓不能替代其 API 事实源地位，只能提供工程结构参考。
+
+源码仓注册表和 required_paths 的唯一机器事实源是 `scripts/sources.yaml`；`ensure_sources.py --check-map references/source-map.md` 用于检查 Markdown 引用与注册表一致。
+
 ## 高频排障结论速查
 
 以下三类联调/评测高频问题的既有结论，先记结论、细节再查对应 reference。
@@ -57,11 +65,19 @@ description: 在 Ascend 950 / DAV_3510 上以 Tensor API 为主、C API 为辅�
 
 ### Step 1: Project Setup
 
-运行 scripts/ensure_docs.py 确保 Tensor API 手册与样例可用（输出 JSON 的 `selected_root` 为事实源根目录）；需要固定文档版本时传入 --asc-devkit-ref。随后创建 operator_root。不预先实现公式、Tiling、Golden 或固定工程。文档或样例缺失且无法自动获取时保持 Step 1 blocked。
+在 skill 根目录运行 scripts/ensure_docs.py 确保 Tensor API 手册与样例可用（输出 JSON 的 `selected_root` 为事实源根目录）；需要固定文档版本时传入 --asc-devkit-ref。随后创建 operator_root。不预先实现公式、Tiling、Golden 或固定工程。文档或样例缺失且无法自动获取时保持 Step 1 blocked。
+
+用户未特别指定时，operator/demo 工程默认采用 asc-devkit `07_tensor_api/` 官方样例同构结构：`CMakeLists.txt`、`<op_name>.asc`、`data_utils.h`、README 与 `scripts/{gen_data.py,verify_result.py}`；仅用户明确要求或宿主工程已有约束时才拆分 .cpp 入口。CMake 使用 `LANGUAGES ASC CXX` 构建单个 `demo`，并在配置期硬检查：run mode 只允许 `npu` 或 `sim`，目标架构必须是 `dav-3510`，不满足直接 FATAL。
 
 ### Step 2: Tensor API Investigation
 
 按需求语义只读调查 Tensor API：候选 API、Pattern、Copy/Mmad、C API 辅助能力、物理数据与 ABI 事实。只生成 Investigation，不修改源码、不启动构建。
+
+需要官方实现参考时，先按 [source-map.md](references/source-map.md) 与算法 archetype 路由检索本地源码仓；`ops-nn`/`ops-transformer` 中的非 Tensor API 实现只能作为算法/tiling/边界参考，不能直接推断为 Tensor API 支持。
+
+需要 API 语义、A5 平台边界、历史排障或优化经验时，按 [knowledge-integration.md](references/knowledge-integration.md) 查询 `~/cannbot-knowledge`。查询仅返回候选摘要；采用结论前必须读完整卡片并记录卡片路径、status、来源与平台。
+查询时先固定 `--platform 950`；精确 API 名使用 `--match literal`，能力描述或现象使用短词组和
+`--match text`。
 
 ### Step 3: Kernel Design
 
@@ -81,6 +97,14 @@ description: 在 Ascend 950 / DAV_3510 上以 Tensor API 为主、C API 为辅�
 | Kernel 端到端骨架（三形态、地址空间、最小可编译 skeleton） | references/kernel-skeleton.md |
 | C API 辅助能力签名（初始化/同步/锁/原子/缓存） | references/c-api-primitives.md |
 | 官方样例路由与检索规则 | references/sample-router.md |
+| 本地官方源码仓与 L3 算子映射 | references/source-map.md |
+| cannbot-knowledge 检索与证据采用 | references/knowledge-integration.md |
+| Cube 收缩 / 量化 / GroupedMatmul epilogue | references/algorithm-archetypes/contraction-quant-epilogue.md |
+| 卷积 / 空间采样 / filter 梯度 | references/algorithm-archetypes/convolution-spatial.md |
+| 行归约 / 归一化 / 动态量化 / 融合 | references/algorithm-archetypes/vector-reduction-normalization.md |
+| 索引 / Scatter / Hash / 前缀重排 | references/algorithm-archetypes/index-scatter-hash.md |
+| TopK / 排序 / 去重 / 变长输出 | references/algorithm-archetypes/sort-select-compaction.md |
+| 任意 ND 布局变换 | references/algorithm-archetypes/layout-transform.md |
 | Experimental Reg Vector 与 move/move_mask/mem_bar | references/experimental-reg-vector.md |
 | 同步、事件、生命周期与输出 writer | references/sync-and-lifecycle.md |
 | 构建、工具链、自带头文件与 CMake | references/build-and-toolchain.md |
@@ -114,6 +138,9 @@ description: 在 Ascend 950 / DAV_3510 上以 Tensor API 为主、C API 为辅�
     positive_regression
     remaining_boundary
     skill_promotion: reusable | operator_local | none
+
+若 `skill_promotion=reusable`，在当前任务验收后按 cannbot-knowledge 贡献流程将问题蒸馏为
+Runbook/Optimization 知识卡；本 Skill 不直接回写知识仓，只保留执行记录和候选素材。
 
 编译、静态检查和 CPU Golden 只能证明对应层级。设备结论必须来自真实设备路径，并记录 sandbox/device_visible、设备节点、SoC/架构、命令、返回码和输出。没有同合同 baseline 时性能写 NOT_EVALUATED。
 

@@ -1,3 +1,16 @@
+---
+type: reference
+status: stable
+platforms:
+- '950'
+sources:
+- resource: asc-devkit master
+  role: primary
+- resource: 'cannbot-knowledge: common/platforms/concepts/ascend950_per_core_memory.md'
+  role: supporting
+updated_at: '2026-10-29'
+---
+
 # NPU 执行模型与 Tensor API 概念
 
 > 本 Skill 默认业务目标是 Ascend 950 / DAV_3510。asc-devkit master 同时包含 3510 与 9201 相关能力；任何非 3510 目标必须逐 API 查看当前头文件注释和实现特化。容量、流水和派发事实必须以当前手册、头文件或官方样例复核。
@@ -20,11 +33,17 @@ Vector 典型数据流：
 
 | 存储 | 容量基线 | 用途 |
 |---|---:|---|
-| UB | 256KB | Vector 工作区 |
+| UB | 248KB 软件可用 / 256KB 物理 bank | Vector 工作区 |
 | L1 | 512KB | A/B tile 暂存，支持 ping-pong |
 | L0A | 64KB | Cube 输入 A |
 | L0B | 64KB | Cube 输入 B |
 | L0C | 256KB | Cube 累加器，通常 FP32 |
+
+UB 容量存在三个常用口径：AIV 软件可用 248KB（platform_config 给出 253952B）、
+单 Vector 物理 bank 256KB、白皮书 per AI Core（1 Cube + 2 Vector 子系统）512KB。
+kernel tiling 预算默认用 248KB 作安全上限；SIMT 还需额外预留约 40KB，有效 UB 约 208KB。
+代码必须通过平台 API 获取容量，不硬编码。详见 [performance-analysis.md](performance-analysis.md)
+§1 与 cannbot-knowledge 卡片 `common/platforms/concepts/ascend950_per_core_memory.md`。
 
 ## 2. 传输引擎与核心类型
 
@@ -42,9 +61,13 @@ AIC 包含 Cube、Vector 和搬运引擎；AIV 以 Vector 为主。混合执行�
 
     AscendC 原语
       -> Tensor API
+      -> Tensor API Experimental Reg Vector
       -> 算子项目实现
 
-Tensor API 提供强类型 Tensor、Layout、Copy Atom 和 Mmad Atom；它不自动管理事件同步，也不提供完整调度循环。同步、tile 循环、资源生命周期和输出唯一 writer 由项目设计合同负责。
+Tensor API 基础入口提供强类型 Tensor、Layout、Pointer、Copy Atom 和 Mmad Atom；
+Experimental Reg Vector 提供 `reg_tensor`、mask、load/store 与寄存器驻留算子族。
+两者都不自动管理事件同步，也不提供完整调度循环。同步、tile 循环、资源生命周期和
+输出唯一 writer 由项目设计合同负责。
 
 ## 4. Tensor API 核心概念
 
@@ -57,6 +80,7 @@ Tensor API 提供强类型 Tensor、Layout、Copy Atom 和 Mmad Atom；它不自
 | Pattern | 编译期路由标签，例如 NDExt、NZ、ZN |
 | Trait | dtype、C0 等编译期属性 |
 | Atom | Copy/Mmad 操作抽象 |
+| RegTensor | 寄存器驻留 Vector Tensor，携带 active-lane mask 语义 |
 
 Pattern 决定派发：Routing 表按目标/源位置、架构、Pattern 等条件做编译期选择。Pattern 不在白名单时触发 static_assert。
 

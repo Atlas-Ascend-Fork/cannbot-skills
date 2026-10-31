@@ -43,4 +43,4 @@
 
 - `$ASC_DEVKIT_ROOT/docs/zh/guide/operator_practice/typical_operator_cases/simd_operator_impl/{add_vector_operator, gelu_reg_vector_operator, matmul_matrix_operator, matmul_leakyrelu_fusion_operator}/`
 
-`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时运行 `../scripts/ensure_docs.py` 自动获取。
+`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时在 skill 根目录运行 `scripts/ensure_docs.py` 自动获取。

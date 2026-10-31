@@ -2,7 +2,10 @@
 
 本参考在 Step 2/3（API 调查、Kernel Design）与实现节点按 implementation_route=tensor_api_custom 条件加载。补齐 `api-dataflow-layout.md` 只列入口名、`sync-and-lifecycle.md` 只讲约束的空隙：给出 C API 的**签名与调用形态**。
 
-> 原则：Tensor API 做 Tensor/Layout/Copy/Mmad，C API 做初始化、同步、锁、原子、缓存控制。签名以 `~/asc-devkit` 当前头文件为准，本文只内化稳定入口与常见形态。
+> 原则：Tensor API 基础入口 `tensor.h` 做 Tensor/Layout/Copy/Mmad；Tensor API Experimental
+> `vector_ops.h` 承担 vector reg 接口（`reg_tensor`、mask、load/store、寄存器驻留算子族、
+> `mem_bar`）；C API 只做初始化、同步、锁、原子、缓存控制。签名以 `~/asc-devkit` 当前
+> 头文件为准，本文只内化 C API 的稳定入口与常见形态。
 
 ## 0. 头文件入口
 
@@ -125,4 +128,4 @@ asc_sync_wait(pipe_t::PIPE_V, pipe_t::PIPE_MTE2, event_id_0);     // Vector 等�
 
 - `$ASC_DEVKIT_ROOT/include/c_api/{asc_simd.h, sync/sync.h, utils/sys_init.h, utils/sys_var.h, cache_ctrl/cache_ctrl.h, atomic/atomic.h}`
 
-`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时运行 `../scripts/ensure_docs.py` 自动获取。
+`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时在 skill 根目录运行 `scripts/ensure_docs.py` 自动获取。

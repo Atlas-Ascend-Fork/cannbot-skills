@@ -109,4 +109,4 @@
 - `$ASC_DEVKIT_ROOT/docs/zh/guide/operator_practice/performance_analysis/{collect_performance_data,analyze_performance_data}.md`
 - `$ASC_DEVKIT_ROOT/docs/zh/guide/operator_practice/simd_operator_optimization/optimization_summary.md`
 
-`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时运行 `../scripts/ensure_docs.py` 自动获取。
+`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时在 skill 根目录运行 `scripts/ensure_docs.py` 自动获取。

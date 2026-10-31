@@ -17,7 +17,8 @@
     ## 2. API 分工
     | 能力 | API | 证据 |
     |---|---|---|
-    | Tensor/Layout/Copy/Mmad | Tensor API | 头文件/手册/样例 |
+    | Tensor/Layout/Copy/Mmad | Tensor API（tensor.h） | 头文件/手册/样例 |
+    | Reg Vector 计算 | Tensor API Experimental（vector_ops.h） | 头文件/手册/样例/设备探针 |
     | 初始化/同步/锁/事件/原子 | C API | 头文件/手册 |
 
     ## 3. 数据流与 Layout
@@ -53,6 +54,7 @@
     | include 策略 | |
     | link set | |
     | run modes | sim / demo_only / npu |
+    | project layout | 默认仿 07_tensor_api：单 <op_name>.asc + scripts/，用户另行指定才拆 .cpp |
 
     ## 10. 验证与性能
     | case | shape | dtype | 目标 | 基线 | 采样 | 精度 |

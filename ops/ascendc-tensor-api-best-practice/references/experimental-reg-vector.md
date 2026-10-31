@@ -1,3 +1,16 @@
+---
+type: reference
+status: experimental
+platforms:
+- '950'
+sources:
+- resource: asc-devkit master include/tensor_api/experimental
+  role: primary
+- resource: 'cannbot-knowledge: ops/ascendc/apis/simd_api/tensor_api/reg_vector_compute/reg_tensor/reg_tensor.md'
+  role: supporting
+updated_at: '2026-10-29'
+---
+
 # Experimental Reg Vector Compute
 
 > 入口：`tensor_api/experimental/vector_ops.h`。命名空间：`asc::te::experimental`。当前公开实现主要面向 `__NPU_ARCH__ == 3510`；非 3510 目标必须逐 API 查看当前头文件注释和实现。
@@ -69,7 +82,7 @@ __simd_callee__ inline void mem_bar();
 - `load_broadcast(tensor)` / `load_broadcast(tensor, coord)`：载入并按 broadcast mode 广播。
 - `load_gather(tensor, index, mask)`：按 element 或 datablock mode gather。
 - `store(tensor, value)` / `store(tensor, coord, value)`：写回 UB Tensor。
-- `store_gather` 支持 gather 写回。
+- `store_scatter` 支持 scatter 写回。
 - `unalign_load` / `unalign_store` 维护非对齐访问的硬件状态，必须按头文件状态机调用 prepare / load / store。
 
 ## 能力模块

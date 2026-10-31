@@ -1,3 +1,16 @@
+---
+type: reference
+status: stable
+platforms:
+- '950'
+sources:
+- resource: project execution records
+  role: primary
+- resource: asc-devkit master official samples
+  role: supporting
+updated_at: '2026-10-29'
+---
+
 # 性能瓶颈地图与优化模式（A5 Cube GEMM 家族）
 
 本参考在性能优化和性能验收节点按 implementation_route=tensor_api_custom 条件加载。
@@ -111,5 +124,6 @@ B 槽位占用 = 槽数 × 列片尺寸 × dtype
 - `$ASC_DEVKIT_ROOT/examples/01_simd_cpp_api/05_best_practices/01_matrix_compute/matmul_high_performance/`
 - `$ASC_DEVKIT_ROOT/examples/01_simd_cpp_api/07_tensor_api/{mmad_tensor_api, matmul_mxfp4_tensor_api_high_performance}/`
 - GroupedMatmul 20 case 实证（本 Skill 项目内部）
+- 代表性外部知识卡：`~/cannbot-knowledge/knowledge/ops/ascendc/optimizations/ol_224_manual_mmad_real_k_and_transpose_gating.md`、`~/cannbot-knowledge/knowledge/ops/ascendc/concepts/roofline_model.md`。采用前按 [knowledge-integration.md](knowledge-integration.md) 读完整卡并记录 status、来源和平台。
 
-`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时运行 `../scripts/ensure_docs.py` 自动获取。
+`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时在 skill 根目录运行 `scripts/ensure_docs.py` 自动获取。

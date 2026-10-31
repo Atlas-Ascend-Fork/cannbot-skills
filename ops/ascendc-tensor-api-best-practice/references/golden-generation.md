@@ -104,4 +104,4 @@ assert (optimized_output.tobytes() == baseline_output.tobytes())  # bit 级一�
 
 - `$ASC_DEVKIT_ROOT/examples/01_simd_cpp_api/07_tensor_api/custom_op_tensor_api/scripts/{gen_data.py, verify_result.py}`
 
-`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时运行 `../scripts/ensure_docs.py` 自动获取。
+`$ASC_DEVKIT_ROOT` 为 ensure_docs.py 输出的 `selected_root`（默认 `~/asc-devkit`，被非 master 分支占用时为 `~/asc-devkit-master` 镜像），缺失时在 skill 根目录运行 `scripts/ensure_docs.py` 自动获取。

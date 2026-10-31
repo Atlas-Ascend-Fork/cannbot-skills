@@ -1,3 +1,14 @@
+---
+type: reference
+status: stable
+platforms:
+- '950'
+sources:
+- resource: asc-devkit master include/tensor_api
+  role: primary
+updated_at: '2026-10-29'
+---
+
 # Tensor API 参考摘要
 
 > 事实源：`~/asc-devkit` 当前检出分支的 `include/tensor_api/`。当前摘要基于公开头文件整理；完整签名以当前头文件为准。
@@ -8,6 +19,13 @@
 - 基础入口：`#include "tensor_api/tensor.h"`。
 - 实验性 Reg Vector 入口：`#include "tensor_api/experimental/vector_ops.h"`。
 - 禁止直接 include `impl/` 或内部子目录头文件。
+
+`tensor.h` 聚合 Tensor/Layout/Pointer/Utils/Arch/Atom/Copy/Mmad 与 legacy 接口；
+`vector_ops.h` 聚合 Experimental Reg Vector 公共接口：reg_tensor、mask、
+load/load_broadcast/load_gather、store/store_scatter、unalign_load/unalign_store、
+算术/逻辑/复合/类型转换/归约/直方图、reorder/padding/index/gather 和 mem_bar。
+Reg Vector 属于 Tensor API 路线，但使用前必须按 [experimental-reg-vector.md](experimental-reg-vector.md)
+确认架构、dtype、mask 语义与 devkit commit。
 
 ## 核心流程
 

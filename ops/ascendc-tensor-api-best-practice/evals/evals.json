@@ -92,6 +92,67 @@
       "files": [],
       "expectations": []
     }
+    ,
+    {
+      "id": 6,
+      "title": "本地官方源码仓的事实源分层",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A5"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "开发 Tensor API 算子时需要参考 ~/ops-tensor、~/ops-nn、~/ops-transformer、~/cann-samples 中的实现。这些源码仓与 asc-devkit 的关系是什么？引用时应如何分层与校验？不需要执行工具。",
+      "expected_output": "应说明 asc-devkit 手册与 Tensor API 头文件是公开 API、ABI、Layout、同步和 dtype 的权威源；asc-devkit 官方样例是 Tensor API 调用形态的第一参考；本地源码仓只作为算法结构、tiling、边界处理和组件架构参考。引用前必须做路线审计：include tensor_api/tensor.h 或使用 asc::te::make_tensor/make_copy/make_mmad 才可作为 Tensor API custom 直接参考；include blaze/ 或 block/kernel 组件头只作为组件架构、调度和性能模式参考，Matmul 类 Blaze 场景路由到 ascendc-blaze-best-practice；传统 AscendC、MicroAPI、AICPU 只提取算法和边界语义。应在 skill 根目录运行 ensure_docs.py 和 ensure_sources.py，后者只读检查源码仓并记录 commit、branch、dirty、origin 和 missing_paths，不 clone、不 fetch、不修改；引用源码时记录仓、commit、路径，不能把源码语义直接推断为 Tensor API 支持。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 7,
+      "title": "默认工程结构与 direct launch 文件形态",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A5"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "开发一个 Tensor API 自定义算子或独立 demo，用户没有特别指定工程结构时，应采用什么目录和文件形态？direct launch 是否默认使用 .cpp？不需要执行工具。",
+      "expected_output": "应说明默认采用 asc-devkit examples/01_simd_cpp_api/07_tensor_api/ 官方样例同构结构：CMakeLists.txt、<op_name>.asc、data_utils.h、中英文 README 和 scripts/{gen_data.py,verify_result.py}；kernel 与 host main() 位于同一 <op_name>.asc 联合体文件，CMake 使用 LANGUAGES ASC CXX 构建 demo，并硬检查 dav-3510 与 npu/sim。不是默认 .cpp；只有用户明确要求或宿主工程已有约束时才拆分 .cpp 入口。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 8,
+      "title": "cannbot-knowledge 检索与证据采用",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A5"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "开发 Ascend 950 Tensor API 算子时需要查 reg_tensor、A5 UB 容量或历史优化经验，应如何使用 ~/cannbot-knowledge？查询结果怎样才算可采信证据？不需要执行工具。",
+      "expected_output": "应说明按 knowledge-integration.md 使用 knowledge-query 或 ascendc-api-knowledge-query，先确认目标平台为 950，再按 domain/technology/type/status 检索；精确 API 名用 literal，能力/现象用 text；脚本只返回候选摘要，必须读完整卡片。引用时记录卡片路径、status、来源 role、commit/URL、平台和读取时间；stable 只是生命周期，verified 才是复核事件，[MEASURED] 与 [SPEC] 必须区分。与 asc-devkit 头文件冲突时以当前 asc-devkit 头文件为准，并把冲突写入 DESIGN §11。索引缺失或 stale 时停止，不扫描全库兜底。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 9,
+      "title": "A5 UB 容量口径与 tiling 预算",
+      "config": {
+        "max_tokens": 100000,
+        "ascend_platforms": [
+          "A5"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "在 Ascend 950 上做 Tensor API kernel 的 UB tiling 预算时，248KB、256KB、512KB 分别是什么口径？应该用哪个作为预算上限？不需要执行工具。",
+      "expected_output": "应说明 248KB 是 AIV 软件可用容量（platform_config 给出 253952B），256KB 是单 Vector 物理 bank，512KB 是白皮书 per AI Core（1 Cube + 2 Vector 子系统）标称总量。kernel tiling 预算默认用 248KB 作安全上限；SIMT 还需额外预留约 40KB，有效 UB 约 208KB。代码必须通过平台 API 获取容量，不硬编码，并注明所用口径。",
+      "files": [],
+      "expectations": []
+    }
   ],
   "skill_name": "ascendc-tensor-api-best-practice"
 }

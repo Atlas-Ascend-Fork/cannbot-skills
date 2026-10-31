@@ -4,6 +4,10 @@
 
 Launcher 只负责解析本次 case 的已冻结合同、分配 host/device/workspace、按物理数据合同执行 H2D/D2H、用 DESIGN 冻结的 entry/参数顺序/grid/workspace/stream 启动 Kernel，并保存 raw output 与运行记录。
 
+Experimental Reg Vector（vector reg 接口）属于 device/kernel 侧执行路径。Launcher 不调用
+`reg_tensor`、mask、load/store、`mem_bar` 等 Reg Vector 接口，也不为它们做替代计算；
+只能按 DESIGN 冻结的 entry 和参数启动包含这些接口的 kernel。
+
 Launcher 不生成随机输入、不计算 CPU Golden、不判定精度、不选择候选、不切换备选、不读取 golden 文件决定行为。
 
 ## 2. 逻辑到物理 buffer
