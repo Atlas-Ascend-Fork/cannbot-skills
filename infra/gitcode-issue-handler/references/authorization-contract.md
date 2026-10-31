@@ -51,7 +51,9 @@ authorization:
 
 ## 写后回查
 
-评论、指派、状态变更后 GET 回查；push 后 `git ls-remote` 回查；PR 创建后回查源/目标分支及 opened 状态。回查失败不得标记完成；结果未知的非幂等写入只做回查，未查清不得重试。每项外部写入写入状态的 `external_operations`，包括 operation ID、授权、执行和回查证据。
+评论、指派、标签、状态变更后 GET 回查；push 后 `git ls-remote` 回查；PR 创建后回查源/目标分支及 opened 状态。回查失败不得标记完成；结果未知的非幂等写入只做回查，未查清不得重试。每项外部写入写入状态的 `external_operations`，包括 operation ID、授权、执行和回查证据。
+
+本次非自提 Issue 责任人指派成功后的 `pending-confirmation` 标签按 [automation.md](automation.md#指派后的确认标签) 作为后续操作纳入预览与 scope；自提 Issue 不添加。配置策略授权的非自提指派同时覆盖该标签，手动批准须列出适用的标签操作。标签写入不授权其他标签或状态变更。
 
 ## 阶段约束
 

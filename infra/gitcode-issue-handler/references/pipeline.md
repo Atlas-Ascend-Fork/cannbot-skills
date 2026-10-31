@@ -30,7 +30,7 @@ python3 "$ISSUE_HANDLER_SKILL_ROOT/scripts/issue_pipeline.py" resume --new-run -
 
 默认输出计数、有限条目和完整文件路径。`pages` 给出 total、returned、next_offset；查更多用 `--section NAME --offset N --limit N`，`--details` 返回完整回执。submit/accept 只回传本项和聚合数，其余待办用 `status`；`status --iid IID` 查看该项结论、等待和材料路径；需要原始记录时加 --details。
 
-`status_file` 保留完整队列视图，唯一状态为 `.cannbot/gitcode-issue-handler/data/pipeline-state.json`。首次及定期全量扫描，增量扫描仍定点回查未完成旧项；列表缺席不能推出关闭。恢复排错才读 [runtime-state.md](runtime-state.md)。同会话复用扫描，新会话自动检查变更；明确新一轮用 `resume --refresh`。
+`status_file` 保留完整队列视图，唯一状态为 `.cannbot/gitcode-issue-handler/data/pipeline-state.json`。仅在首次、旧记录迁移、恢复异常时全量扫描，完成后正常运行按游标增量扫描，仍定点回查未完成旧项；列表缺席不能推出关闭。恢复排错才读 [runtime-state.md](runtime-state.md)。同会话复用扫描，新会话自动检查变更；明确新一轮用 `resume --refresh`。
 
 `--offline` 不访问 API；`resume --input FETCH_JSON --offline` 用于隔离回放，缺扫描完整性字段仍保留不完整状态。特殊时间/编号子集走 [issue-intake.md](issue-intake.md)，不替代完整仓库基线。
 
@@ -47,9 +47,11 @@ python3 "$ISSUE_HANDLER_SKILL_ROOT/scripts/issue_pipeline.py" accept --claim-fil
 
 scope 按 [responsibility-scope.md](responsibility-scope.md) 填 decision、summary、evidence、source_mode。正文或固定提交用 fixed，依赖当前分支内容用 moving；任务提供旧结论和失效原因，只补必要调查。范围判断不代表已确认根因。
 
-简单任务由主会话处理；复杂独立调查需要委派时读 [batch-analysis.md](batch-analysis.md)。先领取再启动执行者，空闲补位、单项审核，不等全批。默认最多三个运行任务，每执行者一个；三个 submitted 积压先审核。租约 300 秒；`renew --claim-file CLAIM` 续租，外部等待用 `hold --claim-file CLAIM --reason REASON` 释放名额，证据到达再 requeue。无子 agent 能力时顺序执行。
+分组、委派或解释编排前先读 [batch-analysis.md](batch-analysis.md) 做复杂度判断；简单任务由主会话处理，复杂独立调查才委派。先领取再启动执行者，空闲补位、单项审核，不等全批。默认最多三个运行任务，每执行者一个；三个 submitted 积压先审核。租约 300 秒；`renew --claim-file CLAIM` 续租，外部等待用 `hold --claim-file CLAIM --reason REASON` 释放名额，证据到达再 requeue。无子 agent 能力时顺序执行。分工记录、`run_state.artifacts` 的任务/结果引用及串行或升级原因按 [分工记录与能力降级](batch-analysis.md#分工记录与能力降级)；仅不能选模型时仍可使用现有 agent，不等于无工具。
 
 ## 响应材料
+
+准备回复或受阻收尾时先按 [逐项响应材料](delivery-reporting.md#逐项响应材料) 保存已知分析和能确定的完整稿件；发布文字回复前须已有 `analysis.md` 与已审核 `reply.md`，仅分配项保存分析与 `assign.md`。证据不足或子任务失败也保留分析、具体缺口和恢复点，不能形成稿件时记录缺稿原因；由协调者核对最终 `response_artifacts` 路径并更新共享状态，不等其他独立项。
 
 需要源码结论时先采集固定版本证据：
 
@@ -73,7 +75,7 @@ python3 "$ISSUE_HANDLER_SKILL_ROOT/scripts/issue_pipeline.py" accept --claim-fil
 
 ## 审核、报告和恢复
 
-resume/accept 自动生成适用的 analysis.md、reply.md、assign.md 及本轮 summary.md（delivery_report）；报告失败用 `report` 恢复，不手写大份 run_state。回读报告，最终材料清单依据 prepared_items 中实际存在的文件，确认真实结论、代码链接、适用草稿和下一步。内部队列摘要/status 不替代严格交付报告。
+resume/accept 自动生成适用的 analysis.md、reply.md、assign.md 及本轮 summary.md（delivery_report）；报告失败用 `report` 恢复，不手写大份 run_state。回读报告，最终材料清单依据 prepared_items 中实际存在的文件，确认真实结论、代码链接、适用草稿和下一步。结束或等待时，在当前对话中逐条简述实际处理 Issue 的编号链接、最终结果、平台状态、首响 SLA，未完成项补下一步，末尾附报告链接；不只返回文件路径，详细过程留报告。内部队列摘要/status 不替代严格交付报告。
 
 错稿用 `revise --iid IID --reason REASON` 产生新版本任务，旧稿保留历史，新 attempt 重新核查。accept 不授权发布；配置关闭自动响应时保留材料等待审核，不为 complete 伪造结果。执行实际发布时读 [authorization-contract.md](authorization-contract.md)、[automation.md](automation.md) 和 [issue-comment-workflow.md](issue-comment-workflow.md)；之后按 [delivery-reporting.md](delivery-reporting.md) 补实际交付记录。
 

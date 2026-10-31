@@ -16,7 +16,8 @@ GitCode 相关 skill 在执行任何业务步骤之前，必须先完成环境�
 
 1. 用户当前消息中是否直接提供了 token（关键词：`token=...`、`access_token=...`、形如 `gitcode_pat_*` 或 32+ 位字母数字串）
 2. 环境变量 `GITCODE_TOKEN`：`echo "${GITCODE_TOKEN:+set}"`（只判断是否存在，不打印明文）
-3. 都没有 → 通过 AskUserQuestion 询问用户
+3. 调用共享凭据解析器，按目标仓库 URL/目录从 Git credential helper 非交互查询已保存的 HTTPS 凭据，见 [token-config.md](token-config.md)；不打印查询原始输出
+4. 均不可用 → 通过 AskUserQuestion 提示用户配置；仅缺少环境变量不触发重复询问
 
 询问示例：
 

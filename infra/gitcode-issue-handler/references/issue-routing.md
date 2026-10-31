@@ -1,6 +1,6 @@
 # Issue 流程：文字诊断、方案分派与合并分组
 
-> 首响及自提/历史自提豁免以 `issue-intake.md` 为准；已有文字回复不重发，已有负责人不覆盖。PR 作者补分配属于 response 阶段，按 `automation.md` 完成。
+> 首响和负责人按 `issue-intake.md` 逐项核对，自提按已核验身份免首响，纯咨询不另行豁免。已有有效回复不重发，已有负责人不覆盖。PR 作者补分配属于 response 阶段，按 `automation.md` 执行。
 
 目录：
 
@@ -12,7 +12,7 @@
 
 ## 读取时机
 
-对 `need_attention` Issue 执行步骤 2c 至 2e 前完整读取本文件。`needs_pr_owner_handoff` 已有首响或免首响时，只核对 Issue、PR、当前负责人及作者选择，保存简短分析和分配稿，按 automation 完成分配；无需重新分析根因、查询核心贡献候选或进入代码修复。
+对 `need_attention` Issue 执行步骤 2c 至 2e 前完整读取本文件。`needs_pr_owner_handoff` 已有有效首响或自提免首响时，只核对 Issue、PR、当前负责人及作者选择，保存简短分析和分配稿，按 automation 完成分配；无需重新分析根因、查询核心贡献候选或进入代码修复。
 
 ## 步骤 2c：形成根因假设
 
@@ -58,14 +58,13 @@ assignment_status: not_started | verified | failed | not_applicable
 
 ## 步骤 2d：先回复，再方案分派
 
-协调者对每个本轮需负责的 Issue，先完整读取 `issue-comment-workflow.md` 并完成回复门禁；新首响满足 `response_status: verified | reused | waived_by_user` 后进入分派；已核实的自提自修豁免项以 `exempt_self_authored_pr` 记录依据，无负责人时仍完成 PR 作者分配；已有实质回复复用或跟进。纯答疑将答案直接融合到这一条回复；非自提且无首响的已有 PR 项在回复中简述 PR 做法、覆盖与状态，再完成缺失的作者分配；已有回复或自提豁免时不为了分配凑一条评论。
-owner 未知时照常回应已知事实与下一步，不等责任人输入；失败项保留检查点，继续其他 Issue。
+协调者对每个本轮需负责的 Issue，读取 `issue-comment-workflow.md` 并完成回复门禁；`response_status: verified | reused` 表示有效首响；自提免首响时记录 `exempt_self_authored_pr` 及身份依据。非自提且无回复的已有 PR 项补首响，概述适用的 PR 方案；已有有效回复直接复用，不为补分配重发。纯答疑将答案融合到本条回复。owner 未知不阻断已获授权的首响，保留具体责任缺口和恢复点，继续其他独立 Issue。
 
-若 `proposed_solution_type: comment_explain` 且本轮答案已完整回应、无维护侧剩余动作，直接记录答疑结论并结束本项，不为算子名称额外收集 owner、指派或挂起。不能确答时走信息不足或待处理分支，不假装答疑完成。
+若 `proposed_solution_type: comment_explain` 且答案已完整回应，不进入代码修复；仍须核对平台负责人。已有 assignee 直接保留，缺失时按当前责任规则或有效兜底补指派，未明确或未授权时等待，不把纯咨询标为无需负责人。不能确答时走信息不足分支。
 
 ### 算子责任人转交
 
-需要转交具体算子时读取 [operator-handoff.md](operator-handoff.md)：复用首响证据、查/写已确认 owner、候选线下确认、指派回查、挂起与 watch。未知 owner 不阻断首响，也不允许自动自行修复；纯答疑已经完整结束时不进入转交。
+需要转交具体算子时读取 [operator-handoff.md](operator-handoff.md)：复用首响证据、查/写已确认 owner、候选线下确认、指派回查、挂起与 watch。未知 owner 不阻断首响，也不允许自动自行修复；纯答疑无需代码转交，但仍须落实平台接单人。
 
 ### 常规分派
 

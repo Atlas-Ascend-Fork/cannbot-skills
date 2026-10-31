@@ -42,6 +42,10 @@
 #### 变更 Changes
 - 【插件清理】删除 `plugins-community/ascendc-port-orchestrator` 插件及专属市场注册，移除 ST 测试白名单与覆盖率条目，保留公共 Skills。
 
+### 【2026-10-19】
+#### 缺陷修复 Bug Fixes
+- 【Issue 处理】`gitcode-issue-handler` 报告新增最终结果、平台状态、首响 SLA 和下一步汇总表，详细过程默认折叠；结束或等待时在对话中直接给出简短结果列表，减少打开报告查阅的操作。
+
 ### 【2026-10-17】
 #### 新特性 New Features
 - 【算子】`ascendc-api-best-practices` 新增 `api-scalar-access-patterns.md`：GetValue/SetValue 标量访问 16 场景三档判定（必替换/优先替换/合法保留，命名仅作召回）+ per-channel 系数取数按架构选择替换路径（A5 DIST_BRC/A2-A3 Brcb）+ 自查 regex 与反例库；SKILL.md 索引/触发词同步，evals 增 7 例。

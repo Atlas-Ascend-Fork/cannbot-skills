@@ -5,7 +5,7 @@
 ## 进入与准备
 
 - `policy_query` 只解释规则，不建目录、不启动引导。
-- 用户明确要求初始化或配置 handler 时进入 `configure`；仅需 Python 3.10+、PyYAML 和可写目标目录，不检查 Token/CANN、不访问 API、不 fetch，也不处理 Issue。若明确只补文件、不做配置引导，调用 `init_config.py --repository-root .` 后结束。
+- 用户明确要求初始化或配置 handler 时进入 `configure`；仅需 Python 3.10+、PyYAML 和可写目标目录，不检查 Token/CANN、不访问 API、不 fetch，也不处理 Issue。若明确只补文件、不做配置引导，走下节的“仅补缺失文件”入口。
 - `single`/`batch` 首次进入目标仓库时先补齐配置；安装器已创建目录或模板也必须检查。已确定缺 Token 的真实处理仍优先遵守原缺 Token 等待点，不插入新的配置问卷；凭据恢复后再继续引导。
 - 目标仓库有歧义时先澄清，不能把配置写入 Skill 源码目录或全局安装目录。`repo` 的推导与冲突沿用 [runtime-setup.md](runtime-setup.md)；只配置时可留空，需要读 remote 才检查 Git。
 
@@ -34,6 +34,12 @@ python3 "$ISSUE_HANDLER_SKILL_ROOT/scripts/validate_config.py" --repository-root
 | `configured` / `kept` | 用户已完成引导或明确保留当前设置；继续原任务，不因升级或再次启动重复询问 |
 
 引导状态保存在目标仓库的 `.cannbot/gitcode-issue-handler/config/setup-state.json`，与是否存在配置文件分开判断。未收到回答时保持 `pending`；同一待回答问题只问一次，恢复会话时复用。用户已在当前会话明确给出相关设置或要求保留默认值时，直接采用该回答，不再询问同一件事。
+
+## 仅补缺失文件
+
+用户只要求补文件、不改参数、不问答时，调用 `init_config.py --repository-root <目标仓库>` 后结束。该入口同样需要 Python 3.10+、PyYAML 和可写目标目录；仅解释调用方式时也说明这些运行前提，不实际预检。无需 Token 或 CANN，不访问 API、不 fetch、不处理 Issue，也不调用配置问卷、`--complete` 或 `--keep`。
+
+只补缺失文件，保留已有值、注释和负责人映射；补模板不代表用户已确认配置，不记录引导完成。下次真实使用仍按原引导状态决定是否询问，不能用文件存在代替用户回答。
 
 ## 询问与保存
 

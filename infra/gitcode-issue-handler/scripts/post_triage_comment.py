@@ -14,6 +14,7 @@ Result reports and explicitly requested additional comments use the general
 toolkit executor. This gate consumes classifier output, not reply self-scores;
 it does not replace authorization or refresh stale evidence automatically.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -29,17 +30,34 @@ from handler_config import get_automation_policy, load_handler_config  # noqa: E
 TOOLKIT = Path(__file__).resolve().parents[2] / "gitcode-toolkit" / "scripts"
 sys.path.insert(0, str(TOOLKIT))
 import post_issue_comment as executor  # noqa: E402
-from gitcode_client import api_get, make_session, parse_issue_url, resolve_api_base, resolve_token  # noqa: E402
+from gitcode_client import (
+    api_get,
+    make_session,
+    parse_issue_url,
+    resolve_api_base,
+    resolve_token,
+)  # noqa: E402
 from response_artifacts import save_response_artifacts  # noqa: E402
 
-REPLY_CATEGORIES = frozenset({
-    "needs_first_look", "needs_only_assign_cmd", "our_team_needs_work",
-    "our_team_only_assign_cmd", "needs_first_response_with_pr",
-    "reporter_followup", "reopened_followup", "assignee_followup",
-})
-FOLLOWUP_CATEGORIES = frozenset({
-    "reporter_followup", "reopened_followup", "assignee_followup",
-})
+REPLY_CATEGORIES = frozenset(
+    {
+        "needs_first_look",
+        "needs_only_assign_cmd",
+        "our_team_needs_work",
+        "our_team_only_assign_cmd",
+        "needs_first_response_with_pr",
+        "reporter_followup",
+        "reopened_followup",
+        "assignee_followup",
+    }
+)
+FOLLOWUP_CATEGORIES = frozenset(
+    {
+        "reporter_followup",
+        "reopened_followup",
+        "assignee_followup",
+    }
+)
 
 
 def issue_identity(url):
@@ -64,7 +82,10 @@ def issue_identity(url):
 
 
 def _matching_item(classification, target):
-    if not isinstance(classification, dict) or classification.get("mode") not in {"single", "batch"}:
+    if not isinstance(classification, dict) or classification.get("mode") not in {
+        "single",
+        "batch",
+    }:
         raise ValueError("classification must be a single or batch classifier result")
     issues = classification.get("issues")
     if not isinstance(issues, list):
@@ -74,7 +95,9 @@ def _matching_item(classification, target):
         if isinstance(item, dict) and issue_identity(item.get("url")) == target:
             matches.append(item)
     if len(matches) != 1:
-        raise ValueError("classification must contain exactly one matching repository and Issue")
+        raise ValueError(
+            "classification must contain exactly one matching repository and Issue"
+        )
     return matches[0]
 
 
@@ -84,7 +107,9 @@ def _scan_affected_issues(name, scan):
     if name != "comment":
         return []
     errors = scan.get("errors", [])
-    if any(not isinstance(error, dict) or not error.get("issue_number") for error in errors):
+    if any(
+        not isinstance(error, dict) or not error.get("issue_number") for error in errors
+    ):
         raise ValueError("comment scan errors lack Issue identity")
     return [str(error["issue_number"]) for error in errors]
 
@@ -101,12 +126,16 @@ def _validate_scans(classification, target):
             raise ValueError(f"{name} scan must be complete before publishing")
         # Numeric skip counts differ from the scope gate's string marker.
         if isinstance(scan.get("skipped"), str) and scan["skipped"]:
-            raise ValueError(f"{name} scan was skipped; rerun classification after scope review")
+            raise ValueError(
+                f"{name} scan was skipped; rerun classification after scope review"
+            )
         affected = _scan_affected_issues(name, scan)
         if target[-1] in affected:
             raise ValueError(f"Issue {name} scan is incomplete")
         # A known failure on another Issue must not stall this one.
-        if scan.get("complete") is not True and (scan.get("complete") is not False or not affected):
+        if scan.get("complete") is not True and (
+            scan.get("complete") is not False or not affected
+        ):
             raise ValueError(f"{name} scan must be complete before publishing")
 
 
@@ -116,16 +145,25 @@ def validate_classification(classification, issue_url):
     if str(item.get("number")) != target[-1]:
         raise ValueError("classification Issue number conflicts with its URL")
     if item.get("responsibility") != "handle":
-        raise ValueError("responsibility review must resolve to handle; return to issue-intake, "
-                         "record responsibility_review and rerun classify_issues.py")
-    if item.get("bucket") != "need_attention" or item.get("category") not in REPLY_CATEGORIES:
-        raise ValueError("classification does not require a new first response or follow-up")
+        raise ValueError(
+            "responsibility review must resolve to handle; return to issue-intake, "
+            "record responsibility_review and rerun classify_issues.py"
+        )
+    if (
+        item.get("bucket") != "need_attention"
+        or item.get("category") not in REPLY_CATEGORIES
+    ):
+        raise ValueError(
+            "classification does not require a new first response or follow-up"
+        )
     _validate_scans(classification, target)
     return item
 
 
 def _check_config_target(config, issue_url):
-    if issue_identity(issue_url)[-1] in {str(i) for i in config.get("ignored_issue_ids", [])}:
+    if issue_identity(issue_url)[-1] in {
+        str(i) for i in config.get("ignored_issue_ids", [])
+    }:
         raise ValueError("Issue is explicitly ignored by the current configuration")
     configured_repo = str(config.get("repo") or "").strip().casefold()
     if not configured_repo:
@@ -142,8 +180,7 @@ def _check_apply_authorization(item, config, issue_url, reply_approved):
     _check_config_target(config, issue_url)
     policy = get_automation_policy(config)
     needs_approval = (
-        not policy["auto_response"]
-        or item.get("category") in FOLLOWUP_CATEGORIES
+        not policy["auto_response"] or item.get("category") in FOLLOWUP_CATEGORIES
     )
     if needs_approval and not reply_approved:
         raise ValueError(
@@ -154,23 +191,37 @@ def _check_apply_authorization(item, config, issue_url, reply_approved):
 
 def _check_live_open(issue_url, session=None):
     owner, repo, number = parse_issue_url(issue_url)
-    endpoint = f"{resolve_api_base(repo_url=issue_url)}/repos/{owner}/{repo}/issues/{number}"
+    endpoint = (
+        f"{resolve_api_base(repo_url=issue_url)}/repos/{owner}/{repo}/issues/{number}"
+    )
     session = session or make_session()
     try:
-        payload = api_get(session, endpoint, resolve_token())
+        payload = api_get(session, endpoint, resolve_token(repo_url=issue_url))
     except Exception as exc:
         raise RuntimeError("live Issue state could not be verified") from exc
-    if not isinstance(payload, dict) or str(payload.get("state") or "").strip().casefold() not in {"open", "opened"}:
+    if not isinstance(payload, dict) or str(
+        payload.get("state") or ""
+    ).strip().casefold() not in {"open", "opened"}:
         raise ValueError("Issue must still be open before publishing a triage reply")
     return session
 
 
 def execute(
-    classification, issue_url, body, result_file, *, apply=False, session=None,
-    config=None, reply_approved=False, analysis=None,
+    classification,
+    issue_url,
+    body,
+    result_file,
+    *,
+    apply=False,
+    session=None,
+    config=None,
+    reply_approved=False,
+    analysis=None,
 ):
     item = validate_classification(classification, issue_url)
-    save_response_artifacts(result_file, issue_url, analysis or item.get("reason", ""), reply=body)
+    save_response_artifacts(
+        result_file, issue_url, analysis or item.get("reason", ""), reply=body
+    )
     if apply:
         _check_apply_authorization(
             item,
@@ -189,26 +240,39 @@ def main(argv=None):
     parser.add_argument("--body-file", required=True)
     parser.add_argument("--result-file", required=True)
     parser.add_argument("--apply", action="store_true")
-    parser.add_argument("--analysis-file", help="Per-Issue analysis to persist with the response draft")
-    parser.add_argument("--config", default=None,
-                        help="Handler config used for auto-response policy")
-    parser.add_argument("--reply-approved", action="store_true",
-                        help="Explicitly approve a reply when policy requires it")
+    parser.add_argument(
+        "--analysis-file", help="Per-Issue analysis to persist with the response draft"
+    )
+    parser.add_argument(
+        "--config", default=None, help="Handler config used for auto-response policy"
+    )
+    parser.add_argument(
+        "--reply-approved",
+        action="store_true",
+        help="Explicitly approve a reply when policy requires it",
+    )
     args = parser.parse_args(argv)
     try:
-        classification = json.loads(Path(args.classification).read_text(encoding="utf-8"))
+        classification = json.loads(
+            Path(args.classification).read_text(encoding="utf-8")
+        )
         item = validate_classification(classification, args.issue_url)
         analysis = (
             Path(args.analysis_file).read_text(encoding="utf-8")
-            if args.analysis_file else item.get("reason", "")
+            if args.analysis_file
+            else item.get("reason", "")
         )
         save_response_artifacts(
-            args.result_file, args.issue_url, analysis,
+            args.result_file,
+            args.issue_url,
+            analysis,
             reply=Path(args.body_file).read_text(encoding="utf-8"),
         )
         config = load_handler_config(args.config) if args.apply else None
         if args.apply:
-            _check_apply_authorization(item, config, args.issue_url, args.reply_approved)
+            _check_apply_authorization(
+                item, config, args.issue_url, args.reply_approved
+            )
             try:
                 _check_live_open(args.issue_url)
             except ValueError:
@@ -220,8 +284,14 @@ def main(argv=None):
         write_stderr(f"Error: triage publication blocked: {exc}")
         return 2
     # Preserve the toolkit CLI's credential-safe errors and readback semantics.
-    forwarded = ["--issue", args.issue_url, "--body-file", args.body_file,
-                 "--result-file", args.result_file]
+    forwarded = [
+        "--issue",
+        args.issue_url,
+        "--body-file",
+        args.body_file,
+        "--result-file",
+        args.result_file,
+    ]
     if args.apply:
         forwarded.append("--apply")
     return executor.main(forwarded)

@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
+# -----------------------------------------------------------------------------------------------------------
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
-# Licensed under the CANN Open Software License Agreement Version 2.0.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# -----------------------------------------------------------------------------------------------------------
 """Generate the mandatory per-run Issue handling summary report."""
 
 from __future__ import annotations
@@ -19,6 +26,7 @@ sys.path.insert(0, str(_HERE))
 from runtime_paths import LATEST_REPORT, REPORTS_DIR, path_text  # noqa: E402
 from report_runs import create_run, save_run, RUN_NAME
 from cli_output import write_stdout  # noqa: E402
+from pr_response_policy import pr_active, self_authored  # noqa: E402
 
 SENSITIVE_KEYS = {
     "access_token",
@@ -108,7 +116,11 @@ SUBSTANTIVE_STAGES = {
 
 
 def process_stages(issue: dict[str, Any]) -> set[str]:
-    return {str(entry.get("stage", "")) for entry in items(issue.get("process_log")) if isinstance(entry, dict)}
+    return {
+        str(entry.get("stage", ""))
+        for entry in items(issue.get("process_log"))
+        if isinstance(entry, dict)
+    }
 
 
 def should_report_issue(issue: Any) -> bool:
@@ -124,11 +136,11 @@ def should_report_issue(issue: Any) -> bool:
     responsibility = issue.get("responsibility")
     if responsibility == "ignore" or responsibility == "list-only":
         return False
-    if str(issue.get("category", "")) in ROUTING_ONLY_CATEGORIES:
-        return False
     explicit = issue.get("handled_in_run")
     if isinstance(explicit, bool):
         return explicit
+    if str(issue.get("category", "")) in ROUTING_ONLY_CATEGORIES:
+        return False
     if issue.get("bucket") == "need_attention":
         return True
     return bool(process_stages(issue) & SUBSTANTIVE_STAGES)
@@ -168,7 +180,11 @@ def normalize_report_scope(state: dict[str, Any]) -> int:
     """Normalize responsibility routing while retaining enough state to regenerate."""
     run = state.setdefault("run", {})
     raw_issues = state.get("issues") if isinstance(state.get("issues"), list) else []
-    prior_listed = state.get("listed_issues") if isinstance(state.get("listed_issues"), list) else []
+    prior_listed = (
+        state.get("listed_issues")
+        if isinstance(state.get("listed_issues"), list)
+        else []
+    )
     # A prior canonical listed entry wins over a duplicate in issues.
     report_issues, listed_issues = _route_report_issues(list(prior_listed) + raw_issues)
 
@@ -212,7 +228,9 @@ REQUIRED_LOG_FIELDS = ("time", "stage", "action", "result", "evidence")
 def _validate_process_log(issue: dict[str, Any], label: str):
     process_log = issue.get("process_log")
     if not isinstance(process_log, list) or not process_log:
-        return [f"{label}.process_log must contain at least the classification action"], set()
+        return [
+            f"{label}.process_log must contain at least the classification action"
+        ], set()
     errors = []
     stages = set()
     for index, entry in enumerate(process_log):
@@ -222,7 +240,9 @@ def _validate_process_log(issue: dict[str, Any], label: str):
         for field in REQUIRED_LOG_FIELDS:
             missing_value = field != "evidence" and not present(entry.get(field))
             if field not in entry or missing_value:
-                errors.append(f"{label}.process_log[{index}].{field} is required; use 'unknown' when unavailable")
+                errors.append(
+                    f"{label}.process_log[{index}].{field} is required; use 'unknown' when unavailable"
+                )
         stages.add(str(entry.get("stage", "")))
     return errors, stages
 
@@ -238,7 +258,10 @@ def _expected_stages(issue: dict[str, Any], group: dict[str, Any]) -> set[str]:
     if present(issue.get("tests")) or present(group.get("tests")):
         expected.add("validate")
     delivery_fields = ("commit_sha", "pr_url", "published_branch")
-    if any(present(issue.get(field)) or present(group.get(field)) for field in delivery_fields):
+    if any(
+        present(issue.get(field)) or present(group.get(field))
+        for field in delivery_fields
+    ):
         expected.add("deliver")
     return expected
 
@@ -246,7 +269,14 @@ def _expected_stages(issue: dict[str, Any], group: dict[str, Any]) -> set[str]:
 def _candidate_map(candidates, label, errors):
     seen = set()
     per_operator: dict[str, set[str]] = {}
-    required = ("login", "operators", "contribution", "evidence", "identity_evidence", "limitation")
+    required = (
+        "login",
+        "operators",
+        "contribution",
+        "evidence",
+        "identity_evidence",
+        "limitation",
+    )
     for candidate in candidates:
         if not isinstance(candidate, dict):
             errors.append(f"{label}.owner candidate must be an object")
@@ -273,14 +303,17 @@ def _validate_analysis_operators(analysis, operators, per_operator, label, error
     target_operators = [str(operator) for operator in operators]
     if len(set(target_operators)) != len(target_operators):
         errors.append(f"{label}.duplicate target operator")
-    uncovered = {str(operator) for operator in items(analysis.get("uncovered_operators"))}
+    uncovered_names = items(analysis.get("uncovered_operators"))
+    uncovered = {str(operator) for operator in uncovered_names}
     target_set = set(target_operators)
     for operator in per_operator:
         if operator not in target_set:
             errors.append(f"{label}.{operator} candidate operator is not in operators")
     for operator in target_operators:
         if not per_operator.get(operator) and operator not in uncovered:
-            errors.append(f"{label}.{operator} must have candidates or be listed in uncovered_operators")
+            errors.append(
+                f"{label}.{operator} must have candidates or be listed in uncovered_operators"
+            )
 
 
 def _validate_candidate_analysis(analysis, label, errors):
@@ -304,7 +337,120 @@ def _validate_candidate_analysis(analysis, label, errors):
         )
 
 
-def _validate_issue(issue: Any, index: int, group_by_id: dict[str, Any]):
+def _validate_response_obligation(issue, label, errors):
+    response = issue.get("response_status")
+    response_states = {
+        "pending",
+        "prepared",
+        "verified",
+        "reused",
+        "exempt_self_authored_pr",
+        "not_applicable_existing",
+        "waived_by_user",
+        "failed",
+    }
+    if not isinstance(response, str) or response not in response_states:
+        errors.append(
+            f"{label}.response_status: record the first response status or verified self-authorship exemption"
+        )
+        response = None
+    if response in {"verified", "reused", "not_applicable_existing"}:
+        references = issue.get("response_comment_id") or any(
+            isinstance(c, dict)
+            and c.get("status") in {"verified", "reused"}
+            and c.get("id")
+            for c in items(issue.get("comments"))
+        )
+        if not references:
+            errors.append(
+                f"{label}.response_comment_id: verified response requires a comment reference"
+            )
+    if response == "exempt_self_authored_pr":
+        author = str(issue.get("author") or "").strip().casefold()
+        assignee = str(issue.get("assignee") or "").strip().casefold()
+        linked = [
+            pr
+            for pr in items(issue.get("linked_prs"))
+            if isinstance(pr, dict) and pr_active(pr)
+        ]
+        if not author or not (author == assignee or self_authored(author, linked)):
+            errors.append(
+                f"{label}: self-authored exemption requires matching account or active linked PR evidence"
+            )
+    return response
+
+
+def _validate_assignment_obligation(issue, label, errors):
+    assignment = issue.get("assignment_status")
+    if not isinstance(assignment, str) or assignment not in {
+        "not_started",
+        "verified",
+        "failed",
+        "not_applicable",
+    }:
+        errors.append(
+            f"{label}.assignment_status: record assignment independently of the response"
+        )
+        assignment = None
+    elif assignment == "verified":
+        assignee = issue.get("assignee")
+        if not isinstance(assignee, str) or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9_.-]*", assignee
+        ):
+            errors.append(
+                f"{label}.assignee: verified assignment requires the GET-confirmed login"
+            )
+        target = issue.get("operator_owner") or issue.get("assigned_candidate")
+        if (
+            target
+            and str(target).strip().casefold()
+            != str(issue.get("assignee") or "").strip().casefold()
+        ):
+            errors.append(
+                f"{label}.assignee: confirmed login differs from the assignment target"
+            )
+    elif (
+        not isinstance(issue.get("assignment_reason"), str)
+        or not issue["assignment_reason"].strip()
+    ):
+        errors.append(
+            f"{label}.assignment_reason: explain pending, failed or unnecessary assignment"
+        )
+    if (
+        assignment == "not_applicable"
+        and issue.get("operator_handling_decision") == "delegate"
+    ):
+        errors.append(
+            f"{label}.assignment_status: required delegation cannot be marked not_applicable"
+        )
+    return assignment
+
+
+def _validate_response_assignment(issue, label, errors, completion_required=False):
+    if not should_report_issue(issue):
+        return
+    response = _validate_response_obligation(issue, label, errors)
+    assignment = _validate_assignment_obligation(issue, label, errors)
+    pending_response = response not in {
+        "verified",
+        "reused",
+        "not_applicable_existing",
+        "exempt_self_authored_pr",
+    }
+    pending_assignment = assignment != "verified"
+    if (pending_response or pending_assignment) and (
+        completion_required
+        or issue.get("handling_status") in {"completed", "resolved", "delegated"}
+        or issue.get("resolution_status") == "resolved"
+    ):
+        errors.append(
+            f"{label}: response or assignment is still pending; retain a waiting state and next action"
+        )
+
+
+def _validate_issue(
+    issue: Any, index: int, group_by_id: dict[str, Any], completion_required=False
+):
     if not isinstance(issue, dict):
         return [f"issues[{index}] must be an object"]
     label = f"Issue {issue.get('iid', index)}"
@@ -315,7 +461,10 @@ def _validate_issue(issue: Any, index: int, group_by_id: dict[str, Any]):
     ]
     responsibility = issue.get("responsibility")
     if present(responsibility) and responsibility not in RESPONSIBILITIES:
-        errors.append(f"{label}.responsibility must be one of: {', '.join(sorted(RESPONSIBILITIES))}")
+        errors.append(
+            f"{label}.responsibility must be one of: {', '.join(sorted(RESPONSIBILITIES))}"
+        )
+    _validate_response_assignment(issue, label, errors, completion_required)
     _validate_candidate_analysis(issue.get("owner_candidate_analysis"), label, errors)
     log_errors, stages = _validate_process_log(issue, label)
     errors.extend(log_errors)
@@ -324,7 +473,9 @@ def _validate_issue(issue: Any, index: int, group_by_id: dict[str, Any]):
     group = group_by_id.get(str(issue.get("group_id")), {})
     missing_stages = sorted(_expected_stages(issue, group) - stages)
     if missing_stages:
-        errors.append(f"{label}.process_log missing stages: {', '.join(missing_stages)}")
+        errors.append(
+            f"{label}.process_log missing stages: {', '.join(missing_stages)}"
+        )
     return errors
 
 
@@ -354,7 +505,9 @@ def validate_state(state: dict[str, Any]) -> list[str]:
     if not isinstance(issues, list):
         return errors + ["issues must be a list"]
     if run.get("issues_total") != len(issues):
-        errors.append(f"run.issues_total ({run.get('issues_total')!r}) must equal issues length ({len(issues)})")
+        errors.append(
+            f"run.issues_total ({run.get('issues_total')!r}) must equal issues length ({len(issues)})"
+        )
     groups = state.get("groups") if isinstance(state.get("groups"), list) else []
     group_by_id = {
         str(group.get("group_id")): group
@@ -362,7 +515,14 @@ def validate_state(state: dict[str, Any]) -> list[str]:
         if isinstance(group, dict) and present(group.get("group_id"))
     }
     for index, issue in enumerate(issues):
-        errors.extend(_validate_issue(issue, index, group_by_id))
+        errors.extend(
+            _validate_issue(
+                issue,
+                index,
+                group_by_id,
+                completion_required=run.get("overall_status") == "completed",
+            )
+        )
     listed = state.get("listed_issues", [])
     if not isinstance(listed, list):
         errors.append("listed_issues must be a list")
@@ -381,7 +541,11 @@ def render_process_log(log: Any) -> list[str]:
     entries = items(log)
     if not entries:
         return []
-    meaningful = [entry for entry in entries if isinstance(entry, dict) and entry.get("stage") != "triage"]
+    meaningful = [
+        entry
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("stage") != "triage"
+    ]
     if not meaningful:
         meaningful = [entry for entry in entries if isinstance(entry, dict)]
     lines = [
@@ -404,20 +568,32 @@ def render_owner_candidates(analysis: Any) -> list[str]:
     lines = ["", "#### 候选责任人（供线下确认）", ""]
     candidates = items(analysis.get("candidates"))
     target_operators = [str(operator) for operator in items(analysis.get("operators"))]
-    uncovered = {str(operator) for operator in items(analysis.get("uncovered_operators"))}
+    uncovered_names = items(analysis.get("uncovered_operators"))
+    uncovered = {str(operator) for operator in uncovered_names}
     rows: list[tuple[str, str, str]] = []
     for candidate in candidates:
         if not isinstance(candidate, dict):
             continue
-        candidate_operators = [str(operator) for operator in items(candidate.get("operators"))]
+        operators = items(candidate.get("operators"))
+        candidate_operators = [str(operator) for operator in operators]
         if target_operators:
-            ordered = [operator for operator in target_operators if operator in candidate_operators]
-            ordered.extend(operator for operator in candidate_operators if operator not in target_operators)
+            ordered = [
+                operator
+                for operator in target_operators
+                if operator in candidate_operators
+            ]
+            ordered.extend(
+                operator
+                for operator in candidate_operators
+                if operator not in target_operators
+            )
             candidate_operators = ordered
         if not candidate_operators:
             candidate_operators = ["待确认"]
         login = scalar(candidate.get("login"))
-        description = candidate.get("summary_description") or candidate.get("contribution")
+        description = candidate.get("summary_description") or candidate.get(
+            "contribution"
+        )
         for operator in candidate_operators:
             rows.append((operator, login, scalar(description)))
     covered = {operator for operator, _, _ in rows}
@@ -428,7 +604,11 @@ def render_owner_candidates(analysis: Any) -> list[str]:
         rows.append(("待确认", "待确认", "未找到可靠候选"))
     lines.extend(["| 算子 | GitCode账号 | 简述 |", "| --- | --- | --- |"])
     for operator, login, description in rows:
-        account = "待确认" if login == "待确认" else f"[@{inline(login)}](https://gitcode.com/{inline(login)})"
+        account = (
+            "待确认"
+            if login == "待确认"
+            else f"[@{inline(login)}](https://gitcode.com/{inline(login)})"
+        )
         lines.append(f"| {inline(operator)} | {account} | {inline(description)} |")
     lines.append("")
     return lines
@@ -456,7 +636,7 @@ def _render_delivery(issue: dict[str, Any], group: dict[str, Any]) -> list[str]:
 def _render_response_artifacts(issue):
     lines = []
     if issue.get("response_status") == "exempt_self_authored_pr":
-        lines.append("- 首响：自提免首响，本轮仅补齐负责人。")
+        lines.append("- 首响：自提免首响，不计首响成功；仍须核验负责人。")
     for name, artifact in (issue.get("response_artifacts") or {}).items():
         if isinstance(artifact, dict) and artifact.get("path"):
             path = str(artifact["path"])
@@ -468,6 +648,54 @@ def _render_response_artifacts(issue):
     return lines
 
 
+def issue_state_text(issue: dict[str, Any]) -> str:
+    """Show the platform state without inferring it from local progress."""
+    state = issue.get("issue_state") or issue.get("state")
+    return scalar(state, "未知")
+
+
+def first_response_sla_text(issue: dict[str, Any]) -> str:
+    if issue.get("response_status") == "exempt_self_authored_pr":
+        return "不适用（自提免首响）"
+    return {
+        "met": "达标",
+        "at_risk": "临近超时",
+        "breached": "已超时",
+    }.get(issue.get("first_response_sla"), "未知")
+
+
+def result_summary_text(issue):
+    summary = scalar(issue.get("result_summary"))
+    pending = []
+    if issue.get("response_status") not in {
+        "verified",
+        "reused",
+        "not_applicable_existing",
+        "exempt_self_authored_pr",
+    }:
+        pending.append("首响待发送/回查")
+    if issue.get("assignment_status") != "verified":
+        pending.append("责任人待指派/回查")
+    return "；".join([summary, *pending])
+
+
+def render_results_table(issues: list[dict[str, Any]]) -> list[str]:
+    lines = [
+        "## 处理结果汇总",
+        "",
+        "| Issue | 最终处理结果 | Issue 状态 | 责任人 | 首响 SLA | 下一步 |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for issue in issues:
+        label = f"[#{inline(issue.get('iid'))}](<{inline(issue.get('url'))}>) {inline(issue.get('title'))}"
+        lines.append(
+            f"| {label} | {inline(result_summary_text(issue))} | {inline(issue_state_text(issue))} "
+            f"| {inline(issue.get('assignee'), '待指派/回查')} "
+            f"| {inline(first_response_sla_text(issue))} | {inline(issue.get('next_action'))} |"
+        )
+    return lines + [""]
+
+
 def render_issue(issue: dict[str, Any], group: dict[str, Any] | None) -> list[str]:
     iid = scalar(issue.get("iid"))
     title = scalar(issue.get("title"))
@@ -477,6 +705,10 @@ def render_issue(issue: dict[str, Any], group: dict[str, Any] | None) -> list[st
         [
             f"- 结果：{scalar(issue.get('result_summary'))}",
             f"- 状态：{scalar(issue.get('handling_status'))} / {scalar(issue.get('resolution_status'))}",
+            f"- Issue 状态：{issue_state_text(issue)}",
+            f"- 首响 SLA：{first_response_sla_text(issue)}",
+            f"- 首响核验：{scalar(issue.get('response_status'))}",
+            f"- 责任人核验：{scalar(issue.get('assignment_status'))}；{scalar(issue.get('assignment_reason'))}",
             f"- 下一步：{scalar(issue.get('next_action'))}",
             f"- 链接：{scalar(issue.get('url'))}",
         ]
@@ -485,8 +717,12 @@ def render_issue(issue: dict[str, Any], group: dict[str, Any] | None) -> list[st
     for code in items(issue.get("related_code")):
         if isinstance(code, dict) and code.get("path") and code.get("url"):
             kind = "目录" if code.get("kind") == "directory" else "文件"
-            revision = f"（版本：{inline(code['revision'])}）" if code.get("revision") else ""
-            lines.append(f"- 关联代码（{kind}）：[{inline(code['path'])}](<{code['url']}>){revision}")
+            revision = (
+                f"（版本：{inline(code['revision'])}）" if code.get("revision") else ""
+            )
+            lines.append(
+                f"- 关联代码（{kind}）：[{inline(code['path'])}](<{code['url']}>){revision}"
+            )
     if present(issue.get("related_code_note")):
         lines.append(f"- 关联代码说明：{scalar(issue['related_code_note'])}")
 
@@ -498,7 +734,9 @@ def render_issue(issue: dict[str, Any], group: dict[str, Any] | None) -> list[st
         candidate = inline(issue.get("assigned_candidate") or "待确认")
         if issue.get("assignment_status") == "verified":
             if issue.get("assignment_source") == "fallback_user":
-                lines.append(f"- 临时指派：无候选，已临时指派兜底接收人 @{candidate}，请确认真正负责人。")
+                lines.append(
+                    f"- 临时指派：无候选，已临时指派兜底接收人 @{candidate}，请确认真正负责人。"
+                )
             else:
                 lines.append(f"- 临时指派：已临时指派 @{candidate}，请确认真正负责人。")
         else:
@@ -526,7 +764,11 @@ def render_issue(issue: dict[str, Any], group: dict[str, Any] | None) -> list[st
 def render_report(state: dict[str, Any], state_path: Path, output_path: Path) -> str:
     run = state["run"]
     issues = state.get("issues") if isinstance(state.get("issues"), list) else []
-    listed_issues = state.get("listed_issues") if isinstance(state.get("listed_issues"), list) else []
+    listed_issues = (
+        state.get("listed_issues")
+        if isinstance(state.get("listed_issues"), list)
+        else []
+    )
     groups = state.get("groups") if isinstance(state.get("groups"), list) else []
     group_by_id = {
         str(group.get("group_id")): group
@@ -550,12 +792,11 @@ def render_report(state: dict[str, Any], state_path: Path, output_path: Path) ->
         f"- 仅列举：{len(listed_issues)} 个 Issue",
     ]
 
-    lines.extend(["", "## 本次实际处理的 Issue", ""])
+    lines.append("")
+    if issues:
+        lines.extend(render_results_table(issues))
     if not issues:
         lines.append("本次未实际处理任何 Issue。")
-    for issue in issues:
-        group = group_by_id.get(str(issue.get("group_id")))
-        lines.extend(render_issue(issue, group))
 
     if listed_issues:
         lines.extend(["## 仅列举", ""])
@@ -566,16 +807,27 @@ def render_report(state: dict[str, Any], state_path: Path, output_path: Path) ->
             )
         lines.append("")
 
+    # Keep the default view focused on outcomes; retain evidence below on demand.
     blockers = items(state.get("internal_blockers"))
     boundaries = items(state.get("validation_boundaries"))
     show_run_limits = bool(issues) or run.get("overall_status") in {
         "partial",
         "blocked",
     }
-    if show_run_limits and (blockers or boundaries):
+    has_limits = show_run_limits and (blockers or boundaries)
+    if issues or has_limits:
+        lines.extend(["", "<details>", "<summary>处理详情（按需展开）</summary>", ""])
+    if issues:
+        lines.extend(["## 本次实际处理的 Issue", ""])
+        for issue in issues:
+            group = group_by_id.get(str(issue.get("group_id")))
+            lines.extend(render_issue(issue, group))
+    if has_limits:
         lines.extend(["## 卡点与验证边界", ""])
         lines.extend(f"- {scalar(value)}" for value in blockers + boundaries)
         lines.append("")
+    if issues or has_limits:
+        lines.extend(["</details>", ""])
     lines.append("")
     return "\n".join(lines)
 
@@ -596,9 +848,56 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=path_text(LATEST_REPORT),
         help=f"Latest-report path (default: {path_text(LATEST_REPORT)})",
     )
-    parser.add_argument("--no-latest", action="store_true", help="Do not update latest.md")
-    parser.add_argument("--strict", action="store_true", help="Reject incomplete per-Issue state")
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--no-latest", action="store_true", help="Do not update latest.md"
+    )
+    parser.add_argument(
+        "--strict", action="store_true", help="Reject incomplete per-Issue state"
+    )
+    parser.add_argument(
+        "--classification",
+        help="Full run classification JSON to check for entirely omitted Issues; requires --strict",
+    )
+    args = parser.parse_args(argv)
+    if args.classification and not args.strict:
+        parser.error("--classification requires --strict")
+    return args
+
+
+def validate_classification_coverage(state, classification):
+    if not isinstance(classification, dict) or not isinstance(
+        classification.get("issues"), list
+    ):
+        raise ValueError("classification must be an object containing an issues list")
+    observations = classification.get("observations", [])
+    if not isinstance(observations, list):
+        raise ValueError("classification.observations must be a list")
+    expected = set()
+    for item in classification["issues"] + observations:
+        if not isinstance(item, dict):
+            raise ValueError("classification entries must be objects")
+        if (
+            item.get("responsibility") != "handle"
+            or item.get("bucket") != "need_attention"
+        ):
+            continue
+        iid = item.get("iid") or item.get("number")
+        if not present(iid):
+            raise ValueError(
+                "classification handle/need_attention entry requires an Issue number"
+            )
+        expected.add(str(iid))
+    recorded = {
+        str(item.get("iid"))
+        for item in state.get("issues", [])
+        if isinstance(item, dict)
+    }
+    missing = sorted(expected - recorded)
+    return (
+        ["classification: missing handle/need_attention Issues: " + ", ".join(missing)]
+        if missing
+        else []
+    )
 
 
 def _load_state(args):
@@ -613,8 +912,24 @@ def _load_state(args):
     state = sanitize(raw_state)
     excluded_observations = normalize_report_scope(state)
     errors = validate_state(state) if args.strict else []
+    if state.get("run", {}).get("overall_status") == "completed":
+        if not args.strict or not args.classification:
+            errors.append(
+                "completed run requires --strict --classification for full coverage"
+            )
+    if args.classification:
+        try:
+            classification = json.loads(
+                Path(args.classification).read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Error: cannot read classification: {exc}") from exc
+        errors.extend(validate_classification_coverage(state, classification))
     if errors:
-        raise ValueError("Error: summary report state is incomplete:\n" + "\n".join(f"- {error}" for error in errors))
+        raise ValueError(
+            "Error: summary report state is incomplete:\n"
+            + "\n".join(f"- {error}" for error in errors)
+        )
     return state, excluded_observations
 
 
@@ -624,31 +939,44 @@ def _write_report_artifacts(state, args, excluded_observations):
         output_path = Path(args.output)
     elif run.get("report_directory"):
         output_path = Path(run["report_directory"]) / "summary.md"
-    elif RUN_NAME.fullmatch(str(run.get("run_id", ""))) and (REPORTS_DIR / run["run_id"] / "run.json").is_file():
+    elif (
+        RUN_NAME.fullmatch(str(run.get("run_id", "")))
+        and (REPORTS_DIR / run["run_id"] / "run.json").is_file()
+    ):
         output_path = REPORTS_DIR / run["run_id"] / "summary.md"
     else:
         # Legacy state stays readable; new default output always uses a dated round.
         started = run.get("started_at")
         try:
             parsed = datetime.fromisoformat(str(started).replace("Z", "+00:00"))
-            timestamp = parsed.replace(tzinfo=timezone.utc).timestamp() if parsed.tzinfo is None else parsed.timestamp()
+            timestamp = (
+                parsed.replace(tzinfo=timezone.utc).timestamp()
+                if parsed.tzinfo is None
+                else parsed.timestamp()
+            )
         except ValueError:
             timestamp = None
-        metadata = create_run(REPORTS_DIR, run.get("repository", ""), run.get("mode", "single"), timestamp)
+        metadata = create_run(
+            REPORTS_DIR, run.get("repository", ""), run.get("mode", "single"), timestamp
+        )
         run["legacy_run_id"] = run.get("run_id")
         metadata["legacy_run_id"] = run.get("run_id")
         save_run(REPORTS_DIR, metadata)
         run["run_id"] = metadata["run_id"]
         output_path = REPORTS_DIR / metadata["run_id"] / "summary.md"
     managed = (output_path.parent / "run.json").is_file()
-    canonical_state_path = output_path.parent / ("_internal/run_state.json" if managed else "run_state.json")
+    canonical_state_path = output_path.parent / (
+        "_internal/run_state.json" if managed else "run_state.json"
+    )
     if managed:
         run["report_directory"] = output_path.parent.as_posix()
     run["report_generated"] = True
     run["report_path"] = output_path.as_posix()
     report = render_report(state, canonical_state_path, output_path)
 
-    write_text(canonical_state_path, json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+    write_text(
+        canonical_state_path, json.dumps(state, ensure_ascii=False, indent=2) + "\n"
+    )
     write_text(output_path, report)
     latest_path = None
     if not args.no_latest:

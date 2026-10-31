@@ -52,7 +52,7 @@ git diff origin/${BASE_BRANCH}...HEAD -- path/to/file.py
 
 ### Q: 如何获取 GitCode API Token？
 
-Token 获取优先级：用户直接在消息中提供 → 环境变量 `GITCODE_TOKEN` → 询问用户。
+Token 获取优先级：用户直接在消息中提供 → 环境变量 `GITCODE_TOKEN` → 目标仓库的 Git credential helper → 询问用户。自动复用已存 HTTPS 凭据，具体匹配与权限核验见 [token-config.md](references/token-config.md)。
 
 **传递方式**（二选一）：
 | 方式 | 示例 |
@@ -71,7 +71,7 @@ Token 获取优先级：用户直接在消息中提供 → 环境变量 `GITCODE
 | 步骤 | 内容 | 详细文档 | 脚本支持 |
 |------|------|----------|----------|
 | Step 0 | 环境预检（token / git / curl / /tmp / git-author） | [env-check.md](references/env-check.md) | `bash scripts/preflight.sh` |
-| Token | 获取优先级：用户消息 → `GITCODE_TOKEN` → 询问 | [token-config.md](references/token-config.md) | — |
+| Token | 用户消息 → `GITCODE_TOKEN` → Git credential helper → 询问 | [token-config.md](references/token-config.md) | `resolve_token()` |
 | URL | 解析 PR/Issue 链接：`/pull/{n}`, `/issues/{n}`, `/merge_requests/{n}` | [url-parsing.md](references/url-parsing.md) | `python scripts/parse_gitcode_url.py "<url>"` |
 | API | PR/Issue/仓库 API + 错误码处理 | [gitcode-api.md](references/gitcode-api.md) | — |
 | Issue 评论 | 目标解析、评论 POST/GET 回查、幂等与安全 | [issue-comment-workflow.md](references/issue-comment-workflow.md) | `post_issue_comment.py` |

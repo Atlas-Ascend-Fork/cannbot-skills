@@ -1,10 +1,18 @@
+# -----------------------------------------------------------------------------------------------------------
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
-# Licensed under the CANN Open Software License Agreement Version 2.0.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# -----------------------------------------------------------------------------------------------------------
 """Offline workflow replay: no GitCode requests or publication."""
 
 import copy
 import json
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -17,11 +25,50 @@ from scope_cache import make_entry, restore
 from responsibility import policy_digest
 
 
+@pytest.mark.parametrize("available", [True, False])
+def test_online_resume_uses_shared_credential_lookup(monkeypatch, tmp_path, available):
+    monkeypatch.delenv("GITCODE_TOKEN", raising=False)
+    lookups = []
+    refreshes = []
+
+    def resolve(**kwargs):
+        lookups.append(kwargs)
+        if not available:
+            raise p.GitCodeClientError("no credentials")
+        return "fixture-helper-token"
+
+    monkeypatch.setattr(p, "resolve_token", resolve)
+    monkeypatch.setattr(p, "refresh_remote", lambda *args: refreshes.append(True))
+    monkeypatch.setattr(p, "synchronize", lambda *args: None)
+    context = SimpleNamespace(
+        args=SimpleNamespace(input=None, offline=False, refresh=False),
+        state={},
+        cfg={"repo": "cann/samples"},
+        root=tmp_path,
+        config_path=tmp_path / "config.yaml",
+        store=SimpleNamespace(path=tmp_path / "state.json"),
+        now=1,
+    )
+    result = p._command_resume(context)
+    assert lookups == [
+        {"repo_url": "https://gitcode.com/cann/samples", "repository_root": tmp_path}
+    ]
+    assert bool(refreshes) is available
+    assert result is None if available else result["next_action"] == "provide_token"
+    assert p._token_available(context) is available
+    assert len(lookups) == 1
+    assert "fixture-helper-token" not in str(context.state)
+
+
 @pytest.fixture
 def cfg():
     return {
         "repo": "cann/samples",
-        "responsibility": {"handle": ["具体问题"], "list-only": ["规划"], "ignore": ["用户指定"]},
+        "responsibility": {
+            "handle": ["具体问题"],
+            "list-only": ["规划"],
+            "ignore": ["用户指定"],
+        },
         "ignored_issue_ids": [],
         "cache_dir": "/nonexistent-pipeline-fixture-cache",
     }
@@ -70,6 +117,42 @@ def init(cfg, items=None):
     return state
 
 
+@pytest.mark.parametrize("sla_source", ["classification", "issue"])
+def test_prepared_report_carries_platform_status_and_sla_to_summary(
+    cfg, tmp_path, sla_source
+):
+    from generate_summary_report import render_report
+
+    state = init(cfg, [issue(issue_state="进行中")])
+    entry = state["issues"]["1"]
+    entry.update(
+        phase="waiting",
+        classification_scan_id=state["scan"]["id"],
+        classification={"responsibility": "handle", "bucket": "need_attention"},
+        response_file_map={},
+        related_code=[],
+        prepared_response={
+            "summary": "回复草稿已准备，等待审核",
+            "next_action": "审核并发送回复",
+            "owner_review": {"status": "not_needed", "reason": "纯答疑"},
+            "response_review": {},
+            "evidence": ["Issue 原文"],
+        },
+    )
+    if sla_source == "classification":
+        entry["classification"]["first_response_sla"] = "at_risk"
+        entry["issue"]["first_response_sla"] = "unknown"
+    else:
+        entry["issue"]["first_response_sla"] = "at_risk"
+    report = p.report_state(state, tmp_path, NOW)
+    markdown = render_report(report, tmp_path / "state.json", tmp_path / "summary.md")
+    overview = markdown.split("<details>", 1)[0]
+    assert (
+        "| 回复草稿已准备，等待审核；首响待发送/回查；责任人待指派/回查 | 进行中 | 待指派/回查 | 临近超时 | 审核并发送回复 |"
+        in overview
+    )
+
+
 def review(cfg, level="handle"):
     return {
         "level": level,
@@ -85,7 +168,11 @@ def accept_scope(state, cfg, root):
         state,
         task["task_id"],
         task["attempt_id"],
-        {"decision": "handle", "summary": "本仓构建缺陷", "evidence": ["cmake/shmem.cmake 的配置命令"]},
+        {
+            "decision": "handle",
+            "summary": "本仓构建缺陷",
+            "evidence": ["cmake/shmem.cmake 的配置命令"],
+        },
         NOW + 2,
     )
     p.accept_result(state, task["task_id"], cfg, root, NOW + 3)
@@ -128,7 +215,11 @@ def test_waiting_task_summary_exposes_reason_after_resume(cfg, tmp_path):
         state,
         task["task_id"],
         task["attempt_id"],
-        {"decision": "needs_evidence", "summary": "缺少源码版本", "evidence": ["正文无版本"]},
+        {
+            "decision": "needs_evidence",
+            "summary": "缺少源码版本",
+            "evidence": ["正文无版本"],
+        },
         NOW + 2,
     )
     p.accept_result(state, task["task_id"], cfg, tmp_path, NOW + 3)
@@ -215,7 +306,9 @@ def test_late_result_after_policy_change_cannot_be_accepted(cfg):
 def test_delta_task_contains_previous_evidence(cfg, tmp_path):
     state = init(cfg)
     accept_scope(state, cfg, tmp_path)
-    p.ingest(state, snapshot([issue(updated_at="2026-09-22T00:00:00+00:00")]), cfg, NOW + 10)
+    p.ingest(
+        state, snapshot([issue(updated_at="2026-09-22T00:00:00+00:00")]), cfg, NOW + 10
+    )
     p.synchronize(state, cfg, NOW + 10)
     task = p.queue.claim(state, "next", NOW + 11)
     assert task["payload"]["previous_review"]["review"]["level"] == "handle"
@@ -225,7 +318,9 @@ def test_delta_task_contains_previous_evidence(cfg, tmp_path):
 def test_fixed_and_moving_source_reuse(cfg):
     fixed = make_entry(issue(), cfg["responsibility"], review(cfg))
     assert restore(fixed, issue(), cfg["responsibility"])[1] == "reused"
-    moving = make_entry(issue(), cfg["responsibility"], review(cfg), source_mode="moving")
+    moving = make_entry(
+        issue(), cfg["responsibility"], review(cfg), source_mode="moving"
+    )
     assert restore(moving, issue(), cfg["responsibility"])[0] is None
 
 
@@ -253,7 +348,11 @@ def test_needs_evidence_stays_waiting_after_status_and_resume(cfg, tmp_path):
         state,
         task["task_id"],
         task["attempt_id"],
-        {"decision": "needs_evidence", "summary": "需提供问题版本", "evidence": ["正文未给版本"]},
+        {
+            "decision": "needs_evidence",
+            "summary": "需提供问题版本",
+            "evidence": ["正文未给版本"],
+        },
         NOW + 1,
     )
     p.accept_result(state, task["task_id"], cfg, tmp_path, NOW + 2)
@@ -294,7 +393,11 @@ def test_list_only_observation_reconciles_without_response_task(cfg):
     entry = state["issues"]["1"]
     p.apply_classification(
         state,
-        {"observations": [{"number": "1", "bucket": "no_attention", "responsibility": "list-only"}]},
+        {
+            "observations": [
+                {"number": "1", "bucket": "no_attention", "responsibility": "list-only"}
+            ]
+        },
         [entry],
         "result",
         NOW,
@@ -346,7 +449,9 @@ def test_atomic_write_failure_keeps_previous_generation(cfg, tmp_path, monkeypat
         store.save(init(cfg))
         before = store.path.read_bytes()
         monkeypatch.setattr(
-            pipeline_store, "_atomic_write_json", lambda *_: (_ for _ in ()).throw(OSError("disk_full"))
+            pipeline_store,
+            "_atomic_write_json",
+            lambda *_: (_ for _ in ()).throw(OSError("disk_full")),
         )
         with pytest.raises(OSError):
             store.save(init(cfg, [issue("2")]))
@@ -380,12 +485,18 @@ def setup_cli(tmp_path, cfg):
     return root, captured
 
 
-def test_cli_new_session_resume_and_unknown_write_requires_verification(cfg, tmp_path, monkeypatch):
+def test_cli_new_session_resume_and_unknown_write_requires_verification(
+    cfg, tmp_path, monkeypatch
+):
     root, captured = setup_cli(tmp_path, cfg)
     monkeypatch.setattr(p.time, "time", lambda: NOW + 20)
 
     def call(command, *extra):
-        return p.run(p.parser().parse_args([command, "--repository-root", str(root), "--offline", *extra]))
+        return p.run(
+            p.parser().parse_args(
+                [command, "--repository-root", str(root), "--offline", *extra]
+            )
+        )
 
     result = call("resume", "--input", str(captured))
     assert result["next_action"] == "claim_task"
@@ -403,16 +514,40 @@ def test_acceptance_checkpoint_survives_classifier_failure(cfg, tmp_path, monkey
 
     def args(command, *extra, offline=True):
         return p.parser().parse_args(
-            [command, "--repository-root", str(root), *(["--offline"] if offline else []), *extra]
+            [
+                command,
+                "--repository-root",
+                str(root),
+                *(["--offline"] if offline else []),
+                *extra,
+            ]
         )
 
     p.run(args("resume", "--input", str(captured)))
     task = p.run(args("claim"))["task"]
     result_path = tmp_path / "result.json"
-    result_path.write_text(json.dumps({"decision": "handle", "summary": "已核查", "evidence": ["构建入口"]}))
-    p.run(args("submit", "--task", task["task_id"], "--attempt", task["attempt_id"], "--result-file", str(result_path)))
+    result_path.write_text(
+        json.dumps(
+            {"decision": "handle", "summary": "已核查", "evidence": ["构建入口"]}
+        )
+    )
+    p.run(
+        args(
+            "submit",
+            "--task",
+            task["task_id"],
+            "--attempt",
+            task["attempt_id"],
+            "--result-file",
+            str(result_path),
+        )
+    )
     monkeypatch.setenv("GITCODE_TOKEN", "fixture-token")
-    monkeypatch.setattr(p, "classify_ready", lambda *_: (_ for _ in ()).throw(ValueError("classifier_failed")))
+    monkeypatch.setattr(
+        p,
+        "classify_ready",
+        lambda *_: (_ for _ in ()).throw(ValueError("classifier_failed")),
+    )
     with pytest.raises(ValueError, match="classifier_failed"):
         p.run(args("accept", "--task", task["task_id"], offline=False))
     with PipelineStore(root / p.RUNTIME, cfg["repo"]) as store:
@@ -423,7 +558,10 @@ def test_acceptance_checkpoint_survives_classifier_failure(cfg, tmp_path, monkey
 
 def test_migrated_report_without_core_state_stays_refresh(cfg):
     state = new_state(cfg["repo"])
-    state["issues"]["1"] = {"issue": {"iid": "1", "title": "历史未完成任务"}, "phase": "refresh"}
+    state["issues"]["1"] = {
+        "issue": {"iid": "1", "title": "历史未完成任务"},
+        "phase": "refresh",
+    }
     p.synchronize(state, cfg, NOW)
     assert state["issues"]["1"]["phase"] == "refresh"
 
@@ -447,7 +585,12 @@ def test_old_response_cannot_skip_classification_on_new_scan(cfg, tmp_path):
     entry = state["issues"]["1"]
     result = {
         "issues": [
-            {"number": "1", "bucket": "need_attention", "category": "needs_first_look", "responsibility": "handle"}
+            {
+                "number": "1",
+                "bucket": "need_attention",
+                "category": "needs_first_look",
+                "responsibility": "handle",
+            }
         ]
     }
     p.apply_classification(state, result, [entry], "classification.json", NOW + 5)
@@ -456,7 +599,12 @@ def test_old_response_cannot_skip_classification_on_new_scan(cfg, tmp_path):
         state,
         task["task_id"],
         task["attempt_id"],
-        {"decision": "prepared", "summary": "分析完成", "evidence": ["代码"], "artifacts": ["reply.md"]},
+        {
+            "decision": "prepared",
+            "summary": "分析完成",
+            "evidence": ["代码"],
+            "artifacts": ["reply.md"],
+        },
         NOW + 7,
     )
     p.ingest(state, snapshot([issue()]), cfg, NOW + 10)
@@ -466,7 +614,9 @@ def test_old_response_cannot_skip_classification_on_new_scan(cfg, tmp_path):
     assert entry["phase"] == "classify"
 
 
-@pytest.mark.parametrize("damage", ["generation", "migration_done", "issue_entry", "task_entry"])
+@pytest.mark.parametrize(
+    "damage", ["generation", "migration_done", "issue_entry", "task_entry"]
+)
 def test_valid_json_but_damaged_schema_recovers(cfg, tmp_path, damage):
     with PipelineStore(tmp_path, cfg["repo"]) as store:
         state = init(cfg)
@@ -489,7 +639,11 @@ def test_full_scan_may_take_longer_than_one_minute(cfg, tmp_path, monkeypatch):
     with PipelineStore(tmp_path, cfg["repo"]) as store:
         state = new_state(cfg["repo"])
         later_cursor = "2026-09-22T00:03:00+00:00"
-        monkeypatch.setattr(p, "read_command", lambda *_: (snapshot([issue()], cursor=later_cursor), 180))
+        monkeypatch.setattr(
+            p,
+            "read_command",
+            lambda *_: (snapshot([issue()], cursor=later_cursor), 180),
+        )
         monkeypatch.setattr(p.time, "time", lambda: NOW + 180)
         p.refresh_remote(state, cfg, tmp_path / "config", tmp_path, store, NOW)
         assert state["scan"]["cursor"] == later_cursor
@@ -517,7 +671,9 @@ def test_natural_policy_change_invalidates_scope(cfg, tmp_path):
     assert state["issues"]["1"]["phase"] == "scope"
 
 
-def test_invalid_scope_result_can_be_corrected_in_same_attempt(cfg, tmp_path, monkeypatch, capsys):
+def test_invalid_scope_result_can_be_corrected_in_same_attempt(
+    cfg, tmp_path, monkeypatch, capsys
+):
     root, captured = setup_cli(tmp_path, cfg)
     monkeypatch.setattr(p.time, "time", lambda: NOW + 20)
 
@@ -535,7 +691,12 @@ def test_invalid_scope_result_can_be_corrected_in_same_attempt(cfg, tmp_path, mo
     assert task["attempt_id"] == bundle["attempt_id"]
     Path(bundle["result_file"]).write_text(
         json.dumps(
-            {"decision": "handle", "summary": "构建问题属于范围", "evidence": ["问题正文"], "source_mode": "fixed"}
+            {
+                "decision": "handle",
+                "summary": "构建问题属于范围",
+                "evidence": ["问题正文"],
+                "source_mode": "fixed",
+            }
         )
     )
     p.run(p.parser().parse_args(args("submit", "--claim-file", bundle["claim_file"])))
@@ -544,10 +705,14 @@ def test_invalid_scope_result_can_be_corrected_in_same_attempt(cfg, tmp_path, mo
         assert store.load()["tasks"][bundle["task_id"]]["status"] == "accepted"
 
 
-def test_scan_checkpoint_is_session_scoped_and_new_session_refreshes(cfg, tmp_path, monkeypatch):
+def test_scan_checkpoint_is_session_scoped_and_new_session_refreshes(
+    cfg, tmp_path, monkeypatch
+):
     state = init(cfg, items=[])
     state.update(needs_full_scan=False)
-    state["scan"].update(complete=True, completed_at=NOW, full_completed_at=NOW, session_id="session-a")
+    state["scan"].update(
+        complete=True, completed_at=NOW, full_completed_at=NOW, session_id="session-a"
+    )
     monkeypatch.setenv("CODEX_THREAD_ID", "session-a")
     monkeypatch.setattr(p.time, "time", lambda: NOW + 600)
     calls = []
@@ -563,11 +728,49 @@ def test_scan_checkpoint_is_session_scoped_and_new_session_refreshes(cfg, tmp_pa
         monkeypatch.setenv("CODEX_THREAD_ID", "session-b")
         p.refresh_remote(state, cfg, tmp_path / "config", tmp_path, store, NOW + 601)
         assert len(calls) == 1 and state["scan"]["session_id"] == "session-b"
-        p.refresh_remote(state, cfg, tmp_path / "config", tmp_path, store, NOW + 602, force=True)
+        p.refresh_remote(
+            state, cfg, tmp_path / "config", tmp_path, store, NOW + 602, force=True
+        )
         assert len(calls) == 2
         state["scan"]["complete"] = False
         p.refresh_remote(state, cfg, tmp_path / "config", tmp_path, store, NOW + 603)
         assert len(calls) == 3
+
+
+@pytest.mark.parametrize("elapsed", [86400, 30 * 86400])
+@pytest.mark.parametrize("force", [False, True])
+def test_refresh_keeps_incremental_scan_after_one_day(
+    cfg, tmp_path, monkeypatch, elapsed, force
+):
+    state = init(cfg, items=[])
+    state["scan"]["session_id"] = "session-a"
+    original_full_completed_at = state["scan"]["full_completed_at"]
+    monkeypatch.setenv("CODEX_THREAD_ID", "session-a")
+    monkeypatch.setattr(p.time, "time", lambda: NOW + elapsed)
+    calls = []
+
+    def fetch(script, args, root):
+        calls.append((script, args))
+        return snapshot([], full=False), 0.1
+
+    monkeypatch.setattr(p, "read_command", fetch)
+    with PipelineStore(tmp_path / p.RUNTIME, cfg["repo"]) as store:
+        p.refresh_remote(
+            state, cfg, tmp_path / "config", tmp_path, store, NOW + elapsed
+        )
+        assert calls == []
+        if not force:
+            monkeypatch.setenv("CODEX_THREAD_ID", "session-b")
+        p.refresh_remote(
+            state, cfg, tmp_path / "config", tmp_path, store, NOW + elapsed, force=force
+        )
+        assert len(calls) == 1
+        script, args = calls[0]
+        assert script == "fetch_issues.py"
+        assert args[args.index("--updated-since") + 1] == "2026-09-21T23:55:00+00:00"
+        assert "--defer-cursor" in args
+        assert state["scan"]["full_completed_at"] == original_full_completed_at
+        assert not state["needs_full_scan"]
 
 
 def test_host_without_session_id_keeps_time_based_refresh(cfg, tmp_path, monkeypatch):
@@ -595,14 +798,18 @@ def test_protocol_pages_preserve_all_waiting_items_without_mutating_full_state()
     original = {
         "next_action": "resume_waiting_work",
         "tasks": {"counts": {"waiting": 23}},
-        "waiting_issues": [{"iid": str(i), "artifacts": ["large/" * 100]} for i in range(23)],
+        "waiting_issues": [
+            {"iid": str(i), "artifacts": ["large/" * 100]} for i in range(23)
+        ],
         "status_file": "/local/status.json",
     }
     before = copy.deepcopy(original)
     seen = []
     offset = 0
     while True:
-        args = p.parser().parse_args(["status", "--section", "waiting_issues", "--offset", str(offset)])
+        args = p.parser().parse_args(
+            ["status", "--section", "waiting_issues", "--offset", str(offset)]
+        )
         page = p.protocol_view(original, args)
         seen.extend(item["iid"] for item in page["items"])
         offset = page["next_offset"]
@@ -621,8 +828,13 @@ def test_accept_receipt_does_not_grow_with_waiting_artifacts():
         full = {
             "next_action": "resume_waiting_work",
             "counts": {"waiting": count},
-            "tasks": {"counts": {"waiting": count}, "waiting": [{"iid": str(i)} for i in range(count)]},
-            "waiting_issues": [{"iid": str(i), "artifacts": ["x" * 5000]} for i in range(count)],
+            "tasks": {
+                "counts": {"waiting": count},
+                "waiting": [{"iid": str(i)} for i in range(count)],
+            },
+            "waiting_issues": [
+                {"iid": str(i), "artifacts": ["x" * 5000]} for i in range(count)
+            ],
             "task": {"iid": "1", "status": "accepted"},
             "status_file": "/status.json",
         }
@@ -635,11 +847,19 @@ def test_accept_receipt_does_not_grow_with_waiting_artifacts():
 def test_required_references_follow_stage_and_native_assignment_contract():
     scope = p.task_references({"stage": "scope"})
     assert [Path(v).name for v in scope] == ["responsibility-scope.md"]
-    classification = {"auto_action": {"type": "assign_candidate", "response_requirement": "exempt_self_authored_pr"}}
+    classification = {
+        "auto_action": {
+            "type": "assign_candidate",
+            "response_requirement": "satisfied",
+        }
+    }
     task = {"stage": "response", "payload": {"classification": classification}}
     assert [Path(v).name for v in p.task_references(task)] == ["automation.md"]
     classification["auto_action"]["response_requirement"] = "required"
-    assert [Path(v).name for v in p.task_references(task)] == ["response-writing.md", "automation.md"]
+    assert [Path(v).name for v in p.task_references(task)] == [
+        "response-writing.md",
+        "automation.md",
+    ]
     for path in scope + p.task_references(task):
         assert Path(path).is_absolute() and Path(path).is_file()
         assert Path(path).parent.parent == SCRIPTS.parent.resolve()
@@ -647,16 +867,28 @@ def test_required_references_follow_stage_and_native_assignment_contract():
 
 def test_nested_inspection_lists_can_be_paged_independently():
     records = [
-        {"path": f"file{i}.md", "excerpt": "x" * 5000, "links": [{"target": str(j)} for j in range(17)]}
+        {
+            "path": f"file{i}.md",
+            "excerpt": "x" * 5000,
+            "links": [{"target": str(j)} for j in range(17)],
+        }
         for i in range(8)
     ]
-    original = {"records": records, "reported_documents": [], "evidence_file": "/facts.json"}
+    original = {
+        "records": records,
+        "reported_documents": [],
+        "evidence_file": "/facts.json",
+    }
     view = p.protocol_view(original, p.parser().parse_args(["inspect"]))
     assert len(view["records"]) == 5
     assert len(view["records"][0]["excerpt"]) == 2400
     assert view["records"][0]["excerpt_truncated"]
-    args = p.parser().parse_args(["inspect", "--section", "records.file7.md.links", "--offset", "5"])
-    assert [v["target"] for v in p.protocol_view(original, args)["items"]] == list(map(str, range(5, 10)))
+    args = p.parser().parse_args(
+        ["inspect", "--section", "records.file7.md.links", "--offset", "5"]
+    )
+    assert [v["target"] for v in p.protocol_view(original, args)["items"]] == list(
+        map(str, range(5, 10))
+    )
     assert len(original["records"][0]["excerpt"]) == 5000
 
 
@@ -688,10 +920,15 @@ def test_details_respects_explicit_section_and_issue_filters():
         },
         "state_file": "/state.json",
     }
-    selected = p.protocol_view(full, p.parser().parse_args(["status", "--iid", "2", "--details"]))
+    selected = p.protocol_view(
+        full, p.parser().parse_args(["status", "--iid", "2", "--details"])
+    )
     assert selected["waiting_issues"] == [{"iid": "2"}]
     assert selected["tasks"]["waiting"] == [{"iid": "2"}]
-    section = p.protocol_view(full, p.parser().parse_args(["status", "--section", "waiting_issues", "--details"]))
+    section = p.protocol_view(
+        full,
+        p.parser().parse_args(["status", "--section", "waiting_issues", "--details"]),
+    )
     assert section["items"] == full["waiting_issues"]
     assert "issue_detail" not in section
     compact = p.protocol_view(full, p.parser().parse_args(["status", "--iid", "2"]))
@@ -706,10 +943,18 @@ def test_prepared_inventory_reports_only_existing_files(cfg, tmp_path):
     state["issues"]["1"].update(
         phase="waiting",
         prepared_response={"summary": "Ready"},
-        response_file_map={"reply.md": str(reply), "assign.md": str(tmp_path / "absent.md")},
+        response_file_map={
+            "reply.md": str(reply),
+            "assign.md": str(tmp_path / "absent.md"),
+        },
     )
     with PipelineStore(tmp_path / p.RUNTIME, cfg["repo"]) as store:
         summary = p.output_status(state, store, NOW)
     assert summary["prepared_items"] == [{"iid": "1", "files": ["reply.md"]}]
-    assert p.protocol_view(summary, p.parser().parse_args(["status"]))["prepared_items"] == summary["prepared_items"]
-    assert "prepared_items" not in p.protocol_view(summary, p.parser().parse_args(["accept"]))
+    assert (
+        p.protocol_view(summary, p.parser().parse_args(["status"]))["prepared_items"]
+        == summary["prepared_items"]
+    )
+    assert "prepared_items" not in p.protocol_view(
+        summary, p.parser().parse_args(["accept"])
+    )

@@ -48,10 +48,17 @@ COMPLETE_STATE = {
             "problem_summary": "特定 shape 下输出错误",
             "handling_status": "published",
             "resolution_status": "resolution_pending",
+            "state": "open",
+            "issue_state": "进行中",
+            "first_response_sla": "met",
             "resolution_metric_reason": "PR 尚未合入",
             "result_summary": "已修复并创建 PR，等待合入",
             "group_id": "g101",
             "operator_owner": "owner-a",
+            "assignee": "owner-a",
+            "response_status": "verified",
+            "response_comment_id": 9001,
+            "assignment_status": "verified",
             "root_cause_hypothesis": "尾块处理错误",
             "final_root_cause": "尾块 mask 计算少一位",
             "solution_plan": "修正 mask 并补回归测试",
@@ -118,6 +125,9 @@ COMPLETE_STATE = {
             "reason": "上下文不足",
             "handling_status": "waiting_context",
             "resolution_status": "unresolved",
+            "state": "open",
+            "issue_state": "挂起",
+            "first_response_sla": "breached",
             "resolution_metric_reason": "等待提交者补充日志",
             "result_summary": "已回评索要最小复现信息",
             "process_log": [
@@ -137,6 +147,9 @@ COMPLETE_STATE = {
                 },
             ],
             "comments": [{"status": "verified", "id": 9002}],
+            "response_status": "verified",
+            "assignment_status": "not_started",
+            "assignment_reason": "当前责任人尚待确认，已保存恢复点",
             "blockers": ["等待提交者提供输入 shape 和完整日志"],
             "next_action": "收到补充后重新进入环境门禁",
         },
@@ -192,13 +205,16 @@ def owner_analysis():
     return {
         "status": "prepared",
         "operators": ["Add", "OtherOp"],
-        "candidates": [{
-            "login": "core-dev", "operators": ["Add"],
-            "contribution": "implemented tail handling",
-            "evidence": ["https://gitcode.com/cann/ops-math/commit/abc"],
-            "identity_evidence": ["PR commit author.login = core-dev"],
-            "limitation": "historical contributor; ownership unconfirmed",
-        }],
+        "candidates": [
+            {
+                "login": "core-dev",
+                "operators": ["Add"],
+                "contribution": "implemented tail handling",
+                "evidence": ["https://gitcode.com/cann/ops-math/commit/abc"],
+                "identity_evidence": ["PR commit author.login = core-dev"],
+                "limitation": "historical contributor; ownership unconfirmed",
+            }
+        ],
         "excluded": ["docs-only contributor"],
         "uncovered_operators": ["OtherOp"],
     }
@@ -246,7 +262,8 @@ def test_strict_owner_candidates_require_evidence_and_bound(tmp_path, invalid):
 def test_owner_candidates_may_be_empty_when_evidence_is_insufficient(tmp_path):
     state = complete_state()
     state["issues"][1]["owner_candidate_analysis"] = {
-        "status": "insufficient_evidence", "candidates": [],
+        "status": "insufficient_evidence",
+        "candidates": [],
         "unverified_authors": ["identity unresolved"],
     }
     result = run_report(tmp_path, state)
@@ -265,17 +282,27 @@ def test_owner_candidates_are_bounded_per_operator_and_issue_can_exceed_five(tmp
         "uncovered_operators": ["Mul"],
     }
     for index in range(5):
-        analysis["candidates"].append({
-            "login": f"add-dev-{index}", "operators": ["Add"],
-            "contribution": "core implementation", "evidence": ["sha"],
-            "identity_evidence": ["api"], "limitation": "historical",
-        })
+        analysis["candidates"].append(
+            {
+                "login": f"add-dev-{index}",
+                "operators": ["Add"],
+                "contribution": "core implementation",
+                "evidence": ["sha"],
+                "identity_evidence": ["api"],
+                "limitation": "historical",
+            }
+        )
     for index in range(5):
-        analysis["candidates"].append({
-            "login": f"mul-dev-{index}", "operators": ["Mul"],
-            "contribution": "core implementation", "evidence": ["sha"],
-            "identity_evidence": ["api"], "limitation": "historical",
-        })
+        analysis["candidates"].append(
+            {
+                "login": f"mul-dev-{index}",
+                "operators": ["Mul"],
+                "contribution": "core implementation",
+                "evidence": ["sha"],
+                "identity_evidence": ["api"],
+                "limitation": "historical",
+            }
+        )
     state["issues"][1]["owner_candidate_analysis"] = analysis
     result = run_report(tmp_path, state)
     assert result.returncode == 0, result.stderr
@@ -289,10 +316,9 @@ def test_strict_owner_candidates_reject_more_than_five_for_one_operator(tmp_path
     analysis = owner_analysis()
     analysis["operators"] = ["Add"]
     analysis["uncovered_operators"] = []
-    analysis["candidates"] = [
-        dict(analysis["candidates"][0], login=f"dev-{index}")
-        for index in range(6)
-    ]
+    candidate = analysis["candidates"][0]
+    candidates = [dict(candidate, login=f"dev-{index}") for index in range(6)]
+    analysis["candidates"] = candidates
     state["issues"][1]["owner_candidate_analysis"] = analysis
     result = run_report(tmp_path, state)
     assert result.returncode == 2
@@ -306,7 +332,10 @@ def test_strict_owner_candidates_require_explicit_gap_for_target_operator(tmp_pa
     state["issues"][1]["owner_candidate_analysis"] = analysis
     result = run_report(tmp_path, state)
     assert result.returncode == 2
-    assert "OtherOp must have candidates or be listed in uncovered_operators" in result.stderr
+    assert (
+        "OtherOp must have candidates or be listed in uncovered_operators"
+        in result.stderr
+    )
 
 
 def test_generates_compact_report_for_handled_issues(tmp_path):
@@ -321,9 +350,7 @@ def test_generates_compact_report_for_handled_issues(tmp_path):
 
     assert latest_path.read_text(encoding="utf-8") == report
     assert state_path.exists()
-    assert payload["report_path"].startswith(
-        ".cannbot/gitcode-issue-handler/reports/"
-    )
+    assert payload["report_path"].startswith(".cannbot/gitcode-issue-handler/reports/")
     assert payload["latest_path"] == (
         ".cannbot/gitcode-issue-handler/reports/latest.md"
     )
@@ -341,6 +368,114 @@ def test_generates_compact_report_for_handled_issues(tmp_path):
     assert "状态统计" not in report
     assert "must-never-appear" not in report
     assert "secret-value" not in report
+
+
+def test_outcomes_are_visible_before_collapsed_process_details(tmp_path):
+    state = complete_state()
+    result = run_report(tmp_path, state)
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    report = (tmp_path / payload["report_path"]).read_text(encoding="utf-8")
+    overview, details = report.split("<details>", 1)
+
+    assert (
+        "| Issue | 最终处理结果 | Issue 状态 | 责任人 | 首响 SLA | 下一步 |" in overview
+    )
+    assert (
+        "| [#101](<https://gitcode.com/cann/ops-math/issues/101>) 修复 Add 精度问题 "
+        "| 已修复并创建 PR，等待合入 | 进行中 | owner-a | 达标 | owner-a 审核并合入 PR !88 |"
+    ) in overview
+    assert (
+        "| 已回评索要最小复现信息；责任人待指派/回查 | 挂起 | 待指派/回查 | 已超时 |"
+        in overview
+    )
+    assert overview.count("| [#") == 2
+    for value in (
+        "核心动作",
+        "变更与交付",
+        "卡点与验证边界",
+        "执行最小复现三次",
+        "src/add.cpp",
+    ):
+        assert value not in overview
+        assert value in details
+    assert "<summary>处理详情（按需展开）</summary>" in details
+    assert details.rstrip().endswith("</details>")
+    # Moving the process below the table must preserve the recovery evidence.
+    saved = json.loads((tmp_path / payload["run_state_path"]).read_text())
+    assert saved["issues"][0]["process_log"] == state["issues"][0]["process_log"]
+    assert saved["groups"] == state["groups"]
+    assert saved["internal_blockers"] == state["internal_blockers"]
+
+
+@pytest.mark.parametrize(
+    "sla,response_status,expected",
+    [
+        ("met", "verified", "达标"),
+        ("at_risk", "prepared", "临近超时"),
+        ("breached", "verified", "已超时"),
+        ("unknown", "verified", "未知"),
+        (None, "reused", "未知"),
+        ("met", "exempt_self_authored_pr", "不适用（自提免首响）"),
+    ],
+)
+def test_summary_sla_preserves_unknown_and_exemption(
+    tmp_path, sla, response_status, expected
+):
+    state = complete_state()
+    item = state["issues"][0]
+    item.pop("first_response_sla")
+    if sla is not None:
+        item["first_response_sla"] = sla
+    item["response_status"] = response_status
+    if response_status == "exempt_self_authored_pr":
+        item["linked_prs"] = [{"pr_state": "open", "pr_author": item["author"]}]
+    result = run_report(tmp_path, state)
+    assert result.returncode == 0, result.stderr
+    report = (tmp_path / json.loads(result.stdout)["report_path"]).read_text()
+    overview = report.split("<details>", 1)[0]
+    assert f"| 进行中 | owner-a | {expected} |" in overview
+
+
+@pytest.mark.parametrize(
+    "platform_fields,expected",
+    [
+        ({"state": "open", "issue_state": "挂起"}, "挂起"),
+        ({"state": "closed"}, "closed"),
+        ({}, "未知"),
+    ],
+)
+def test_summary_state_uses_platform_evidence(tmp_path, platform_fields, expected):
+    state = complete_state()
+    item = state["issues"][0]
+    item.pop("state")
+    item.pop("issue_state")
+    item.update(platform_fields)
+    result = run_report(tmp_path, state)
+    assert result.returncode == 0, result.stderr
+    report = (tmp_path / json.loads(result.stdout)["report_path"]).read_text()
+    overview = report.split("<details>", 1)[0]
+    assert f"| {expected} | owner-a | 达标 |" in overview
+    assert "published" not in overview
+    assert "resolution_pending" not in overview
+
+
+def test_summary_table_escapes_multiline_cells_and_pipes(tmp_path):
+    state = complete_state()
+    item = state["issues"][0]
+    item.update(
+        title="文档 A|B",
+        result_summary="已修改 A|B\n附件待补",
+        next_action="等待\n附件",
+    )
+    result = run_report(tmp_path, state)
+    assert result.returncode == 0, result.stderr
+    report = (tmp_path / json.loads(result.stdout)["report_path"]).read_text()
+    overview = report.split("<details>", 1)[0]
+    assert "文档 A\\|B" in overview
+    assert "已修改 A\\|B<br>附件待补" in overview
+    assert "等待<br>附件" in overview
+    assert overview.count("| [#") == 2
 
 
 def test_filters_self_assigned_and_classification_only_issues(tmp_path):
@@ -397,9 +532,7 @@ def test_strict_mode_rejects_issue_without_process_and_result(tmp_path):
     assert result.returncode == 2
     assert "process_log" in result.stderr
     assert "result_summary" in result.stderr
-    assert not (
-        tmp_path / ".cannbot" / "gitcode-issue-handler" / "reports"
-    ).exists()
+    assert not (tmp_path / ".cannbot" / "gitcode-issue-handler" / "reports").exists()
 
 
 def test_strict_mode_requires_process_stages_matching_artifacts(tmp_path):
@@ -446,30 +579,34 @@ def test_explicit_report_paths_are_never_redirected(tmp_path):
     assert payload["report_path"] == "custom/result.md"
     assert payload["latest_path"] == "custom/current.md"
     assert (tmp_path / "custom" / "result.md").is_file()
-    assert not (
-        tmp_path / ".cannbot" / "gitcode-issue-handler" / "reports"
-    ).exists()
+    assert not (tmp_path / ".cannbot" / "gitcode-issue-handler" / "reports").exists()
 
 
 def test_responsibility_routes_list_only_and_ignore_without_process_details(tmp_path):
     state = complete_state()
     state["issues"][0]["responsibility"] = "handle"
-    state["issues"].append({
-        "iid": 103,
-        "url": "https://gitcode.com/cann/ops-math/issues/103",
-        "title": "只列举的 Issue",
-        "responsibility": "list-only",
-        "responsibility_summary": "记录该请求，等待后续统一排期",
-        "handled_in_run": True,
-        "owner_candidate_analysis": {"candidates": [{"login": "must-not-show"}]},
-        "process_log": [{"stage": "implement", "action": "must-not-show", "result": "x"}],
-    })
-    state["issues"].append({
-        "iid": 104,
-        "url": "https://gitcode.com/cann/ops-math/issues/104",
-        "responsibility": "ignore",
-        "handled_in_run": True,
-    })
+    state["issues"].append(
+        {
+            "iid": 103,
+            "url": "https://gitcode.com/cann/ops-math/issues/103",
+            "title": "只列举的 Issue",
+            "responsibility": "list-only",
+            "responsibility_summary": "记录该请求，等待后续统一排期",
+            "handled_in_run": True,
+            "owner_candidate_analysis": {"candidates": [{"login": "must-not-show"}]},
+            "process_log": [
+                {"stage": "implement", "action": "must-not-show", "result": "x"}
+            ],
+        }
+    )
+    state["issues"].append(
+        {
+            "iid": 104,
+            "url": "https://gitcode.com/cann/ops-math/issues/104",
+            "responsibility": "ignore",
+            "handled_in_run": True,
+        }
+    )
     state["run"]["issues_total"] = 4
 
     result = run_report(tmp_path, state)
@@ -482,7 +619,10 @@ def test_responsibility_routes_list_only_and_ignore_without_process_details(tmp_
     assert saved["run"]["issues_listed_total"] == 1
     assert payload["issues"] == 2
     assert "## 仅列举" in report
-    assert "[#103](https://gitcode.com/cann/ops-math/issues/103)：记录该请求，等待后续统一排期" in report
+    assert (
+        "[#103](https://gitcode.com/cann/ops-math/issues/103)：记录该请求，等待后续统一排期"
+        in report
+    )
     assert "must-not-show" not in report
     assert "Issue #104" not in report
     assert [item["iid"] for item in saved["issues"]] == [101, 102]
@@ -502,33 +642,49 @@ def test_list_only_is_idempotent_and_strict_requires_summary(tmp_path):
     state["run"]["issues_total"] = 3
     first = run_report(tmp_path, state)
     assert first.returncode == 0, first.stderr
-    saved = json.loads((tmp_path / json.loads(first.stdout)["run_state_path"]).read_text())
+    saved = json.loads(
+        (tmp_path / json.loads(first.stdout)["run_state_path"]).read_text()
+    )
     second = run_report(tmp_path, saved)
     assert second.returncode == 0, second.stderr
-    saved_again = json.loads((tmp_path / json.loads(second.stdout)["run_state_path"]).read_text())
+    saved_again = json.loads(
+        (tmp_path / json.loads(second.stdout)["run_state_path"]).read_text()
+    )
     assert [item["iid"] for item in saved_again["listed_issues"]] == [103]
 
     invalid = complete_state()
-    invalid["issues"].append({
-        "iid": 105,
-        "url": "https://gitcode.com/cann/ops-math/issues/105",
-        "responsibility": "list-only",
-    })
+    invalid["issues"].append(
+        {
+            "iid": 105,
+            "url": "https://gitcode.com/cann/ops-math/issues/105",
+            "responsibility": "list-only",
+        }
+    )
     invalid["run"]["issues_total"] = 3
     result = run_report(tmp_path, invalid)
     assert result.returncode == 2
     assert "responsibility_summary" in result.stderr
 
 
-@pytest.mark.parametrize("status,expected", [
-    ("verified", "已临时指派 @core-dev，请确认真正负责人"),
-    ("failed", "@core-dev 尚未回查成功，不能视为已指派"),
-])
-def test_provisional_assignment_preserves_candidates_and_confirmation(tmp_path, status, expected):
+@pytest.mark.parametrize(
+    "status,expected",
+    [
+        ("verified", "已临时指派 @core-dev，请确认真正负责人"),
+        ("failed", "@core-dev 尚未回查成功，不能视为已指派"),
+    ],
+)
+def test_provisional_assignment_preserves_candidates_and_confirmation(
+    tmp_path, status, expected
+):
     state = complete_state()
     issue = state["issues"][1]
-    issue.update(assignment_provisional=True, assigned_candidate="core-dev", assignment_status=status,
-                 owner_candidate_analysis=owner_analysis())
+    issue.update(
+        assignment_provisional=True,
+        assigned_candidate="core-dev",
+        assignment_status=status,
+        assignee="core-dev" if status == "verified" else None,
+        owner_candidate_analysis=owner_analysis(),
+    )
     result = run_report(tmp_path, state)
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
@@ -543,8 +699,13 @@ def test_provisional_assignment_preserves_candidates_and_confirmation(tmp_path, 
 def test_fallback_assignment_report_distinguishes_recipient_from_candidates(tmp_path):
     state = complete_state()
     issue = state["issues"][1]
-    issue.update(assignment_provisional=True, assigned_candidate="fallback-login",
-                 assignment_status="verified", assignment_source="fallback_user")
+    issue.update(
+        assignment_provisional=True,
+        assigned_candidate="fallback-login",
+        assignee="fallback-login",
+        assignment_status="verified",
+        assignment_source="fallback_user",
+    )
     analysis = owner_analysis()
     analysis["candidates"] = []
     analysis["uncovered_operators"] = analysis["operators"]
@@ -563,11 +724,21 @@ def test_fallback_assignment_report_distinguishes_recipient_from_candidates(tmp_
 def test_response_stage_assignment_only_is_reported(tmp_path):
     state = complete_state()
     item = state["issues"][0]
-    item.update(category="needs_pr_owner_handoff", handled_in_run=True,
-                response_status="exempt_self_authored_pr", assignment_source="linked_pr",
-                assignment_status="verified", assignment_provisional=True,
-                assigned_candidate="reporter-a", result_summary="已补齐PR作者分配",
-                response_artifacts={"assign.md": {"path": "reports/run/issues/issue-101/assign.md"}})
+    item.update(
+        category="needs_pr_owner_handoff",
+        handled_in_run=True,
+        response_status="exempt_self_authored_pr",
+        assignment_source="linked_pr",
+        assignment_status="verified",
+        assignment_provisional=True,
+        assigned_candidate="reporter-a",
+        assignee="reporter-a",
+        operator_owner="reporter-a",
+        result_summary="已补齐PR作者分配",
+        response_artifacts={
+            "assign.md": {"path": "reports/run/issues/issue-101/assign.md"}
+        },
+    )
     result = run_report(tmp_path, state)
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
@@ -577,7 +748,9 @@ def test_response_stage_assignment_only_is_reported(tmp_path):
     assert "[assign.md](<issues/issue-101/assign.md>)" in report
 
 
-@pytest.mark.parametrize("kind, path", [("directory", "Samples/story"), ("file", "src/shared.cpp")])
+@pytest.mark.parametrize(
+    "kind, path", [("directory", "Samples/story"), ("file", "src/shared.cpp")]
+)
 def test_related_code_links_and_unlocated_reason_reach_reports(tmp_path, kind, path):
     state = complete_state()
     route = "tree" if kind == "directory" else "blob"
@@ -600,13 +773,13 @@ def test_default_report_uses_dated_round_metadata_and_internal_state(tmp_path):
     result = run_report(tmp_path, complete_state())
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    folder = (tmp_path / payload['report_path']).parent
-    assert folder.name == '20260811-090000-P0800'
-    metadata = json.loads((folder / 'run.json').read_text())
-    assert metadata['legacy_run_id'] == COMPLETE_STATE['run']['run_id']
-    assert metadata['internal_run_id'] and metadata['timezone'] == 'Asia/Shanghai'
-    assert Path(payload['run_state_path']).parent.name == '_internal'
-    saved = json.loads((tmp_path / payload['run_state_path']).read_text())
+    folder = (tmp_path / payload["report_path"]).parent
+    assert folder.name == "20260811-090000-P0800"
+    metadata = json.loads((folder / "run.json").read_text())
+    assert metadata["legacy_run_id"] == COMPLETE_STATE["run"]["run_id"]
+    assert metadata["internal_run_id"] and metadata["timezone"] == "Asia/Shanghai"
+    assert Path(payload["run_state_path"]).parent.name == "_internal"
+    saved = json.loads((tmp_path / payload["run_state_path"]).read_text())
     repeated = run_report(tmp_path, saved)
     assert repeated.returncode == 0, repeated.stderr
-    assert json.loads(repeated.stdout)['report_path'] == payload['report_path']
+    assert json.loads(repeated.stdout)["report_path"] == payload["report_path"]

@@ -9,6 +9,7 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
 """Preview or idempotently post one GitCode Issue comment."""
+
 from __future__ import annotations
 
 import argparse
@@ -29,7 +30,13 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 from _logging import init_error_logger, init_output_logger
-from gitcode_client import api_get, make_session, parse_issue_url, resolve_api_base
+from gitcode_client import (
+    api_get,
+    make_session,
+    parse_issue_url,
+    resolve_api_base,
+    resolve_token,
+)
 
 MAX_PAGES = 100
 PAGE_SIZE = 100
@@ -70,10 +77,10 @@ def _now():
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-def _safe_body(body):
+def _safe_body(body, token=None):
     if not body.strip():
         raise ValueError("comment body must not be empty")
-    token = os.environ.get("GITCODE_TOKEN")
+    token = token or os.environ.get("GITCODE_TOKEN")
     if token and token in body:
         raise ValueError("comment body contains the configured token")
     if _PEM.search(body):
@@ -99,7 +106,9 @@ def _comments(session, endpoint, token):
     """Return all comments, refusing to assume page 100 was complete."""
     found = []
     for page in range(1, MAX_PAGES + 1):
-        payload = api_get(session, endpoint, token, params={"per_page": PAGE_SIZE, "page": page})
+        payload = api_get(
+            session, endpoint, token, params={"per_page": PAGE_SIZE, "page": page}
+        )
         if not isinstance(payload, list):
             if isinstance(payload, dict) and isinstance(payload.get("data"), list):
                 payload = payload["data"]
@@ -117,13 +126,18 @@ def _readback(session, endpoint, token, actor, body, *, wanted_id=None, since=No
     for comment in comments:
         if wanted_id is not None:
             if str(_comment_id(comment)) == str(wanted_id):
-                matches = _comment_author(comment) == actor and comment.get("body") == body
+                matches = (
+                    _comment_author(comment) == actor and comment.get("body") == body
+                )
                 return (comment, "verified") if matches else (None, "failed")
             continue
         if _comment_author(comment) != actor or comment.get("body") != body:
             continue
         created = comment.get("created_at") or comment.get("createdAt")
-        if since and (not created or not _after(created, since, now=getattr(session, "server_time", None))):
+        if since and (
+            not created
+            or not _after(created, since, now=getattr(session, "server_time", None))
+        ):
             continue
         exact.append(comment)
     return (exact[-1], "verified") if exact else (None, "unknown")
@@ -136,7 +150,11 @@ def _after(value, since, now=None):
         started = datetime.fromisoformat(since).replace(microsecond=0)
         if created.tzinfo is None:
             created = created.replace(tzinfo=timezone.utc)
-        return started <= created <= (now or datetime.now(timezone.utc)) + timedelta(seconds=5)
+        return (
+            started
+            <= created
+            <= (now or datetime.now(timezone.utc)) + timedelta(seconds=5)
+        )
     except (TypeError, ValueError):
         return False
 
@@ -165,14 +183,23 @@ def _load_result(path):
 
 def _save_result(path, result):
     temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temp.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temp.write_text(
+        json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     os.replace(temp, path)
 
 
 def _base_result(target, digest, actor=None):
-    return {"target": target, "body_digest": digest, "actor": actor,
-            "attempt_started_at": _now(), "status": "pending",
-            "post_started": False, "comment_id": None, "url": None}
+    return {
+        "target": target,
+        "body_digest": digest,
+        "actor": actor,
+        "attempt_started_at": _now(),
+        "status": "pending",
+        "post_started": False,
+        "comment_id": None,
+        "url": None,
+    }
 
 
 def _current_actor(session, issue_url, token):
@@ -215,7 +242,11 @@ def _resume_started(operation, old, digest, issue_url):
         return None
     if old.get("target") != operation.target or old.get("body_digest") != digest:
         raise RuntimeError("result file conflicts with target or body")
-    started = old.get("post_started") or old.get("status") == "unknown" or old.get("comment_id")
+    started = (
+        old.get("post_started")
+        or old.get("status") == "unknown"
+        or old.get("comment_id")
+    )
     if not started:
         return None
     actor = old.get("actor")
@@ -230,8 +261,13 @@ def _resume_started(operation, old, digest, issue_url):
     actor = actor or current_actor
     try:
         comment, status = _readback(
-            operation.session, operation.endpoint, operation.token, actor, operation.body,
-            wanted_id=old.get("comment_id"), since=old.get("attempt_started_at"),
+            operation.session,
+            operation.endpoint,
+            operation.token,
+            actor,
+            operation.body,
+            wanted_id=old.get("comment_id"),
+            since=old.get("attempt_started_at"),
         )
     except Exception:
         old["status"] = "unknown"
@@ -242,7 +278,10 @@ def _resume_started(operation, old, digest, issue_url):
 
 def _reuse_existing(operation, comments):
     for comment in comments:
-        if _comment_author(comment) == operation.actor and comment.get("body") == operation.body:
+        if (
+            _comment_author(comment) == operation.actor
+            and comment.get("body") == operation.body
+        ):
             operation.result.update(
                 status="reused",
                 comment_id=_comment_id(comment),
@@ -257,7 +296,8 @@ def _post_comment(operation):
     response = operation.session.post(
         operation.endpoint,
         data={"access_token": operation.token, "body": operation.body},
-        timeout=30, allow_redirects=False,
+        timeout=30,
+        allow_redirects=False,
     )
     operation.result["post_http_status"] = response.status_code
     payload = response.json() if response.status_code < 300 else None
@@ -273,8 +313,12 @@ def _post_comment(operation):
 def _readback_after_post(operation, post_id=None):
     try:
         comment, status = _readback(
-            operation.session, operation.endpoint, operation.token,
-            operation.actor, operation.body, wanted_id=post_id,
+            operation.session,
+            operation.endpoint,
+            operation.token,
+            operation.actor,
+            operation.body,
+            wanted_id=post_id,
             since=None if post_id else operation.result.get("attempt_started_at"),
         )
     except Exception:
@@ -286,12 +330,16 @@ def execute(issue_url, body, result_file, *, apply=False, session=None):
     target = _target(issue_url)
     digest = _digest(body)
     _safe_body(body)
-    preview = {"status": "preview", "target": target, "body_digest": digest, "body": body}
+    preview = {
+        "status": "preview",
+        "target": target,
+        "body_digest": digest,
+        "body": body,
+    }
     if not apply:
         return preview
-    token = os.environ.get("GITCODE_TOKEN")
-    if not token:
-        raise RuntimeError("GITCODE_TOKEN is required with --apply")
+    token = resolve_token(repo_url=issue_url)
+    _safe_body(body, token)
     path = Path(result_file)
     endpoint = (
         f"{resolve_api_base(repo_url=issue_url)}/repos/{target['owner']}/"
@@ -314,7 +362,9 @@ def execute(issue_url, body, result_file, *, apply=False, session=None):
         reused = _reuse_existing(operation, comments)
         if reused is not None:
             return reused
-        old["attempt_started_at"] = session.server_time.isoformat() if session.server_time else _now()
+        old["attempt_started_at"] = (
+            session.server_time.isoformat() if session.server_time else _now()
+        )
         old["clock_source"] = "gitcode_http_date" if session.server_time else "local"
         old["post_started"] = True
         _save_result(path, old)
@@ -337,7 +387,9 @@ def main(argv=None):
         result = execute(args.issue, body, args.result_file, apply=args.apply)
         if not args.apply:
             result["status"] = "preview"
-        init_output_logger().info("%s", json.dumps(result, ensure_ascii=False, indent=2))
+        init_output_logger().info(
+            "%s", json.dumps(result, ensure_ascii=False, indent=2)
+        )
         return 0 if result.get("status") in {"preview", "verified", "reused"} else 1
     except Exception:
         init_error_logger().error(

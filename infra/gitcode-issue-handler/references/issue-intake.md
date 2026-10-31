@@ -114,50 +114,45 @@ python3 "$ISSUE_HANDLER_SKILL_ROOT/scripts/classify_issues.py" \
 规则：
 
 - 先判定响应对象。已确认的纯路线图、开发规划或工作汇总在批量处理中整体归 `planning_record/no_attention`，不因新增评论、缺少负责人/PR、责任范围待核查或评论获取失败而进入处理；用户明确点名的单项任务仍按 single 入口执行。不能仅因标题/正文出现 roadmap 一词就跳过具体缺陷或提问；正文报告当前故障或请求答复时须按实际诉求分类，规划中的“计划修复错误”本身不构成问题报告。
-- 需求与缺陷统一按账号关系判断自提，不再以“需求建议 + 任意 assignee”豁免。assignee 与 Issue 作者为同一 GitCode 账号即 `self_assigned/no_attention`，即使 PR 由他人提交也无须另发首响；assignee 不同账号时再核对 PR 是否有同作者证据。新追问继续走 follow-up。
+- 需求、缺陷和纯咨询核对有效维护侧首响与平台 assignee。提出者与负责人同账号，或与有效关联 PR 作者同账号时自提免首响；仍核对负责人。其余项不能以关联 PR 或纯 `/assign` 代替首响。
 - `batch/no_attention`：不进入本轮首响和分配；已有未闭环处理记录、等待状态和 watch 继续保留，新追问仍走跟进。步骤 9 不把纯观察项计作本轮处理。
 - `list-only` 复用同一 attention 判定但始终不进入处理流程：仅当其原始判定为 `need_attention` 时进入 `listed_issues`；原始判定为 `no_attention` 时只保留责任范围聚合计数。不得只凭 assignee 或评论数隐藏，仍须核实实质回复、有效 PR 和新追问。
 - `single`：分类器保留原始结果为 `classification_bucket`，并输出 `must_handle: true`（仅核心 open）。责任范围为 `handle` 的 open 显式目标进入诊断；`pending/list-only/ignore` 不因 single 绕过范围门槛。
   已有责任人、回复或 PR 是避免重复动作的证据，不是静默结束本次请求的条件。单 Issue 分类器不自动发送 `/assign`。
-- 对责任范围内尚无他人实质响应、且不满足任一自提条件的 Issue，已有有效关联修复 PR 仍进入 `need_attention / needs_first_response_with_pr`；先回复并回查，再沿用已有 PR/负责人跟进策略，不在分类时自动 `/assign` 绕过首响。关联 PR 不能成为跳过评论获取的理由；先完整读取评论，扫描失败保留待重试，避免漏响或重复首响。
-- 自提身份比较使用非空 GitCode login，忽略大小写和首尾空格；显示名或两个缺失账号不能作为同一人证据。当前 assignee 与 Issue 作者同账号、或任一有效关联 PR 同作者，任一条件足够；多 PR 只要有一条同作者且确实覆盖本 Issue 即走自提路径，无负责人时优先分配该作者。无关或仅相似 PR 不算。已经由 assignee 同账号确立豁免时，其他 PR 作者缺失或关联扫描不全不产生新的首响义务；评论证据不全和真实新追问仍按各自门禁处理。未实际处理的自提项不写入逐项报告。
+- 对责任范围内尚无维护侧实质响应的非自提 Issue，进入 `need_attention` 补首响。有效关联 PR 存在时用 `needs_first_response_with_pr`，简述相关方案；没有有效 PR 时用 `our_team_needs_work` 或无负责人首响分支。评论扫描失败先补证，不猜测已回复。自提已有负责人时归 `self_assigned/no_attention`；自提有效 PR 缺负责人时归 `needs_pr_owner_handoff`，免评论、只补指派。
 - 已有他人实质响应、责任人已落实且无新追问/责任人新回复时，归 `no_attention`，不重复首响或调查。历史未切挂起、未建 watch、PR 尚未合入均不单独触发本次响应；不为状态补录把它加入待处理列表或报告卡点。新追问仍跟进，未闭环不等于待首响。
 - `need_attention`：继续首响检查和 2b。
-- 临时指派由独立执行器在首响回查后执行并 GET 核对 assignee；分类器不执行外部写入。
+- 临时指派由独立执行器在首响回查或自提豁免核验后执行并 GET 核对 assignee；分类器不执行外部写入。
 - Issue 提出者自己的评论是补充材料，不计为维护侧有效回复；评论作者未知时不得据此推断 Issue 已解决。
-- 有效回复排除纯 `/assign`、系统消息和仅 `@owner`。优先使用 GitCode 明确的系统消息字段；字段缺失时，只有“已知平台机器人身份 + 已识别的固定系统模板”同时命中才按系统消息排除，不能仅凭机器人身份或相似文案过滤真实回复。
+- 有效回复排除纯 `/assign`、系统消息和仅 `@owner`。优先使用 GitCode 明确的系统消息字段；字段缺失时，只有“已知平台机器人身份 + 已识别的固定系统模板”同时命中才按系统消息排除，不能仅凭机器人身份或相似文案过滤真实回复。指派失败通知中的目标账号是动态字段（包括 `yourself` 和具体 login），不能只匹配某一个账号；此类通知不计首响、不覆盖维护回复或提出者新追问，也不作为咨询自动闭环的答复证据。
 - 评论按 `created_at` 排序；提出者在最新维护侧实质回复后追加评论时，无论已有 assignee、关联 PR 或创建时间，只要核心仍为 open，就必须进入 follow-up 分类。评论获取不完整时不得根据缓存旧顺序执行状态写入。
 
-`replied_no_owner` 需要一次算子路由复核，不能仅因已有实质回复就永久跳过：用标题、正文、报错栈和明确文件路径做轻量检查；若证据明确点名具体算子且 Issue 仍无 assignee，将其提升为 `need_attention / operator_routing_required`，保留已有评论作为首响证据并进入步骤 2b–2d。
-非算子 Issue 仍保持 `no_attention`。不要仅凭常见函数名猜测算子，也不要把该复核扩展成代码诊断。
+`replied_no_owner` 统一为 `need_attention`：保留已有有效回复，只补责任人核对与指派，纯咨询同样适用。具体算子可记录经核查的 `operator_routing_required: true` 并重分类为 `need_attention / operator_routing_required`；这个标记只细化接单路径，不是补指派的前提。按当前责任规则选择接单人，未命中则使用已有有效兜底配置或等待明确账号，不猜测、不自动把答复者当 owner。
 
-先应用上述内容类型和新跟进规则，再按下表判断首响与分配（纯 `/assign` 不算文字首响）。这五种组合不把旧文字回复当作新追问的已答复证据：
+先应用内容范围和新跟进规则，再按下表核对；旧回复不能当作新追问已答复的证据：
 
-| 有效 PR | 负责人 | 回复/作者关系 | 分类及 response 阶段动作 |
-|---|---|---|---|
-| 无 | 无 | 无首响 | `needs_first_look` / `needs_only_assign_cmd`，首响，可参与 auto-assign |
-| 无 | 有 | 负责人与 Issue 同作者 | `self_assigned`，no_attention，免首响，无需再指派 |
-| 无 | 有 | 不同作者、无首响 | `our_team_needs_work` / `our_team_only_assign_cmd`，只首响 |
-| 有 | 无 | 任意 PR 与 Issue 同作者 | `needs_pr_owner_handoff`，need_attention，只分配该作者 |
-| 有 | 无 | 全部非自提、无首响 | `needs_first_response_with_pr`，首响概述 PR 方案并分配覆盖面最大的 PR 作者 |
-| 有 | 无 | 全部非自提、已有首响 | `needs_pr_owner_handoff`，need_attention，只补 PR 作者分配 |
-| 有 | 有 | 负责人或任意有效 PR 与 Issue 同作者、无首响 | `self_assigned`，no_attention |
-| 有 | 有 | 负责人及全部有效 PR 均非同作者、无首响 | `needs_first_response_with_pr`，首响概述 PR，保留负责人 |
-| 有 | 有 | 已有首响 | `our_team_done_with_pr`（自提保留 `self_assigned`），no_attention |
+| 有效 PR | 负责人 | 有效首响 | 分类及动作 |
+| --- | --- | --- | --- |
+| 无 | 无 | 无 | `needs_first_look` / `needs_only_assign_cmd`，首响并补指派 |
+| 无 | 有 | 无 | `our_team_needs_work` / `our_team_only_assign_cmd`，补首响并保留负责人 |
+| 无 | 无 | 有 | `replied_no_owner`，复用首响并补指派 |
+| 有 | 任意 | 无 | `needs_first_response_with_pr`，首响概述 PR；无负责人时分配已核实的 PR 作者 |
+| 有 | 无 | 有 | `needs_pr_owner_handoff`，只补 PR 作者分配 |
+| 任意 | 有 | 有 | 无新追问时 `no_attention`，复用结果、不重复操作 |
 
-账号关系冲突时仍用“任一同作者即自提”：现任 assignee 就是 Issue 作者、但 PR 全部由他人提交，也免首响；不以 PR 作者关系覆盖已成立的负责人同账号条件。
+上表适用于非自提。自提免首响，但缺负责人、新追问仍为待处理；历史 PR 失效不得用于新增指派。账号关系使用非空 login，忽略大小写和首尾空格。多个有效 PR 中优先选择覆盖本问题的同作者 PR，其余按覆盖证据选择；已有负责人不覆盖。
 
 多个 PR 先过滤失效项，再应用自提优先和问题覆盖面选择；分配属于 auto-response，在 response 阶段完成，不受 auto-assign 限制。分类器只给出 `auto_action`，不会调用外部写入。已有负责人不覆盖；等待状态不能吞掉缺失的 PR 作者分配。
 
-所有 PR 已失效且已有负责人时：已有文字首响的归 `our_team_replied/no_attention`；历史同作者 PR 已核实的保留 `self_assigned/no_attention`，即使此前只有 `/assign` 也不补首响。两者均继续原有未闭环跟踪，不记已解决。没有负责人时不根据失效 PR 新增分配；没有首响也没有历史自提豁免时仍补首响。已核验历史豁免仅在没有有效 PR 时适用，不能覆盖其他有效非自提 PR 的首响要求。新追问保持 follow-up 优先。
+所有 PR 已失效时不根据历史 PR 新增指派；自提且已有负责人时免首响，其余已有负责人但无有效首响的项仍补首响。已有首响但无负责人仍按当前责任规则补指派，不沿用失效 PR 作者。新追问保持 follow-up 优先。
 
-抓取或责任证据不完整的原分类保留 need_attention，但只列具体阻塞和下一步，不发送猜测回复。自动响应关闭时同样完成逐项分析和草稿，列出准确的回复/分配动作等待指令。首次采用新规则做全量复核时，获取全部 open 输入，并用 `--ignore-last-check` 分类；日常仍按用户指定时间窗/增量获取。
+抓取或责任证据不完整的原分类保留 need_attention，但只列具体阻塞和下一步，不发送猜测回复。自动响应关闭时同样完成逐项分析和草稿，列出准确的回复/分配动作等待指令。首次采用新规则做全量复核时，获取全部 open 输入，并用 `--ignore-last-check` 分类；日常仍按用户指定时间窗/增量获取。回复识别规则更新会使旧分类缓存签名失效，重读已有评论证据；升级后的历史漏项仍需通过这次全量复核重新纳入，不能仅靠新评论触发。
 
 需要解释具体 `category` 时查 [classification-categories.md](classification-categories.md)，正常执行直接消费脚本输出。
 
 ## 首响检查与排序
 
-保留既有 category、bucket 和业务状态，先按已核验评论及 owner 证据分流，再决定调查深度：新追问走 follow-up；无实质回复走首响；已有回复且 owner 明确时复用处理记录；已有回复但缺 owner 的算子项只做必要路由复核。评论数和 assignee 只能作查询线索，不能推断已首响；证据不完整时补取相应评论，不重做无关调查。
+保留既有 category、bucket 和业务状态，先按已核验评论及 owner 证据分流，再决定调查深度：新追问走 follow-up；非自提无实质回复走首响，自提核对免首响依据；已有回复且 owner 明确时复用处理记录；已有回复但缺 owner 的项只做必要责任核对与指派。评论数和 assignee 只能作查询线索，不能推断已首响；证据不完整时补取相应评论，不重做无关调查。
 
 对原策略筛出的新首响，按 [response-writing.md](response-writing.md) 形成有依据的回复，再按 `issue-comment-workflow.md` 核对授权并发布回查，进入后续处理；纯答疑直接给答案。SLA 决定顺序，预览不算已首响。
 
@@ -215,4 +210,4 @@ required_environment: {}
 
 ## 批量内容筛选
 
-纯路线图/规划汇总不进入响应。现任负责人或任一有效关联 PR 作者与 Issue 作者同账号，即按自提处理；需求与缺陷使用相同判定。已有实质回复和责任人、无新跟进时也不纳入本轮，不为历史状态/watch 补录重新激活。
+纯路线图/规划汇总不进入响应。现任负责人或任一有效关联 PR 作者与提出者同账号时免首响；需求、缺陷和纯咨询均保留负责人核对。已有实质回复和责任人、无新跟进时也不纳入本轮，不为历史状态/watch 补录重新激活。

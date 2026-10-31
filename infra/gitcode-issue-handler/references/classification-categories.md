@@ -8,9 +8,9 @@
 | --- | --- | --- |
 | `planning_record` | no_attention | 纯路线图、开发规划或工作汇总，不属于本次问题响应对象 |
 | `assigned_requirement` | no_attention | 历史兼容类别；新分类统一按账号关系处理，不再仅凭需求类型和任意负责人豁免 |
-| `self_assigned` | no_attention | 负责人与 Issue 同作者，或有效同作者 PR 且已有负责人；两条件任一即可，即使另有他人 PR 也免首响；不计已解决 |
+| `self_assigned` | no_attention | 负责人与 Issue 同作者，或有效同作者 PR 且已有负责人；任一条件即可免首响，不计已解决 |
 | `needs_first_response_with_pr` | need_attention | 非自提且已有有效关联 PR，尚无他人实质回复；概述 PR 方案并首响，无负责人时接着分配 PR 作者 |
-| `needs_pr_owner_handoff` | need_attention | 已有首响或自提免首响，但没有负责人；在 response 阶段分配 PR 作者，分类器只输出动作 |
+| `needs_pr_owner_handoff` | need_attention | 已有有效首响或自提免首响，但没有负责人；在 response 阶段分配 PR 作者，分类器只输出动作 |
 | `auto_assign_via_pr` | no_attention | 历史结果：已根据关联 PR 自动指派（新分类器不写入） |
 | `auto_assign_failed` | need_attention | 自动指派失败 |
 | `association_scan_incomplete` | need_attention | PR 列表扫描失败，等待自动重试且不执行外部动作 |
@@ -25,7 +25,7 @@
 | `needs_manual_no_pr_author` | need_attention | 有 PR 但无法确定作者 |
 | `needs_first_look` | need_attention | 无负责人、PR 和有效评论 |
 | `needs_only_assign_cmd` | need_attention | 只有 `/assign` 评论 |
-| `replied_no_owner` | no_attention | 无负责人但已有实质回复 |
+| `replied_no_owner` | need_attention | 已有实质回复但无负责人，复用首响并补指派 |
 | `operator_routing_required` | need_attention | 已回复但无 assignee，且明确涉及具体算子，需解析责任人 |
 | `our_team_done_with_pr` | no_attention | 已有负责人、有效 PR 和实质回复；无需首响不代表问题已解决 |
 | `our_team_only_assign_cmd` | need_attention | 团队负责但只有指派命令 |

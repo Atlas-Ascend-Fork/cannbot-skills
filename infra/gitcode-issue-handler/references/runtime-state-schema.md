@@ -107,6 +107,8 @@ issues:
     operator_owner_source: config | user | none
     operator_handling_decision: delegate | direct | pending
     assignment_status: not_started | verified | failed | not_applicable
+    assignment_reason: # 未开始、失败或不适用的具体理由；下一步见 next_action
+    assignee: # 最近一次 GET 确认的 GitCode login，不从计划或 /assign 评论推定
     assignment_source: operator_owner | linked_pr | core_candidate | fallback_user
     assignment_provisional: false # 候选、PR 作者或兜底接收人的临时指派为 true
     assigned_candidate: # 临时指派的账号；fallback_user 不加入候选表

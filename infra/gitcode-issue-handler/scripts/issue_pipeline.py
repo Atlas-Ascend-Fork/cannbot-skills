@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
+# -----------------------------------------------------------------------------------------------------------
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
-# Licensed under the CANN Open Software License Agreement Version 2.0.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# -----------------------------------------------------------------------------------------------------------
 """Durable, read-only Issue intake and agent-task orchestration.
 
 No command in this module publishes a comment, assigns, closes, commits or
@@ -21,16 +28,25 @@ from types import SimpleNamespace
 import time
 import uuid
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent.parent / "gitcode-toolkit/scripts"))
+from gitcode_client import GitCodeClientError, resolve_token
 from handler_config import ConfigError, load_handler_config
-from fetch_cache import _atomic_write_json, load_comments
+from fetch_cache import load_comments
 from pipeline_store import PipelineStore
 from report_runs import ensure_run, publish_materials
-from scope_cache import activity_digest, content_digest, digest, make_entry, restore, task_digest
+from scope_cache import (
+    activity_digest,
+    content_digest,
+    digest,
+    make_entry,
+    restore,
+    task_digest,
+)
 from responsibility import policy_digest
 import pipeline_tasks as queue
 from pipeline_evidence import inspect_sources, verify_identities, content_hash
@@ -92,12 +108,23 @@ def response_digest(entry, item):
         "conversation_state",
         "auto_action",
     )
-    return digest([entry["input_digest"], {k: item.get(k) for k in keys}, entry.get("response_revision", 0)])
+    return digest(
+        [
+            entry["input_digest"],
+            {k: item.get(k) for k in keys},
+            entry.get("response_revision", 0),
+        ]
+    )
 
 
 def read_command(script, args, root):
     started = time.monotonic()
-    result = subprocess.run([sys.executable, str(HERE / script), *args], cwd=root, capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, str(HERE / script), *args],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
     if result.returncode:
         # Child errors may contain remote/private body text: do not echo them.
         raise ValueError(f"{script}_failed_exit_{result.returncode}")
@@ -124,7 +151,9 @@ def _import_legacy_issues(state, old, repo, cfg, path):
         issue = normalize(raw, repo)
         # Reports lack full body/metadata; keep as refresh requests,
         # never overwrite an actual historical Issue snapshot.
-        entry = state["issues"].setdefault(issue["iid"], {"issue": issue, "phase": "refresh"})
+        entry = state["issues"].setdefault(
+            issue["iid"], {"issue": issue, "phase": "refresh"}
+        )
         if "description" in issue or "body" in issue:
             entry["issue"] = issue
             scope = _legacy_scope(issue, cfg, path)
@@ -137,7 +166,13 @@ def _import_legacy_issues(state, old, repo, cfg, path):
 
 def _import_legacy_operations(state, old, path):
     for op in old.get("external_operations", []):
-        if op.get("status") in {"executed", "verified", "reused", "cancelled", "skipped"}:
+        if op.get("status") in {
+            "executed",
+            "verified",
+            "reused",
+            "cancelled",
+            "skipped",
+        }:
             continue
         if op.get("kind") not in {
             "issue_comment",
@@ -153,7 +188,8 @@ def _import_legacy_operations(state, old, path):
         # An explicit server rejection is a known failed attempt, not
         # an unknown write. Preserve its target/outcome without retrying.
         rejected = (
-            op.get("status") == "failed" and op.get("execution_evidence", {}).get("remote_http_result") == "rejected"
+            op.get("status") == "failed"
+            and op.get("execution_evidence", {}).get("remote_http_result") == "rejected"
         )
         state["operations"].setdefault(
             key,
@@ -180,7 +216,9 @@ def migrate(state, runtime, cfg):
     for path in sorted(paths, key=lambda p: p.stat().st_mtime):
         try:
             old = read_json(path)
-            repo = old.get("filters", {}).get("repository") or old.get("run", {}).get("repository")
+            repo = old.get("filters", {}).get("repository") or old.get("run", {}).get(
+                "repository"
+            )
             if repo != state["repository"]:
                 continue
             imported += _import_legacy_issues(state, old, repo, cfg, path)
@@ -203,9 +241,9 @@ def _ingest_issues(state, incoming, scan_id, filters, full):
     for issue in incoming:
         iid = issue["iid"]
         entry = state["issues"].setdefault(iid, {})
-        changed = content_digest(entry.get("issue", {})) != content_digest(issue) or activity_digest(
-            entry.get("issue", {})
-        ) != activity_digest(issue)
+        changed = content_digest(entry.get("issue", {})) != content_digest(
+            issue
+        ) or activity_digest(entry.get("issue", {})) != activity_digest(issue)
         entry.update(issue=issue, fresh_scan_id=scan_id)
         if changed or entry.get("phase") not in {"attention", "waiting"}:
             entry["phase"] = "scope"
@@ -213,14 +251,18 @@ def _ingest_issues(state, incoming, scan_id, filters, full):
         # the Issue updated_at. Never reuse a final PR-dependent classification.
         entry.pop("classification_scan_id", None)
     closed = set(filters.get("follow_up", {}).get("updated_scan", {}).get("closed", []))
-    closed.update(filters.get("follow_up", {}).get("watchlist_refresh", {}).get("closed", []))
+    closed.update(
+        filters.get("follow_up", {}).get("watchlist_refresh", {}).get("closed", [])
+    )
     for iid, entry in state["issues"].items():
         if iid in {str(n) for n in closed}:
             entry["issue"]["state"] = "closed"
             entry["phase"] = "closed"
         else:
             needs_refresh = (
-                full or entry.get("phase") not in TERMINAL or entry.get("classification", {}).get("linked_prs")
+                full
+                or entry.get("phase") not in TERMINAL
+                or entry.get("classification", {}).get("linked_prs")
             )
             if iid in ids or not needs_refresh:
                 continue
@@ -258,7 +300,9 @@ def ingest(state, snapshot, cfg, now):
             if parsed.tzinfo is None or parsed.timestamp() > now + 60:
                 raise ValueError("invalid_scan_cursor")
             old = state["scan"].get("cursor")
-            if old is None or parsed > datetime.fromisoformat(old.replace("Z", "+00:00")):
+            if old is None or parsed > datetime.fromisoformat(
+                old.replace("Z", "+00:00")
+            ):
                 state["scan"]["cursor"] = cursor
     if full:
         state["scan"]["full_completed_at"] = now
@@ -271,7 +315,12 @@ def invalidate_response(state, entry, reason, now):
     result = entry.pop("prepared_response", None)
     if result:
         entry.setdefault("response_history", []).append(
-            {"reason": reason, "at": now, "result": result, "artifacts": entry.get("response_file_map", {})}
+            {
+                "reason": reason,
+                "at": now,
+                "result": result,
+                "artifacts": entry.get("response_file_map", {}),
+            }
         )
         entry["response_revision"] = entry.get("response_revision", 0) + 1
     for field in (
@@ -290,9 +339,9 @@ def _apply_scope_review(state, cfg, iid, entry, now):
     policy = cfg["responsibility"]
     issue = entry["issue"]
     review, reason = restore(entry.get("scope"), issue, policy)
-    if reason == "moving_source_requires_review" and entry.get("scope", {}).get("accepted_scan_id") == state[
-        "scan"
-    ].get("id"):
+    if reason == "moving_source_requires_review" and entry.get("scope", {}).get(
+        "accepted_scan_id"
+    ) == state["scan"].get("id"):
         review = entry["scope"]["review"]
     entry["scope_cache_reason"] = reason
     if review:
@@ -380,7 +429,10 @@ def classify_ready(state, cfg, config_path, root, *args, **kwargs):
     folder = ensure_run(state, store, now) / "_internal" / "scans" / scan_id
     input_path = store.artifact(
         folder / f"input-{batch}.json",
-        {"filters": {"mode": "batch", "repository": state["repository"]}, "issues": [e["issue"] for e in entries]},
+        {
+            "filters": {"mode": "batch", "repository": state["repository"]},
+            "issues": [e["issue"] for e in entries],
+        },
     )
     result, seconds = read_command(
         "classify_issues.py",
@@ -404,13 +456,17 @@ def classify_ready(state, cfg, config_path, root, *args, **kwargs):
             entry["issue"]["comments"] = comments
             entry["issue"]["comments_fetch"] = {"status": "cached"}
     apply_classification(state, result, entries, path, now)
-    state["metrics"].append({"stage": "classify", "seconds": seconds, "items": len(entries), "at": now})
+    state["metrics"].append(
+        {"stage": "classify", "seconds": seconds, "items": len(entries), "at": now}
+    )
 
 
 def apply_classification(state, result, entries, path, now):
     items = {
         str(i["number"]): i
-        for i in result.get("observations", []) + result.get("issues", []) + result.get("listed_issues", [])
+        for i in result.get("observations", [])
+        + result.get("issues", [])
+        + result.get("listed_issues", [])
     }
     for entry in entries:
         issue, iid = entry["issue"], entry["issue"]["iid"]
@@ -419,17 +475,32 @@ def apply_classification(state, result, entries, path, now):
             # Missing classifier output is not a completed task.
             entry["classification_error"] = "missing_classification"
             continue
-        if entry.get("prepared_response") and entry.get("prepared_digest") != response_digest(entry, item):
+        if entry.get("prepared_response") and entry.get(
+            "prepared_digest"
+        ) != response_digest(entry, item):
             invalidate_response(state, entry, "classification_changed", now)
-        entry.update(classification=item, classification_path=path, classification_scan_id=state["scan"]["id"])
+        entry.update(
+            classification=item,
+            classification_path=path,
+            classification_scan_id=state["scan"]["id"],
+        )
         entry.pop("classification_error", None)
-        if item["bucket"] == "no_attention" or item.get("responsibility") in {"ignore", "list-only"}:
+        if item["bucket"] == "no_attention" or item.get("responsibility") in {
+            "ignore",
+            "list-only",
+        }:
             entry["phase"] = "observe"
             _supersede_tasks(state, iid, {"accepted", "superseded"})
             continue
         entry["phase"] = "attention"
         category = item.get("category", "")
-        priority = 0 if "followup" in category else 1 if item.get("first_response_sla") == "breached" else 2
+        priority = (
+            0
+            if "followup" in category
+            else 1
+            if item.get("first_response_sla") == "breached"
+            else 2
+        )
         # Child is evidence/draft-only. Scope completion does not authorize any
         # of the downstream mutation stages.
         queue.ensure_task(
@@ -459,14 +530,24 @@ def validate_result_header(result, stage):
     if not isinstance(result.get("summary"), str) or not result["summary"].strip():
         raise ValueError("missing_summary")
     evidence = result.get("evidence")
-    if not isinstance(evidence, list) or not evidence or any(not isinstance(e, str) or not e.strip() for e in evidence):
+    if (
+        not isinstance(evidence, list)
+        or not evidence
+        or any(not isinstance(e, str) or not e.strip() for e in evidence)
+    ):
         raise ValueError("missing_evidence")
     decisions = {"needs_evidence", "needs_escalation"} | (
         {"handle", "list-only", "ignore"} if stage == "scope" else {"prepared"}
     )
-    if not isinstance(result.get("decision"), str) or result["decision"] not in decisions:
+    if (
+        not isinstance(result.get("decision"), str)
+        or result["decision"] not in decisions
+    ):
         raise ValueError("invalid_result_decision")
-    if stage == "scope" and result.get("source_mode", "fixed") not in ("fixed", "moving"):
+    if stage == "scope" and result.get("source_mode", "fixed") not in (
+        "fixed",
+        "moving",
+    ):
         raise ValueError("invalid_source_mode")
 
 
@@ -480,16 +561,19 @@ def _accept_scope(state, task, entry, result, cfg):
         "policy_digest": policy_digest(cfg["responsibility"]),
     }
     entry["scope"] = make_entry(
-        entry["issue"], cfg["responsibility"], review, source_mode=result.get("source_mode", "fixed")
+        entry["issue"],
+        cfg["responsibility"],
+        review,
+        source_mode=result.get("source_mode", "fixed"),
     )
     entry["scope"]["accepted_scan_id"] = state["scan"].get("id")
     entry["phase"] = "classify"
 
 
 def _accept_response(state, task, entry, result, root):
-    if entry.get("classification_scan_id") != state["scan"].get("id") or task["input_digest"] != response_digest(
-        entry, entry.get("classification", {})
-    ):
+    if entry.get("classification_scan_id") != state["scan"].get("id") or task[
+        "input_digest"
+    ] != response_digest(entry, entry.get("classification", {})):
         raise ValueError("stale_classification")
     if result["decision"] != "prepared":
         raise ValueError("invalid_response_decision")
@@ -544,7 +628,14 @@ def export_delivery(state, root, store, now):
     path = store.artifact(relative / "_internal/run_state.json", value)
     result, seconds = read_command(
         "generate_summary_report.py",
-        ["--state", path, "--output", str(store.root / relative / "summary.md"), "--strict", "--no-latest"],
+        [
+            "--state",
+            path,
+            "--output",
+            str(store.root / relative / "summary.md"),
+            "--strict",
+            "--no-latest",
+        ],
         root,
     )
     state["delivery_report"] = result["report_path"]
@@ -561,7 +652,9 @@ def open_claim(args, state, root):
     task = state["tasks"].get(claim.get("task_id"))
     if not task:
         raise ValueError("stale_claim_file")
-    claim_mismatch = claim.get("repository") != state["repository"] or task["attempt_id"] != claim.get("attempt_id")
+    claim_mismatch = claim.get("repository") != state["repository"] or task[
+        "attempt_id"
+    ] != claim.get("attempt_id")
     if claim_mismatch or task["input_digest"] != claim.get("input_digest"):
         raise ValueError("stale_claim_file")
     if task["status"] == "superseded":
@@ -581,7 +674,8 @@ def claim_bundle(task, state, root, store):
         / f"{task['iid']}-{task['stage']}-{uuid.uuid4().hex[:8]}"
     )
     result_file = str(store.root / relative / "result.json")
-    claim = {k: task[k] for k in ("task_id", "attempt_id", "input_digest", "iid", "stage")}
+    claim_fields = ("task_id", "attempt_id", "input_digest", "iid", "stage")
+    claim = {k: task[k] for k in claim_fields}
     claim.update(repository=state["repository"], result_file=result_file)
     claim_file = store.artifact(relative / "claim.json", claim)
     payload = dict(task["payload"])
@@ -601,7 +695,13 @@ def claim_bundle(task, state, root, store):
             "allowed_values": response_enums()
             if task["stage"] == "response"
             else {
-                "decision": ["handle", "list-only", "ignore", "needs_evidence", "needs_escalation"],
+                "decision": [
+                    "handle",
+                    "list-only",
+                    "ignore",
+                    "needs_evidence",
+                    "needs_escalation",
+                ],
                 "source_mode": ["fixed", "moving"],
             },
         },
@@ -625,8 +725,10 @@ def claim_bundle(task, state, root, store):
 
 
 def refresh_remote(state, cfg, config_path, root, *args, **kwargs):
-    store, now, force = bind_extra(args, kwargs, ("store", "now", "force"), (MISSING, MISSING, False))
-    full = state["needs_full_scan"] or now - state["scan"].get("full_completed_at", 0) >= 86400
+    store, now, force = bind_extra(
+        args, kwargs, ("store", "now", "force"), (MISSING, MISSING, False)
+    )
+    full = state["needs_full_scan"]
     session_id = os.environ.get("CODEX_THREAD_ID") or os.environ.get("CODEX_SESSION_ID")
     new_session = (
         session_id != state["scan"].get("session_id")
@@ -645,7 +747,9 @@ def refresh_remote(state, cfg, config_path, root, *args, **kwargs):
             str(store.root / "data/pipeline-fetch.json"),
         ]
         if not full and state["scan"].get("cursor"):
-            start = datetime.fromisoformat(state["scan"]["cursor"].replace("Z", "+00:00")) - timedelta(minutes=5)
+            start = datetime.fromisoformat(
+                state["scan"]["cursor"].replace("Z", "+00:00")
+            ) - timedelta(minutes=5)
             args += ["--updated-since", start.isoformat()]
         snapshot, seconds = read_command("fetch_issues.py", args, root)
         ingest(state, snapshot, cfg, time.time())
@@ -655,7 +759,9 @@ def refresh_remote(state, cfg, config_path, root, *args, **kwargs):
         # Cursor and queue are in this SAME atomic checkpoint, before any
         # classification or agent dispatch. A crash cannot strand input.
         store.save(state)
-    context = SimpleNamespace(state=state, config_path=config_path, root=root, store=store, now=now)
+    context = SimpleNamespace(
+        state=state, config_path=config_path, root=root, store=store, now=now
+    )
     for iid, entry in state["issues"].items():
         _refresh_issue(context, iid, entry)
 
@@ -680,16 +786,28 @@ def _refresh_issue(context, iid, entry):
     try:
         snapshot, seconds = read_command(
             "fetch_issues.py",
-            ["--issue", entry["issue"]["url"], "--config", str(config_path), "--defer-cursor"],
+            [
+                "--issue",
+                entry["issue"]["url"],
+                "--config",
+                str(config_path),
+                "--defer-cursor",
+            ],
             root,
         )
         raw = snapshot.get("issues", [])
         if len(raw) != 1 or str(raw[0].get("iid") or raw[0].get("number")) != iid:
             raise ValueError("missing_refreshed_issue")
-        entry.update(issue=normalize(raw[0], state["repository"]), phase="scope", fresh_scan_id=state["scan"].get("id"))
+        entry.update(
+            issue=normalize(raw[0], state["repository"]),
+            phase="scope",
+            fresh_scan_id=state["scan"].get("id"),
+        )
         entry.pop("classification_scan_id", None)
         entry.pop("refresh_error", None)
-        state["metrics"].append({"stage": "refresh", "iid": iid, "seconds": seconds, "at": now})
+        state["metrics"].append(
+            {"stage": "refresh", "iid": iid, "seconds": seconds, "at": now}
+        )
         store.save(state)
     except ValueError as exc:
         entry["refresh_error"] = str(exc)
@@ -705,7 +823,11 @@ def _next_action(state, counts, pending, ready, operations):
         action = "claim_task"
     elif counts["classify"]:
         action = "classify_ready"
-    elif counts["refresh"] or state["needs_full_scan"] or not state["scan"].get("complete"):
+    elif (
+        counts["refresh"]
+        or state["needs_full_scan"]
+        or not state["scan"].get("complete")
+    ):
         action = "refresh_evidence"
     elif any(t["status"] == "running" for t in state["tasks"].values()):
         action = "await_task_results"
@@ -734,7 +856,11 @@ def _status_text(state, summary, counts, ready, pending):
             "检查waiting_issues与tasks.waiting中的reason；按等待对象恢复，缺新证据不自动重派。"
             "准备好的回复沿原授权和发布流程执行。"
         ),
-        "complete": "本轮没有待推进动作；observe不等于问题解决。回读delivery_report；报告失败用report恢复。",
+        "complete": (
+            "本轮没有待推进动作；observe不等于问题解决。回读delivery_report；报告失败用report恢复。"
+            "对话中逐条简述实际处理Issue的编号链接、最终结果、平台状态、首响SLA，"
+            "未完成项补下一步，并附报告链接；零处理时明确说明。"
+        ),
     }[action]
     text = (
         f"# Issue 流水线检查点\n\n仓库：{state['repository']}\n\n"
@@ -761,7 +887,10 @@ def _populate_status_artifacts(state, store, report_dir, summary, operations):
         operation = {"operation_id": key, **state["operations"][key]}
         operation["operation_id"] = key
         summary["operation_files"].append(
-            store.artifact(report_dir / "_internal/operations" / f"{digest(key)[:12]}.json", operation)
+            store.artifact(
+                report_dir / "_internal/operations" / f"{digest(key)[:12]}.json",
+                operation,
+            )
         )
     task_dir = report_dir / "_internal/tasks"
     for task in state["tasks"].values():
@@ -781,7 +910,11 @@ def _populate_status_artifacts(state, store, report_dir, summary, operations):
     summary["prepared_items"] = [
         {
             "iid": iid,
-            "files": sorted(name for name, path in e.get("response_file_map", {}).items() if Path(path).is_file()),
+            "files": sorted(
+                name
+                for name, path in e.get("response_file_map", {}).items()
+                if Path(path).is_file()
+            ),
         }
         for iid, e in state["issues"].items()
         if e.get("prepared_response") and e["phase"] == "waiting"
@@ -789,7 +922,7 @@ def _populate_status_artifacts(state, store, report_dir, summary, operations):
 
 
 def _compact_task_status(task_status):
-    task_fields = (
+    fields = (
         "task_id",
         "iid",
         "stage",
@@ -804,7 +937,8 @@ def _compact_task_status(task_status):
     compact_tasks = {}
     for key, tasks in task_status.items():
         if isinstance(tasks, list) and key not in {"accepted", "superseded"}:
-            compact_tasks[key] = [{field: task.get(field) for field in task_fields} for task in tasks]
+            rows = [{field: task.get(field) for field in fields} for task in tasks]
+            compact_tasks[key] = rows
     compact_tasks["counts"] = task_status["counts"]
     compact_tasks["timings"] = task_status.get("timings", {})
     return compact_tasks
@@ -812,19 +946,25 @@ def _compact_task_status(task_status):
 
 def output_status(state, store, now):
     report_dir = ensure_run(state, store, now)
-    publish_materials(state, store, now, report_state(state, store.root.parent.parent, now))
+    publish_materials(
+        state, store, now, report_state(state, store.root.parent.parent, now)
+    )
     queue.expire(state, now)
     counts = Counter(e.get("phase", "refresh") for e in state["issues"].values())
     pending = [t for t in state["tasks"].values() if t["status"] == "submitted"]
     ready = [t for t in state["tasks"].values() if t["status"] == "ready"]
-    operations = [k for k, v in state["operations"].items() if v.get("status") != "verified"]
+    operations = []
+    for operation_id, operation in state["operations"].items():
+        if operation.get("status") != "verified":
+            operations.append(operation_id)
     action = _next_action(state, counts, pending, ready, operations)
     task_status = queue.status(state, now)
     compact_tasks = _compact_task_status(task_status)
     summary = {
         "repository": state["repository"],
         "next_action": action,
-        "scan_complete": bool(state["scan"].get("complete")) and not state["needs_full_scan"],
+        "scan_complete": bool(state["scan"].get("complete"))
+        and not state["needs_full_scan"],
         "counts": dict(counts),
         "tasks": compact_tasks,
         "operations_to_verify": operations,
@@ -838,7 +978,9 @@ def output_status(state, store, now):
         summary["required_references"] = sorted(references)
     _populate_status_artifacts(state, store, report_dir, summary, operations)
     text, public_text = _status_text(state, summary, counts, ready, pending)
-    summary["report_path"] = state.get("delivery_report") or store.text_artifact(report_dir / "summary.md", public_text)
+    summary["report_path"] = state.get("delivery_report") or store.text_artifact(
+        report_dir / "summary.md", public_text
+    )
     store.text_artifact(report_dir / "_internal/queue-summary.md", text)
     summary["report_directory"] = str(store.root / report_dir)
     summary["run_file"] = str(store.root / report_dir / "run.json")
@@ -867,7 +1009,13 @@ def inspection_output(evidence, relative, root):
 
 
 def command_argv(command, root, args):
-    value = [sys.executable, str(Path(__file__).resolve()), command, "--repository-root", str(root)]
+    value = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        command,
+        "--repository-root",
+        str(root),
+    ]
     if args.config:
         value += ["--config", str(Path(args.config).resolve())]
     if args.claim_file:
@@ -875,7 +1023,12 @@ def command_argv(command, root, args):
     else:
         value += ["--task", args.task]
         if command == "submit":
-            value += ["--attempt", args.attempt, "--result-file", str(Path(args.result_file).resolve())]
+            value += [
+                "--attempt",
+                args.attempt,
+                "--result-file",
+                str(Path(args.result_file).resolve()),
+            ]
     if command == "submit" and args.claim_file and args.result_file:
         value += ["--result-file", str(Path(args.result_file).resolve())]
     if args.offline:
@@ -884,7 +1037,9 @@ def command_argv(command, root, args):
 
 
 def reference_paths(*names):
-    return [str(Path(__file__).resolve().parents[1] / "references" / name) for name in names]
+    return [
+        str(Path(__file__).resolve().parents[1] / "references" / name) for name in names
+    ]
 
 
 def task_references(task):
@@ -892,8 +1047,10 @@ def task_references(task):
         return reference_paths("responsibility-scope.md")
     classification = task.get("payload", {}).get("classification", {})
     names = [] if assignment_only(classification) else ["response-writing.md"]
-    if assignment_action(classification):
+    if assignment_action(classification) or assignment_only(classification):
         names.append("automation.md")
+    if assignment_only(classification) and not assignment_action(classification):
+        names.append("operator-handoff.md")
     return reference_paths(*names)
 
 
@@ -923,11 +1080,19 @@ def line_range(value):
 def _list_sections(view):
     collections = {key: value for key, value in view.items() if isinstance(value, list)}
     collections.update(
-        {"tasks." + key: value for key, value in view.get("tasks", {}).items() if isinstance(value, list)}
+        {
+            "tasks." + key: value
+            for key, value in view.get("tasks", {}).items()
+            if isinstance(value, list)
+        }
     )
     for record in view.get("records", []):
         collections.update(
-            {"records." + record["path"] + "." + key: value for key, value in record.items() if isinstance(value, list)}
+            {
+                "records." + record["path"] + "." + key: value
+                for key, value in record.items()
+                if isinstance(value, list)
+            }
         )
     return collections
 
@@ -939,7 +1104,9 @@ def _section_view(view, args):
     if args.section not in collections:
         raise ValueError("unknown_output_section")
     items = collections[args.section]
-    if args.iid and args.section.startswith(("waiting_issues", "prepared_items", "tasks.")):
+    if args.iid and args.section.startswith(
+        ("waiting_issues", "prepared_items", "tasks.")
+    ):
         items = [item for item in items if str(item.get("iid")) == str(args.iid)]
     end = args.offset + args.limit
     return {
@@ -961,7 +1128,8 @@ def _compact_issue_detail(view, args):
     if isinstance(view.get("issue_detail"), dict):
         entry = view["issue_detail"]
         view["issue_detail"] = {
-            key: entry.get(key) for key in ("phase", "waiting_on", "response_file_map", "response_revision")
+            key: entry.get(key)
+            for key in ("phase", "waiting_on", "response_file_map", "response_revision")
         }
         view["issue_detail"]["iid"] = str(args.iid)
         view["issue_detail"]["scope"] = (entry.get("scope") or {}).get("review")
@@ -973,7 +1141,13 @@ def _compact_issue_detail(view, args):
 
 def _page_items(items, name, args, pages, nested=False):
     selected = items
-    if args.iid and name in {"waiting_issues", "tasks.ready", "tasks.running", "tasks.submitted", "tasks.waiting"}:
+    if args.iid and name in {
+        "waiting_issues",
+        "tasks.ready",
+        "tasks.running",
+        "tasks.submitted",
+        "tasks.waiting",
+    }:
         selected = [item for item in items if str(item.get("iid")) == str(args.iid)]
     offset = 0 if nested else args.offset
     end = offset + args.limit
@@ -998,8 +1172,12 @@ def _page_records(view, args, pages):
             record["excerpt_truncated"] = True
         for key in ("links", "history", "files"):
             if isinstance(record.get(key), list):
-                record[key] = _page_items(record[key], "records." + name + "." + key, args, pages, nested=True)
-    view["reported_documents"] = _page_items(view.get("reported_documents", []), "reported_documents", args, pages)
+                record[key] = _page_items(
+                    record[key], "records." + name + "." + key, args, pages, nested=True
+                )
+    view["reported_documents"] = _page_items(
+        view.get("reported_documents", []), "reported_documents", args, pages
+    )
 
 
 def _paged_view(view, args):
@@ -1017,7 +1195,12 @@ def _paged_view(view, args):
         for name, items in list(tasks.items()):
             if isinstance(items, list):
                 tasks[name] = _page_items(items, "tasks." + name, args, pages)
-        for name in ("waiting_issues", "prepared_items", "operations_to_verify", "operation_files"):
+        for name in (
+            "waiting_issues",
+            "prepared_items",
+            "operations_to_verify",
+            "operation_files",
+        ):
             if isinstance(view.get(name), list):
                 view[name] = _page_items(view[name], name, args, pages)
         for item in view.get("waiting_issues", []):
@@ -1042,16 +1225,21 @@ def protocol_view(result, args):
         "verify_operations": ["authorization-contract.md", "runtime-state.md"],
         "provide_token": ["runtime-capability-checks.md"],
     }
-    view.setdefault("required_references", reference_paths(*refs.get(view.get("next_action"), [])))
+    view.setdefault(
+        "required_references", reference_paths(*refs.get(view.get("next_action"), []))
+    )
     if getattr(args, "identities", False):
         view["required_references"] = reference_paths("operator-owner-candidates.md")
     if args.iid:
+        iid = str(args.iid)
         for name, items in view.get("tasks", {}).items():
             if isinstance(items, list):
-                view["tasks"][name] = [item for item in items if str(item.get("iid")) == str(args.iid)]
+                filtered = [item for item in items if str(item.get("iid")) == iid]
+                view["tasks"][name] = filtered
         for name in ("waiting_issues", "prepared_items"):
             if name in view:
-                view[name] = [item for item in view[name] if str(item.get("iid")) == str(args.iid)]
+                items = view[name]
+                view[name] = [item for item in items if str(item.get("iid")) == iid]
     if args.section:
         return _section_view(view, args)
     if args.details:
@@ -1083,34 +1271,73 @@ def _parser_options(p):
     )
     p.add_argument("--repository-root", default=".")
     p.add_argument("--config")
-    p.add_argument("--input", help="Ingest a captured fetch JSON; no live fetch for this invocation")
-    p.add_argument("--offline", action="store_true", help="Never access remote APIs; preserve unknowns")
+    p.add_argument(
+        "--input",
+        help="Ingest a captured fetch JSON; no live fetch for this invocation",
+    )
+    p.add_argument(
+        "--offline",
+        action="store_true",
+        help="Never access remote APIs; preserve unknowns",
+    )
     p.add_argument(
         "--new-run",
         action="store_true",
         help="resume: start a new user-requested report round; ordinary resume keeps the existing round",
     )
-    p.add_argument("--refresh", action="store_true", help="Refresh remote changes even within the 5-minute scan window")
+    p.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Refresh remote changes even within the 5-minute scan window",
+    )
     p.add_argument("--worker", default="coordinator")
     p.add_argument("--task")
     p.add_argument("--attempt")
     p.add_argument("--result-file")
-    p.add_argument("--claim-file", help="Use generated claim.json; task/attempt/result path are loaded automatically")
+    p.add_argument(
+        "--claim-file",
+        help="Use generated claim.json; task/attempt/result path are loaded automatically",
+    )
 
 
 def _parser_detail_options(p):
-    p.add_argument("--path", action="append", help="Repository-relative source file/directory to inspect; repeatable")
-    p.add_argument("--revision", default="HEAD")
-    p.add_argument("--evidence-file", help="inspect: read a sealed existing snapshot without collecting again")
     p.add_argument(
-        "--details", action="store_true", help="Return full legacy output; complete status is always saved locally"
+        "--path",
+        action="append",
+        help="Repository-relative source file/directory to inspect; repeatable",
     )
-    p.add_argument("--section", help="Page one list named in pages, e.g. tasks.submitted or records.PATH.links")
-    p.add_argument("--offset", type=nonnegative_int, default=0, help="Offset for each returned list")
-    p.add_argument("--limit", type=page_limit, default=5, help="Items per list, 1..100 (default 5)")
-    p.add_argument("--lines", type=line_range, help="inspect one file at START:END, inclusive, at most 160 lines")
+    p.add_argument("--revision", default="HEAD")
     p.add_argument(
-        "--identities", action="store_true", help="Read GitCode commit author identities for owner-candidate evidence"
+        "--evidence-file",
+        help="inspect: read a sealed existing snapshot without collecting again",
+    )
+    p.add_argument(
+        "--details",
+        action="store_true",
+        help="Return full legacy output; complete status is always saved locally",
+    )
+    p.add_argument(
+        "--section",
+        help="Page one list named in pages, e.g. tasks.submitted or records.PATH.links",
+    )
+    p.add_argument(
+        "--offset",
+        type=nonnegative_int,
+        default=0,
+        help="Offset for each returned list",
+    )
+    p.add_argument(
+        "--limit", type=page_limit, default=5, help="Items per list, 1..100 (default 5)"
+    )
+    p.add_argument(
+        "--lines",
+        type=line_range,
+        help="inspect one file at START:END, inclusive, at most 160 lines",
+    )
+    p.add_argument(
+        "--identities",
+        action="store_true",
+        help="Read GitCode commit author identities for owner-candidate evidence",
     )
     p.add_argument("--reason")
     p.add_argument("--operation-id")
@@ -1134,7 +1361,13 @@ def _command_claim(ctx):
     store = ctx.store
     if state.get("recovery", {}).get("requires_operation_audit"):
         raise ValueError("recovery_audit_required")
-    value = queue.claim(state, args.worker, now, lease_seconds=args.lease_seconds, max_running=args.max_running)
+    value = queue.claim(
+        state,
+        args.worker,
+        now,
+        lease_seconds=args.lease_seconds,
+        max_running=args.max_running,
+    )
     if value:
         value = claim_bundle(value, state, root, store)
     return value
@@ -1186,7 +1419,9 @@ def _command_check(ctx):
     claim = ctx.claim
     queue.expire(state, now)
     task = state["tasks"].get(args.task)
-    response_claim = claim and task and task["stage"] == "response" and task["status"] == "running"
+    response_claim = (
+        claim and task and task["stage"] == "response" and task["status"] == "running"
+    )
     if not response_claim:
         raise ValueError("response_claim_required")
     result = read_json(args.result_file)
@@ -1210,7 +1445,11 @@ def _command_submit(ctx):
     task = state["tasks"].get(args.task)
     if task:
         validate_result_header(result, task["stage"])
-    prepared_response = task and task["stage"] == "response" and task["payload"].get("quality_version") == 2
+    prepared_response = (
+        task
+        and task["stage"] == "response"
+        and task["payload"].get("quality_version") == 2
+    )
     if prepared_response and result.get("decision") == "prepared":
         validate_response(state, task, result, root)
     value = queue.submit(state, args.task, args.attempt, result, now)
@@ -1241,8 +1480,17 @@ def _command_accept(ctx):
             / f"issue-{task['iid']}"
             / f"revision-{entry.get('response_revision', 0)}"
         )
-        files, related = materialize(entry["prepared_response"], entry["prepared_source_records"], store, relative)
-        entry.update(response_artifacts=list(files.values()), response_file_map=files, related_code=related)
+        files, related = materialize(
+            entry["prepared_response"],
+            entry["prepared_source_records"],
+            store,
+            relative,
+        )
+        entry.update(
+            response_artifacts=list(files.values()),
+            response_file_map=files,
+            related_code=related,
+        )
     return value
 
 
@@ -1250,13 +1498,21 @@ def _command_revise(ctx):
     args = ctx.args
     state = ctx.state
     now = ctx.now
-    entry = state["issues"].get(args.iid or state["tasks"].get(args.task, {}).get("iid"))
+    entry = state["issues"].get(
+        args.iid or state["tasks"].get(args.task, {}).get("iid")
+    )
     if not entry or not args.reason or not entry.get("prepared_response"):
         raise ValueError("prepared_issue_and_revision_reason_required")
     invalidate_response(state, entry, args.reason, now)
     entry["phase"] = "attention"
     state.pop("delivery_report", None)
-    apply_classification(state, {"issues": [entry["classification"]]}, [entry], entry.get("classification_path"), now)
+    apply_classification(
+        state,
+        {"issues": [entry["classification"]]},
+        [entry],
+        entry.get("classification_path"),
+        now,
+    )
     return None
 
 
@@ -1303,7 +1559,9 @@ def _command_record_operation(ctx):
     now = ctx.now
     if not args.operation_id or args.iid not in state["issues"]:
         raise ValueError("operation_identity_required")
-    state["operations"].setdefault(args.operation_id, {"status": "unknown", "iid": args.iid, "recorded_at": now})
+    state["operations"].setdefault(
+        args.operation_id, {"status": "unknown", "iid": args.iid, "recorded_at": now}
+    )
     return None
 
 
@@ -1314,7 +1572,9 @@ def _command_verify_operation(ctx):
     if receipt.get("verified") is not True or not receipt.get("evidence"):
         raise ValueError("verification_evidence_required")
     if args.command == "audit-recovery":
-        state.setdefault("recovery", {}).update(requires_operation_audit=False, receipt=receipt)
+        state.setdefault("recovery", {}).update(
+            requires_operation_audit=False, receipt=receipt
+        )
     else:
         op = state["operations"].get(args.operation_id)
         if not op or receipt.get("operation_id") != args.operation_id:
@@ -1372,9 +1632,23 @@ def _prepare_run(ctx):
         entry = state["issues"][task["iid"]]
         if task["stage"] == "response" and (
             entry.get("classification_scan_id") != state["scan"].get("id")
-            or task["input_digest"] != response_digest(entry, entry.get("classification", {}))
+            or task["input_digest"]
+            != response_digest(entry, entry.get("classification", {}))
         ):
             raise ValueError("stale_classification")
+
+
+def _token_available(ctx):
+    if not hasattr(ctx, "credential_available"):
+        try:
+            resolve_token(
+                repo_url=f"https://gitcode.com/{ctx.cfg['repo']}",
+                repository_root=ctx.root,
+            )
+            ctx.credential_available = True
+        except GitCodeClientError:
+            ctx.credential_available = False
+    return ctx.credential_available
 
 
 def _command_resume(ctx):
@@ -1384,9 +1658,17 @@ def _command_resume(ctx):
         ingest(state, read_json(args.input), cfg, now)
         store.save(state)
     elif not args.offline:
-        if not os.environ.get("GITCODE_TOKEN"):
+        if not _token_available(ctx):
             return {"next_action": "provide_token", "state_file": str(store.path)}
-        refresh_remote(state, cfg, config_path, root, store, now, args.refresh or getattr(args, "new_run", False))
+        refresh_remote(
+            state,
+            cfg,
+            config_path,
+            root,
+            store,
+            now,
+            args.refresh or getattr(args, "new_run", False),
+        )
     synchronize(state, cfg, now)
     return None
 
@@ -1401,7 +1683,7 @@ def _finish_run(ctx, value):
     # BEFORE the next dependent stage starts.
     store.save(state)
     if args.command in {"resume", "accept"} and not args.offline:
-        if os.environ.get("GITCODE_TOKEN"):
+        if _token_available(ctx):
             classify_ready(state, cfg, config_path, root, store, now)
     store.save(state)
     if args.command in {"resume", "accept"}:
@@ -1431,14 +1713,22 @@ def _finish_run(ctx, value):
     if args.command in {"submit", "accept"}:
         # The complete queue remains in status.json; progress acknowledgments
         # only need counts and actionable review/waiting entries.
-        result["tasks"] = {k: v for k, v in result["tasks"].items() if k in {"counts", "submitted", "waiting"}}
+        result["tasks"] = {
+            k: v
+            for k, v in result["tasks"].items()
+            if k in {"counts", "submitted", "waiting"}
+        }
     return result
 
 
 def run(args):
     root = Path(args.repository_root).resolve()
     os.chdir(root)
-    config_path = Path(args.config).resolve() if args.config else root / RUNTIME / "config/classify_config.yaml"
+    config_path = (
+        Path(args.config).resolve()
+        if args.config
+        else root / RUNTIME / "config/classify_config.yaml"
+    )
     if not config_path.exists():
         return {
             "next_action": "configure_repository",
@@ -1482,7 +1772,9 @@ def _validate_cli_args(command_parser, args):
         command_parser.error("--new-run is only supported by resume")
     if args.section and args.command not in {"status", "inspect"}:
         command_parser.error("--section is only supported by status and inspect")
-    conflicting_evidence_options = args.command != "inspect" or args.path or args.lines or args.identities
+    conflicting_evidence_options = (
+        args.command != "inspect" or args.path or args.lines or args.identities
+    )
     if args.evidence_file and conflicting_evidence_options:
         command_parser.error(
             "--evidence-file reads an existing snapshot; use inspect without --path/--lines/--identities"
@@ -1493,7 +1785,9 @@ def _validate_cli_args(command_parser, args):
 
 def _pipeline_error(exc, args):
     # No raw exception from network paths or Issue text in error protocol.
-    code = str(exc) if re.fullmatch(r"[A-Za-z0-9_.-]+", str(exc)) else type(exc).__name__
+    code = (
+        str(exc) if re.fullmatch(r"[A-Za-z0-9_.-]+", str(exc)) else type(exc).__name__
+    )
     action = {
         "pipeline_busy": "retry_when_current_command_finishes",
         "stale_input": "reload_task",
@@ -1519,7 +1813,8 @@ def _pipeline_error(exc, args):
     result = {"error": code, "next_action": action, "state_preserved": True}
     if action == "correct_result_file":
         result.update(
-            result_file=args.result_file, next_step="修正 result_file 中的字段后重试原命令；当前任务尚未提交。"
+            result_file=args.result_file,
+            next_step="修正 result_file 中的字段后重试原命令；当前任务尚未提交。",
         )
     if action == "requeue_corrected_result":
         result["next_step"] = (
@@ -1535,7 +1830,9 @@ def main(argv=None):
     _validate_cli_args(command_parser, args)
     try:
         result = run(args)
-        write_json(protocol_view(result, args), ensure_ascii=False, separators=(",", ":"))
+        write_json(
+            protocol_view(result, args), ensure_ascii=False, separators=(",", ":")
+        )
         return 0
     except ConfigError as exc:
         write_json(

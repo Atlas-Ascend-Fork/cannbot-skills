@@ -6,9 +6,7 @@
       "title": "缺少 Token 时激活 Handler 并在可恢复等待点停止",
       "config": {
         "max_tokens": 1000000,
-        "ascend_platforms": [
-          "A2"
-        ],
+        "ascend_platforms": ["A2"],
         "distractor_skills": [
           "gitcode-issue-gen",
           "gitcode-pr-handler",
@@ -29,7 +27,7 @@
         "ascend_platforms": ["A2"],
         "eval_mode": "text"
       },
-      "prompt": "只模拟，不调用外部 API：目标仓公共构建规则漏采集两个样例，属于我们负责范围；已读取问题和构建脚本，尚未复现，owner 未知。请按 skill 给出首条回复草稿和后续执行顺序。",
+      "prompt": "只模拟，不调用外部 API：目标仓公共构建规则漏采集两个样例，属于我们负责范围；尚未复现，owner 未知。以下是本题给定的模拟源码材料，不代表真实仓库、无需访问目标仓：scripts/collect_examples.py 用 sources = sorted(Path('.').glob('examples/*/op_*_example.cpp')) 收集样例，后续构建只使用 sources；两个漏采文件为 examples/demo_a/main.cpp 和 examples/demo_b/main.cpp。请仅依据这些材料给出具名的首条回复草稿和后续执行顺序，说明采集规则与文件名的关系、待验证边界，不编造已复现或修复结果。",
       "expected_output": "指出具体采集约定、受影响样例及待验证边界，给可行动的核实方向；不谎称已复现/已修复，不只发受理。回复核对授权、POST/GET 成功后再创建 worktree/复现；不等最终 diff 才首响。",
       "files": []
     },
@@ -52,7 +50,7 @@
         "eval_mode": "text"
       },
       "prompt": "只模拟：负责范围内的算子接口用法咨询，当前版本官方头文件和示例足以确答，无剩余维护动作。请给回复及处理顺序。",
-      "expected_output": "一次回复直接回答并给资料/示例与版本边界；没有额外受理、owner 收集、assign 或挂起。按咨询档位自检，回复授权并 GET 回查后记录答疑结论。",
+      "expected_output": "一次回复直接回答并给资料/示例与版本边界，不拆额外受理评论、不进入代码修复。按咨询档位自检，回复授权并GET回查后记录结论；仍须核对平台assignee，已有负责人保留，缺失时按当前责任规则或有效兜底补指派，不强行调查核心贡献候选。未知账号或未授权保持待处理，不能以纯咨询豁免负责人或标记全部完成。",
       "files": []
     },
     {
@@ -62,8 +60,8 @@
         "ascend_platforms": ["A2"],
         "eval_mode": "text"
       },
-      "prompt": "只模拟：处理前已有他人提交且确实覆盖问题的开放修复 PR，Issue 尚无实质回复和指派；配置 auto-response: true、auto-assign: false。请说明处理顺序和授权边界。",
-      "expected_output": "分类器只读并保留需要首响的结论；先准备有证据的回复，按 auto-response 直接发布并 GET 回查，成功后核验 PR 作者并转交给该作者，不受 auto-assign: false 限制。自提自修、多个 PR 作者冲突、已有不同 assignee 和新追问仍走各自门禁；配置不授权关闭 Issue、修改代码、commit、push 或创建 PR。",
+      "prompt": "只模拟：处理前已有他人提交且确实覆盖问题的开放修复 PR，Issue 尚无实质回复和指派；配置 auto-response: true、auto-assign: false。请说明从只读分类、准备回复到发布回查和转交作者的顺序及授权边界，并简述自提自修、多个 PR 作者修复方向冲突、已有不同 assignee 和新追问时如何处理。",
+      "expected_output": "1. 分类器只读并保留需要首响的结论；先准备有证据的回复，再按 auto-response 发布并 GET 回查。已有原生关联只能省略关联操作，不能越过有效首响依赖直接指派。\n2. 首响成功后实时核验有效 PR 和作者，补缺失的作者指派并 GET 回查，不受 auto-assign: false 限制；配置不授权关闭 Issue、修改代码、commit、push 或创建 PR。\n3. 自提自修核验免首响依据；已有不同 assignee 不自动覆盖；多个作者修复方向冲突时先调查，未解决前不自动关联或据此指派；新追问独立核对跟进授权。",
       "files": []
     },
     {
@@ -95,8 +93,8 @@
         "ascend_platforms": ["A2"],
         "eval_mode": "text"
       },
-      "prompt": "只模拟：负责的缺陷已有明确排查方向，但责任人未确认；咨询已有准确答案与官方示例。请给内部自检和对外回复原则。",
-      "expected_output": "按缺陷列记录缺一项关键信息的档位/理由，不编造 owner/节点或拖到满分才回应；咨询直接给答案与资料。0.25 不自行换算总分，不把自评发到 Issue。",
+      "prompt": "只模拟：负责的缺陷已有明确排查方向，但责任人未确认；咨询已有准确答案与官方示例。请按 Skill 的评分表给内部自检和对外回复原则，并说明“质量·0.25”标记能否换算总分或通过线、自评是否对外发布。",
+      "expected_output": "1. 按缺陷列记录缺一项关键信息的档位/理由，不编造 owner/节点或拖到满分才回应；咨询按咨询列自检，直接给答案与资料。\n2. 说明 0.25 不自行换算总分或通过线，档位、依据和缺项仅内部留存，不把自评发到 Issue。",
       "files": []
     },
     {
@@ -128,8 +126,8 @@
         "ascend_platforms": ["A2"],
         "eval_mode": "text"
       },
-      "prompt": "只改写并保留事实：不能把上游已补文档的历史回复当作当前版本已有资料的证明；此接口不是设置随机种子，而是选择随机模式。当前版本未找到独立文档。",
-      "expected_output": "1. 回复应直接正面说明该接口用于选择随机模式、当前版本未找到独立文档，必要时说明文档补充情况待确认\n2. 回复应改写掉「不能把 X 当作 Y」「不是/并非 X 而是 Y」这类否定对比句式与大量排比，答疑与首响融合、结尾简短承接",
+      "prompt": "请按本 Skill 的正面、非说教式答疑文风，只改写并保留事实，去掉“不能把 X 当作 Y”“不是 X 而是 Y”句式，不添加核验结果、受理通知或后续承诺：不能把上游已补文档的历史回复当作当前版本已有资料的证明；此接口不是设置随机种子，而是选择随机模式。当前版本未找到独立文档。",
+      "expected_output": "1. 直接正面说明该接口用于选择随机模式、当前版本未找到独立文档；上游历史补文档说法与当前版本资料状态保持区分，不推断文档已存在或已完成核验。\n2. 改写掉“不能把 X 当作 Y”“不是/并非 X 而是 Y”等否定对比句式，只输出改写正文；不要求额外首响、致谢或承接句，不添加未经核验的事实或后续承诺。",
       "files": []
     },
     {
@@ -162,7 +160,7 @@
         "ascend_platforms": ["A2"],
         "eval_mode": "text"
       },
-      "prompt": "只做编排说明，不实际读取文件、不访问真实仓库或 API、不实际派发子 agent：首次分类有 6 条 responsibility_review_required，分别涉及公共文档、Host 参数校验、kernel 平台入口，每组 2 条且互无依赖，都需读取版本源码。没有可复用的范围结论，宿主支持子 agent。请说明下一步应如何编排执行（包括分组依据、并发与名额、子任务边界、主会话如何合并与推进游标）。",
+      "prompt": "请使用 gitcode-issue-handler 只做编排说明：允许读取本 Skill 的 SKILL.md 和 references/ 规则文档；不读取目标仓库源码、不访问真实仓库或 API、不实际派发子 agent。场景：首次分类有 6 条 responsibility_review_required，分别涉及公共文档、Host 参数校验、kernel 平台入口，每组 2 条且互无依赖，都需读取版本源码。没有可复用的范围结论，宿主支持子 agent。请说明下一步应如何编排执行（包括分组依据、并发与名额、子任务边界、主会话如何合并与推进游标）。",
       "expected_output": "1. 应先读取 batch-analysis.md，按共享证据把 6 条范围核查分组（同组共享同一源码/文档区域），不为每条 Issue 建 agent；简单范围核查可由主会话基于已有快照批量完成，复杂且独立的调查才委派。\n2. 委派时不等全部范围核查完成、也不等先得到多个 need_attention，并行推进并空闲补位；并发受宿主名额限制（默认最多 3 个运行任务、每执行者 1 个），子任务只拿必要的原文/版本/源码路径/责任规则与共享证据引用，独立输出、只写各自结果目录，不修改共享输入、运行状态或配置。\n3. 主会话逐项审核合并 responsibility_review，对子集重分类时复用同批 PR 快照（并传 --no-update-last-check），保留其他项结果；子集完成不得推进全批游标或宣称全批完成。",
       "files": []
     },
@@ -184,7 +182,7 @@
         "ascend_platforms": ["A2"],
         "eval_mode": "text"
       },
-      "prompt": "只模拟：同一Issue关联三个不同作者的PR，无自提PR。一个改动较多但仅补文档；另两个都只改一行，却分别面向不同版本且修复方向冲突。需要为首响总结方案并选择覆盖面大的PR作者。应如何分工和判断？",
+      "prompt": "只模拟：同一Issue关联三个不同作者的PR，无自提PR。一个改动较多但仅补文档；另两个都只改一行，却分别面向不同版本且修复方向冲突。需要为首响总结方案并选择覆盖面大的PR作者。请同时说明轻量核对与升级分析的分界、本场景的分工、逐PR覆盖证据、已有有效关联是否因目标分支不同被排除，以及过滤与作者选择规则。",
       "expected_output": "1. 应说明作者、状态、关联、base/head 与明确 diff 摘要属轻量核对，跨版本语义影响与多 PR 修复方向冲突属升级分析；不按 diff 行数或文件数判断难度或覆盖面（改动多但仅补文档对功能缺陷覆盖为 0）。\n2. 应说明多个 PR 共用同一组 Issue 诉求标识，逐 PR 记录 coverage_review（covered_issue_points、evidence、target_version_match、已读 head_sha），并保留全部有效关联 PR 供统一复核。\n3. 应说明过滤与选择规则：已有有效关联不因目标分支不同被自动排除，closed 未合入/已核实失效/无关 PR 按既有规则过滤；覆盖相当时优先匹配问题版本、仍相当按 PR 编号升序稳定选择，不因多个作者直接转人工；作者或覆盖证据缺失时先补查、仍不足记录阻塞而不猜作者。",
       "files": []
     },
@@ -206,7 +204,7 @@
         "ascend_platforms": ["A2"],
         "eval_mode": "text"
       },
-      "prompt": "只模拟：A/B/C都是独立need_attention，auto-response开启。A的回复已审核且发布授权满足；B需要选PR作者但缺作者与实际diff证据；C的调查子agent调用失败。如何收尾本轮？",
+      "prompt": "只模拟：A/B/C都是独立need_attention，auto-response开启。A的回复已审核且发布授权满足；B需要选PR作者但缺作者与实际diff证据；C的调查子agent调用失败。如何逐项收尾本轮？请说明每项分析与适用稿件的保存、就绪项推进、失败恢复、报告核对，以及调查者和协调者分别可写哪些文件或状态。",
       "expected_output": "A先保存分析和稿件，按既有执行器发布并GET回查，不等B/C；B/C均保存已知分析、具体缺口和恢复点，能确定的稿件保存，不能编造回复或assign。未返回或失败的调查不算未找到，不将整批记完成。报告前按need_attention清单核对analysis.md、适用草稿或缺稿原因，以及response_artifacts中的最终路径；共享运行状态只由协调者更新。",
       "files": []
     },
@@ -262,7 +260,7 @@
         "eval_mode": "text"
       },
       "prompt": "只模拟普通问题、无新追问：A无回复/负责人/PR；B仅assign自己；C仅assign他人；D只有同作者有效PR；E只有他人有效PR；F已assign且有同作者有效PR、无文字回复；G已assign且有他人有效PR、无文字回复；H已assign、有有效PR及实质文字回复；I的负责人就是提出者，但有效PR由其他人提交，尚无文字回复。说明attention和动作。",
-      "expected_output": "A需首响，可能进入auto-assign；B自提no_attention；C首响；D need_attention仅补同作者assign；E need_attention先概述PR做法首响，再补PR作者assign；F no_attention；G need_attention，首响简述PR方案、保留负责人；H no_attention；I满足负责人同作者条件，仍为自提no_attention，不因PR作者不同补首响。PR作者分配在response阶段完成，不受auto-assign关闭限制；已有负责人不覆盖。",
+      "expected_output": "A需首响，可能进入auto-assign；B自提no_attention；C首响；D need_attention仅补同作者assign；E need_attention先概述PR做法首响，再补PR作者assign；F no_attention；G need_attention，首响简述PR方案、保留负责人；H no_attention；I满足负责人同作者条件，仍为自提no_attention，不因PR作者不同补首响。PR作者分配在response阶段完成，不受auto-assign关闭限制；已有负责人不覆盖。 自提免首响不豁免负责人；非自提仍核验有效首响与平台负责人，缺项保留待办。",
       "files": []
     },
     {
@@ -287,6 +285,41 @@
       },
       "prompt": "请使用 gitcode-issue-handler，仅解释两个请求的处理方式，不要真的执行：一是用户问‘首次使用会不会创建配置，我已经配置过还会问吗’，二是用户要求‘只补齐当前仓库缺失的配置文件，不改参数，不做问答，不处理 Issue’。这两种情况分别应该做什么，是否需要 Token、配置问卷和完成标记？",
       "expected_output": "第一个是 policy_query，只解释首次初始化与已有设置复用，不预检环境、不建目录、不启动问卷。第二个属于明确限定的补文件请求，调用 init_config.py --repository-root 指向目标仓，仅补缺失并保留已有设置，需要 Python 3.10+ 和 PyYAML，不要求 Token 或 CANN、不访问 API、不处理 Issue。两种都不记录配置完成；仅创建模板不代表用户确认，以后首次真实使用仍按引导状态判断。",
+      "files": []
+    },
+    {
+      "id": 26,
+      "title": "规则明确的非A5接单不等待kernel根因",
+      "config": {
+        "ascend_platforms": ["A2"],
+        "eval_mode": "text"
+      },
+      "prompt": "请使用 gitcode-issue-handler 仅模拟，可读 Skill 规则、不访问真实仓库或 API、不执行发布。目标仓 handle 接收所有非规划 open Issue；规则明确常规目录的非 A5 算子由 chen_0715 接单，A5 用专属映射，其他情况有已配置兜底账号。#3747 描述 Atlas 800T A2 的 Tril 缺陷，问题对象为常规算子而非 experimental；已有完整首响且 GET 回查成功，尚无 assignee、无有效关联 PR。实际加载的 CANN kernel 包来源尚未查清。当前会话已批准本条指派和 pending-confirmation 标签。紧接着应如何处理，哪些事实仍待核查，如何避免下轮再次漏指派？",
+      "expected_output": "命中非 A5 常规算子的接单规则，按已授权准确范围转交 chen_0715，GET 核验 assignee 后追加并回查 pending-confirmation；不重复已有首响，不把 kernel 包来源、复现或根因确认加为指派前提，不额外做核心贡献候选调查、不将平台接单规则写成通用 Tril owner 映射。A2 由提出者报告，具体 kernel 与根因仍未知，分别记录。首响和指派结果独立记录，指派失败/未知保留具体待办和恢复点，不能用已回复掩盖漏指派；无准确授权时只准备分配稿，不伪造远端结果。",
+      "files": []
+    },
+    {
+      "id": 27,
+      "title": "批量逐项核对首响与指派而非只看已回复",
+      "config": {
+        "ascend_platforms": ["A2"],
+        "eval_mode": "text"
+      },
+      "prompt": "请使用 gitcode-issue-handler 仅模拟收尾检查，可读 Skill 规则，不实际发布：A 为责任范围内缺陷，已首响但规则明确的 owner 尚未指派；B 已有有效 assignee 但没有维护侧实质回复；C 首响和指派均未执行，auto-response 为 false；D 是已完整答复、无剩余维护动作的纯咨询。四项如何核对、保留待办与准备报告？最终目标是每条实际处理的Issue都有有效首响和平台负责人；D尚无assignee。",
+      "expected_output": "分别核对 response_status 和 assignment_status：A 只补指派及回查不重发首响，B 补有效回复且保留现有负责人，C 保存完整回复与分配稿等待准确授权，D 复用已核验回复并按当前责任规则或有效兜底补负责人，无账号/授权时仍待处理，纯咨询不豁免。成功回复有评论引用，成功指派有 GET 确认的 assignee；未开始、失败或未知的指派记录原因、下一步和恢复点，在汇总表直接显示而非只藏在详情。对照完整分类清单调用 --strict --classification 严格报告校验，缺双项记录或把未完成项标作已解决/转交完成应失败，不通过伪造 verified 让报告通过。",
+      "files": []
+    },
+    {
+      "id": 28,
+      "title": "自提指派免确认标签，非自提指派追加标签",
+      "config": {
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "请使用 gitcode-issue-handler 仅模拟，不访问 API、不发布：A 为自提 Issue，已有同作者有效关联 PR，尚无 assignee；B 为非自提 Issue，已有有效首响，需按责任规则指派其他维护者；C 是 A 的续跑，指派已成功但旧标签操作结果未知；D 为自提 Issue，已存在 pending-confirmation 标签。各项在 assignee 核验后如何处理标签与运行状态？",
+      "expected_output": "A 免首响，按授权补指派并 GET 核验；自提不添加 pending-confirmation，label_status 记录 not_applicable。B 指派成功且 GET 确认后追加并回查 pending-confirmation，保留其他标签。C 复用已确认指派并重新核对自提身份，跳过标签且不重发指派或标签 POST。D 保留已有标签，不自动删除。自提免标签不豁免指派核验、授权或新增追问处理；非自提标签失败或未知保留指派证据及恢复点。",
       "files": []
     }
   ],

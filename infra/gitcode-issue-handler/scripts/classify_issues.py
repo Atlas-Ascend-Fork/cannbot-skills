@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
+#
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
-# Licensed under the CANN Open Software License Agreement Version 2.0.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+#
 """
 Classify open GitCode issues into action buckets using a deterministic
 decision tree.
@@ -60,11 +67,18 @@ from gitcode_client import (  # noqa: E402
     api_get,
     parse_iso,
     TZ_CHINA,
-    DEFAULT_GITCODE_API_BASE,
+    GitCodeClientError,
+    resolve_token,
 )
 
 sys.path.insert(0, str(_HERE))
-from pr_response_policy import pr_active, pr_author, pr_inactive, pr_merged, self_authored  # noqa: E402
+from pr_response_policy import (
+    pr_active,
+    pr_author,
+    pr_inactive,
+    pr_merged,
+    self_authored,
+)  # noqa: E402
 from classification_cache import (
     ClassificationCacheEntry,
     load_settled,
@@ -78,7 +92,6 @@ from runtime_paths import (  # noqa: E402
     CLASSIFICATION_REPORT,
     CLASSIFY_CONFIG,
     FETCH_CACHE,
-    FOLLOWUP_WATCH_STATE,
     LAST_CHECK_STATE,
     LEGACY_CLASSIFY_CONFIG,
     compatible_read_path,
@@ -112,7 +125,7 @@ _SYSTEM_BOT_LOGINS = frozenset({"cann-robot"})
 _SYSTEM_COMMENT_PATTERNS = (
     re.compile(
         r"\A\s*(?:#{1,6}\s*notice\s*)?"
-        r"this\s+issue\s+can\s+not\s+be\s+assigned\s+to\s+\**yourself\**\.\s*"
+        r"this\s+issue\s+can\s+not\s+be\s+assigned\s+to\s+\**[a-z0-9_][a-z0-9_.-]*\**\.\s*"
         r"please\s+try\s+to\s+assign\s+to\s+the\s+repository\s+members\.\s*\Z",
         re.IGNORECASE,
     ),
@@ -143,7 +156,8 @@ _ASSIGNEE_WAIT_PATTERNS = (
 )
 LOGGER = logging.getLogger(__name__)
 _CACHE_REVISION = hashlib.sha256(
-    Path(__file__).read_bytes() + (_HERE / "pr_response_policy.py").read_bytes()
+    Path(__file__).read_bytes()
+    + (_HERE / "pr_response_policy.py").read_bytes()
     + (_HERE / "issue_pr_evidence.py").read_bytes()
 ).hexdigest()
 
@@ -262,15 +276,13 @@ def load_config(path=None, repo_override=None, *, allow_legacy=True):
     # Shared loading supplies template defaults; preserve the historical
     # migration of exact legacy runtime paths only for default config lookup.
     if path is None and allow_legacy:
-        source = (
-            CLASSIFY_CONFIG
-            if CLASSIFY_CONFIG.exists()
-            else LEGACY_CLASSIFY_CONFIG
-        )
+        source = CLASSIFY_CONFIG if CLASSIFY_CONFIG.exists() else LEGACY_CLASSIFY_CONFIG
         cfg = migrate_legacy_runtime_defaults(cfg, source)
     if repo_override:
         if cfg.get("repo") and cfg["repo"] != repo_override:
-            raise ValueError("Repository conflicts with configured repo; confirm via resolve_repository.py")
+            raise ValueError(
+                "Repository conflicts with configured repo; confirm via resolve_repository.py"
+            )
         cfg["repo"] = repo_override
     if not cfg.get("repo"):
         raise ValueError(
@@ -328,7 +340,9 @@ def _normalize_since(value):
         return parsed.isoformat() if parsed is not None else value
 
 
-def resolve_time_scope(raw, ignore_last_check, last_check_file, repo, lookback_days=DEFAULT_LOOKBACK_DAYS):
+def resolve_time_scope(
+    raw, ignore_last_check, last_check_file, repo, lookback_days=DEFAULT_LOOKBACK_DAYS
+):
     """Resolve one authoritative input scope and whether to filter by update."""
     filters = raw.get("filters", {}) if isinstance(raw, dict) else {}
     if ignore_last_check:
@@ -567,7 +581,7 @@ def get_comment_author(comment):
     return None
 
 
-def _is_system_comment(comment) -> bool:
+def is_system_comment(comment) -> bool:
     """Recognize explicit system events or known bot-generated templates."""
     if comment.get("system") is True:
         return True
@@ -583,7 +597,7 @@ def get_effective_comments(comments, issue_author):
     normalized_issue_author = issue_author.strip().casefold() if issue_author else None
     effective_comments = []
     for comment in comments:
-        if _is_system_comment(comment):
+        if is_system_comment(comment):
             continue
         body = str(comment.get("body") or "")
         if not body.strip() or _MENTION_ONLY_PATTERN.fullmatch(body):
@@ -649,18 +663,23 @@ def _issue_type_signals(issue):
 def _planning_body_has_request(body):
     """Distinguish reported problems/questions from future work in a roadmap."""
     planned = re.compile(
-        r"^(?:计划|规划|拟|目标|后续|下一步|预计|待办|将|准备|Goal\s*[:：]|Plan\b)", re.IGNORECASE,
+        r"^(?:计划|规划|拟|目标|后续|下一步|预计|待办|将|准备|Goal\s*[:：]|Plan\b)",
+        re.IGNORECASE,
     )
     current_problem = re.compile(
         r"(?:当前|目前|实际|实测|复现|运行时|使用时).*(?:报错|崩溃|失败|异常|无法|不支持|越界)"
-        r"|\b(?:currently|observed|reproduced)\b.*\b(?:crash|error|failure|fails)\b", re.IGNORECASE,
+        r"|\b(?:currently|observed|reproduced)\b.*\b(?:crash|error|failure|fails)\b",
+        re.IGNORECASE,
     )
     question = re.compile(
         r"请问|能否|请(?:帮忙|协助|确认|解释)|(?:是否|如何|为什么|怎么).*?[？?]"
-        r"|\b(?:how (?:do|can)|why does|could you|please help)\b", re.IGNORECASE,
+        r"|\b(?:how (?:do|can)|why does|could you|please help)\b",
+        re.IGNORECASE,
     )
     for clause in re.split(r"(?<=[。；;！？!?])|\n", body):
-        text = re.sub(r"^\s*(?:[-*+]\s+(?:\[[ xX]\]\s*)?|\d+[.)]\s+)", "", clause).strip()
+        text = re.sub(
+            r"^\s*(?:[-*+]\s+(?:\[[ xX]\]\s*)?|\d+[.)]\s+)", "", clause
+        ).strip()
         if planned.search(text):
             continue
         if current_problem.search(text) or question.search(text):
@@ -677,14 +696,26 @@ def _response_exemption(issue):
     title = str(issue.get("title") or "").strip()
     body = str(issue.get("description") or issue.get("body") or "").strip()
     signals = _issue_type_signals(issue)
-    defect_types = {"bug", "bug-report", "缺陷", "缺陷反馈", "问题反馈", "反馈", "feedback"}
+    defect_types = {
+        "bug",
+        "bug-report",
+        "缺陷",
+        "缺陷反馈",
+        "问题反馈",
+        "反馈",
+        "feedback",
+    }
     failure_title = re.search(
         r"\b(?:bug|crash(?:es)?|failure|exception|incorrect|regression)\b"
-        r"|崩溃|报错|错误|不达标|异常|缺陷|失败", title, re.IGNORECASE,
+        r"|崩溃|报错|错误|不达标|异常|缺陷|失败",
+        title,
+        re.IGNORECASE,
     )
     failure_sections = re.search(
         r"^\s*#{1,6}\s*(?:问题描述|问题定位|实测复现|复现步骤|重现步骤|错误日志|实际结果)"
-        r"[^\n]*\n\s*\S", body, re.MULTILINE,
+        r"[^\n]*\n\s*\S",
+        body,
+        re.MULTILINE,
     )
     if signals & defect_types or failure_title or failure_sections:
         return None
@@ -692,18 +723,26 @@ def _response_exemption(issue):
         r"(?:(?:Development|Project)\s+)?Roadmap(?:\s*(?:\([^)]*\)|\d{4}\s*Q[1-4]))?"
         r"|\d{4}\s*Q[1-4]\s+Roadmap"
         r"|(?:项目|开发|技术)?(?:路线图|规划汇总)(?:[（(][^）)]*[）)])?",
-        title, re.IGNORECASE,
+        title,
+        re.IGNORECASE,
     )
     planning_type = bool(signals & {"roadmap", "路线图", "规划汇总", "planning"})
     planning_structure = bool(
-        re.search(r"^\s*#{1,6}\s*(?:总体方向|详细计划|规划汇总|Roadmap)\b", body, re.MULTILINE | re.IGNORECASE)
-        or (len(re.findall(r"\bGoal\s*[:：]", body, re.IGNORECASE)) >= 2
-            and len(re.findall(r"\bOwner\s*[:：]", body, re.IGNORECASE)) >= 2)
+        re.search(
+            r"^\s*#{1,6}\s*(?:总体方向|详细计划|规划汇总|Roadmap)\b",
+            body,
+            re.MULTILINE | re.IGNORECASE,
+        )
+        or (
+            len(re.findall(r"\bGoal\s*[:：]", body, re.IGNORECASE)) >= 2
+            and len(re.findall(r"\bOwner\s*[:：]", body, re.IGNORECASE)) >= 2
+        )
     )
     is_planning = bool((planning_title or planning_type) and planning_structure)
     if is_planning and not _planning_body_has_request(body):
         return _classification_result(
-            "no_attention", "planning_record",
+            "no_attention",
+            "planning_record",
             "纯路线图或规划汇总，不属于问题、缺陷或反馈，不进入批量响应",
         )
     return None
@@ -720,7 +759,7 @@ def _comment_timeline(issue) -> CommentTimeline:
     reporter_comments = []
     maintainer_comments = []
     for index, comment in enumerate(comments):
-        if _is_system_comment(comment):
+        if is_system_comment(comment):
             continue
         author = get_comment_author(comment)
         body = str(comment.get("body") or "").strip()
@@ -773,8 +812,10 @@ def _watch_signals(issue, timeline: CommentTimeline) -> WatchSignals:
     watch_time = parse_iso(watch.get("last_maintainer_comment_at", ""))
     reporter_unanswered = bool(
         timeline.latest_reporter
-        and (not timeline.latest_maintainer
-             or timeline.latest_reporter["index"] > timeline.latest_maintainer["index"])
+        and (
+            not timeline.latest_maintainer
+            or timeline.latest_reporter["index"] > timeline.latest_maintainer["index"]
+        )
     )
     reporter_after_watch = bool(
         reporter_unanswered
@@ -794,7 +835,9 @@ def _watch_signals(issue, timeline: CommentTimeline) -> WatchSignals:
         entry["id"] == str(watch.get("last_maintainer_comment_id"))
         for entry in timeline.maintainer_comments
     )
-    superseded = baseline_known and _comment_after_watch(timeline.latest_maintainer, watch, watch_time)
+    superseded = baseline_known and _comment_after_watch(
+        timeline.latest_maintainer, watch, watch_time
+    )
     if superseded and not reporter_after_watch and not assignee_after_watch:
         # Ignore a superseded baseline for classification; persist/resolve the
         # original watch only through the authorized follow-up workflow.
@@ -1006,16 +1049,26 @@ def _pr_assignment_action(evidence):
     """Describe response-stage work; classification never performs assignment."""
     if evidence.assignee or not evidence.active_prs:
         return None
-    authors = sorted({pr["pr_author"] for pr in evidence.active_prs if pr.get("pr_author")}, key=str.casefold)
+    authors = sorted(
+        {pr["pr_author"] for pr in evidence.active_prs if pr.get("pr_author")},
+        key=str.casefold,
+    )
     own = self_authored(evidence.author, evidence.active_prs)
-    has_reply = bool(evidence.effective_comments and not is_only_assign_comments(evidence.effective_comments))
+    has_reply = bool(
+        evidence.effective_comments
+        and not is_only_assign_comments(evidence.effective_comments)
+    )
     return {
         "type": "assign_candidate",
         "strategy": "linked_pr_author_during_response",
-        "candidate": evidence.author if own else (authors[0] if len(authors) == 1 else None),
+        "candidate": evidence.author
+        if own
+        else (authors[0] if len(authors) == 1 else None),
         "candidates": authors,
         "selection": "self_authored" if own else "issue_coverage",
-        "response_requirement": "exempt_self_authored_pr" if own else ("satisfied" if has_reply else "required"),
+        "response_requirement": "satisfied"
+        if has_reply
+        else ("exempt_self_authored_pr" if own else "required"),
         "requires_verified_first_response": not own,
         "policy": "auto-response",
         "read_only": True,
@@ -1026,11 +1079,14 @@ def _classify_unassigned_pr(evidence):
     action = _pr_assignment_action(evidence)
     if not action["candidates"]:
         return _classification_result(
-            "need_attention", "needs_manual_no_pr_author",
-            "无负责人，已有关联PR，但无法获取PR作者，需补查后响应和分配", action,
+            "need_attention",
+            "needs_manual_no_pr_author",
+            "无负责人，已有关联PR，但无法获取PR作者，需补查后响应和分配",
+            action,
         )
     return _classification_result(
-        "need_attention", "needs_pr_owner_handoff",
+        "need_attention",
+        "needs_pr_owner_handoff",
         "无负责人，response 阶段须分配关联PR作者；自提优先，否则按问题覆盖面选择",
         action,
     )
@@ -1041,12 +1097,17 @@ def _has_self_authored_active_pr(author_login, active_pr_refs):
 
 
 def _needs_first_response_with_pr(evidence: IssueEvidence):
-    if not evidence.active_prs or self_authored(evidence.author, evidence.active_prs):
+    if not evidence.active_prs:
         return None
-    if evidence.effective_comments and not is_only_assign_comments(evidence.effective_comments):
+    if self_authored(evidence.author, evidence.active_prs):
+        return None
+    if evidence.effective_comments and not is_only_assign_comments(
+        evidence.effective_comments
+    ):
         return None
     return _classification_result(
-        "need_attention", "needs_first_response_with_pr",
+        "need_attention",
+        "needs_first_response_with_pr",
         "已有关联PR，尚无他人实质回复；首响简述PR方案，无负责人时在response阶段分配PR作者",
         _pr_assignment_action(evidence),
     )
@@ -1066,9 +1127,9 @@ def _classify_unassigned(effective_comments):
             "无负责人，评论仅为指派命令，需要关注并分配",
         )
     return _classification_result(
-        "no_attention",
+        "need_attention",
         "replied_no_owner",
-        "无负责人，已有非提出者评论回复，不需要关注",
+        "已有实质回复但缺负责人，复用回复并按责任规则补齐指派",
     )
 
 
@@ -1162,8 +1223,9 @@ def _self_assignee_result(evidence: IssueEvidence):
     assignee = str(evidence.assignee or "").strip().casefold()
     if author and assignee and author == assignee:
         return _classification_result(
-            "no_attention", "self_assigned",
-            "Issue提出者与负责人是同一账号，按自提处理，免首响；无需重复指派，继续未闭环跟踪",
+            "no_attention",
+            "self_assigned",
+            "Issue提出者与负责人是同一账号，自提免首响；保留负责人和未闭环跟踪",
         )
     return None
 
@@ -1171,27 +1233,41 @@ def _self_assignee_result(evidence: IssueEvidence):
 def _classify_remaining(evidence: IssueEvidence):
     own = self_authored(evidence.author, evidence.active_prs)
     historical_self = (
-        evidence.assignee and not evidence.active_prs
-        and self_authored(evidence.author, [pr for pr in evidence.linked_prs if pr_inactive(pr)])
+        evidence.assignee
+        and not evidence.active_prs
+        and self_authored(
+            evidence.author, [pr for pr in evidence.linked_prs if pr_inactive(pr)]
+        )
     )
     if evidence.assignee and (own or historical_self):
         reason = "自提Issue已有负责人，免首响"
         if historical_self:
             reason += "；关联PR已失效，保留历史自提豁免，继续未闭环跟踪"
+        else:
+            reason += "，继续未闭环跟踪"
         return _classification_result("no_attention", "self_assigned", reason)
     if own:
         return _classify_unassigned_pr(evidence)
-    if evidence.active_prs and any(not pr.get("pr_author") for pr in evidence.active_prs):
+    if evidence.active_prs and any(
+        not pr.get("pr_author") for pr in evidence.active_prs
+    ):
         return _classification_result(
-            "need_attention", "needs_manual_no_pr_author",
-            "关联PR作者信息不完整，补查后再判断首响豁免和分配对象",
+            "need_attention",
+            "needs_manual_no_pr_author",
+            "关联PR作者信息不完整，补查后再判断回复内容和分配对象",
         )
     first_response_result = _needs_first_response_with_pr(evidence)
     if first_response_result:
         return first_response_result
     if evidence.assignee:
-        result = _classify_assigned(evidence.assignee, evidence.active_prs, evidence.effective_comments)
-        if not evidence.active_prs and evidence.linked_prs and result["bucket"] == "no_attention":
+        result = _classify_assigned(
+            evidence.assignee, evidence.active_prs, evidence.effective_comments
+        )
+        if (
+            not evidence.active_prs
+            and evidence.linked_prs
+            and result["bucket"] == "no_attention"
+        ):
             result["reason"] += "；历史PR已失效，按无有效PR继续未闭环跟踪"
         return result
     if evidence.active_prs:
@@ -1207,14 +1283,17 @@ def classify_one(issue, options: ClassificationOptions):
     evidence = _issue_evidence(issue, options)
     if not options.comment_scan_complete:
         return _classification_result(
-            "need_attention", "comment_scan_incomplete",
+            "need_attention",
+            "comment_scan_incomplete",
             "评论获取未完成，保留待自动续跑，不执行外部动作",
         )
     conversation_result = _classify_conversation(analyze_conversation(issue))
     self_assignee = _self_assignee_result(evidence)
     if self_assignee:
         if conversation_result and conversation_result["category"] in {
-            "reporter_followup", "reopened_followup", "assignee_followup",
+            "reporter_followup",
+            "reopened_followup",
+            "assignee_followup",
         }:
             return conversation_result
         return self_assignee
@@ -1222,7 +1301,8 @@ def classify_one(issue, options: ClassificationOptions):
         not pr_active(pr) and not pr_inactive(pr) for pr in evidence.linked_prs
     ):
         return _classification_result(
-            "need_attention", "association_scan_incomplete",
+            "need_attention",
+            "association_scan_incomplete",
             "PR关联扫描不完整，补查后再判断自提和选择负责人，不执行外部动作",
         )
     result = _classify_remaining(evidence)
@@ -1231,6 +1311,11 @@ def classify_one(issue, options: ClassificationOptions):
         # missing PR-author assignment. Its separate state remains available.
         if conversation_result["bucket"] == "need_attention":
             conversation_result["auto_action"] = result["auto_action"]
+            if conversation_result["auto_action"]:
+                conversation_result["auto_action"].update(
+                    response_requirement="required",
+                    requires_verified_first_response=True,
+                )
             return conversation_result
         if result["bucket"] != "need_attention":
             return conversation_result
@@ -1247,11 +1332,11 @@ def format_report(need_attention, no_attention, since_iso, all_clear):
     lines.append(f"【进入处理流程 ({len(need_attention)} 个）】")
     if need_attention:
         for item in need_attention:
-            lines.append(f'  #{item["number"]} {item["title"]}')
-            lines.append(f'    负责人: {item["assignee"] or "无"}')
-            lines.append(f'    评论数: {item["comments_count"]}')
-            lines.append(f'    原因: {item["reason"]}')
-            lines.append(f'    链接: {item["url"]}')
+            lines.append(f"  #{item['number']} {item['title']}")
+            lines.append(f"    负责人: {item['assignee'] or '无'}")
+            lines.append(f"    评论数: {item['comments_count']}")
+            lines.append(f"    原因: {item['reason']}")
+            lines.append(f"    链接: {item['url']}")
             lines.append("")
     else:
         lines.append("  无")
@@ -1284,7 +1369,7 @@ def read_input(args):
         text = sys.stdin.read()
         if not text.strip():
             raise ValueError(
-                "no JSON input received; the upstream fetch command may " "have failed"
+                "no JSON input received; the upstream fetch command may have failed"
             )
         return json.loads(text)
     except (OSError, ValueError) as exc:
@@ -1342,8 +1427,11 @@ def _add_input_args(parser):
 
 
 def _add_run_policy_args(parser):
-    parser.add_argument("--include-observations", action="store_true",
-                        help="Include internal non-handled routing records for durable queue reconciliation")
+    parser.add_argument(
+        "--include-observations",
+        action="store_true",
+        help="Include internal non-handled routing records for durable queue reconciliation",
+    )
     parser.add_argument(
         "--authorization-mode",
         choices=("interactive", "approved_batch"),
@@ -1378,13 +1466,14 @@ def _add_run_policy_args(parser):
         help="Ignore valid cached comments and fetch required comments again",
     )
     parser.add_argument(
-        "--no-update-last-check", action="store_true",
+        "--no-update-last-check",
+        action="store_true",
         help="Do not advance the repository cursor when classifying a subset of a batch",
     )
     parser.add_argument(
         "--pr-snapshot",
         help="Reuse a PR list snapshot within this batch; use a new path for each run. "
-             "Repository/options must match and the snapshot must cover the time scope. --no-cache bypasses it.",
+        "Repository/options must match and the snapshot must cover the time scope. --no-cache bypasses it.",
     )
     parser.add_argument(
         "--full-pr-linkage-scan",
@@ -1419,18 +1508,24 @@ def _runtime_input(args):
     filters = raw.get("filters", {}) if isinstance(raw, dict) else {}
     input_repo = filters.get("repository")
     if args.repo and input_repo and args.repo != input_repo:
-        raise RepositorySelectionRequired({
-            "status": "needs_selection", "reason": "explicit_target_conflicts_with_input",
-            "candidates": list(dict.fromkeys([args.repo, input_repo])),
-        })
+        raise RepositorySelectionRequired(
+            {
+                "status": "needs_selection",
+                "reason": "explicit_target_conflicts_with_input",
+                "candidates": list(dict.fromkeys([args.repo, input_repo])),
+            }
+        )
     selection = resolve_repository(
         Path.cwd(), target=args.repo or input_repo, config_path=args.config
     )
     if selection["status"] != "resolved":
         raise RepositorySelectionRequired(selection)
     cfg = load_config(selection["config_path"], allow_legacy=False)
-    issues = [issue for issue in extract_issues(raw)
-              if str(issue.get("state", "")).casefold() in {"open", "opened"}]
+    issues = [
+        issue
+        for issue in extract_issues(raw)
+        if str(issue.get("state", "")).casefold() in {"open", "opened"}
+    ]
     return raw, filters, cfg, issues
 
 
@@ -1458,7 +1553,10 @@ def load_runtime(args):
     )
     if apply_updated_filter:
         issues = filter_by_updated_since(issues, since_iso)
-    token = os.environ.get("GITCODE_TOKEN", "")
+    try:
+        token = resolve_token(repo_url=f"https://gitcode.com/{repo}")
+    except GitCodeClientError:
+        token = ""
     rate_limiter = SharedRateLimiter(rate_limit_path(cfg["cache_dir"]))
     # Classification is read-only.  Keep --no-auto-assign for CLI
     # compatibility, but never let authorization mode turn the classifier
@@ -1522,8 +1620,12 @@ def _finish_empty_run(runtime):
 def _batch_prs(runtime, options):
     """Explicit run-local snapshot: subsequent scope reviews reuse one PR scan."""
     path = runtime.args.pr_snapshot if not runtime.args.no_cache else None
-    identity = {"repo": runtime.repo, "api_base": runtime.api_base,
-                "since": runtime.since_iso, "max_pages": options.max_pages}
+    identity = {
+        "repo": runtime.repo,
+        "api_base": runtime.api_base,
+        "since": runtime.since_iso,
+        "max_pages": options.max_pages,
+    }
     if path:
         cached = _read_json(path)
         previous = cached.get("identity", {}) if isinstance(cached, dict) else {}
@@ -1532,7 +1634,11 @@ def _batch_prs(runtime, options):
             previous.get(key) == identity.get(key)
             for key in ("repo", "api_base", "max_pages")
         )
-        old_since = parse_iso(previous.get("since") or "") if isinstance(previous, dict) else None
+        old_since = (
+            parse_iso(previous.get("since") or "")
+            if isinstance(previous, dict)
+            else None
+        )
         new_since = parse_iso(identity.get("since") or "")
         covers_window = ("since" in previous and previous["since"] is None) or (
             old_since is not None and new_since is not None and old_since <= new_since
@@ -1542,14 +1648,22 @@ def _batch_prs(runtime, options):
             and isinstance(cached.get("prs"), list)
             and isinstance(cached.get("diagnostics"), dict)
         )
-        complete_cache = valid_cache_shape and cached["diagnostics"].get("complete") is True
-        reusable_cache = all((valid_cache_shape, same_scan, covers_window, complete_cache))
+        complete_cache = (
+            valid_cache_shape and cached["diagnostics"].get("complete") is True
+        )
+        reusable_cache = all(
+            (valid_cache_shape, same_scan, covers_window, complete_cache)
+        )
         if reusable_cache:
-            diagnostics = dict(cached["diagnostics"], snapshot_hits=1, pages_requested=0)
+            diagnostics = dict(
+                cached["diagnostics"], snapshot_hits=1, pages_requested=0
+            )
             return cached["prs"], diagnostics
     prs, diagnostics = fetch_recent_prs(options)
     if path:
-        _atomic_write_json(path, {"identity": identity, "prs": prs, "diagnostics": diagnostics})
+        _atomic_write_json(
+            path, {"identity": identity, "prs": prs, "diagnostics": diagnostics}
+        )
     return prs, diagnostics
 
 
@@ -1562,15 +1676,25 @@ def _active_issues(runtime):
             continue
         if not runtime.single_mode and _response_exemption(issue):
             continue
-        if not runtime.single_mode and not runtime.args.no_cache and not runtime.args.refresh_comments:
-            cached = load_settled(runtime.cfg["cache_dir"], runtime.repo, issue,
-                                  runtime.cfg, _CACHE_REVISION)
+        if (
+            not runtime.single_mode
+            and not runtime.args.no_cache
+            and not runtime.args.refresh_comments
+        ):
+            cached = load_settled(
+                runtime.cfg["cache_dir"],
+                runtime.repo,
+                issue,
+                runtime.cfg,
+                _CACHE_REVISION,
+            )
             if cached is not None:
                 issue["_cached_classification"] = cached
                 cache_hits += 1
                 continue
         if review_responsibility(issue, runtime.cfg["responsibility"])["level"] in {
-            "handle", "list-only"
+            "handle",
+            "list-only",
         }:
             active.append(issue)
     return active, cache_hits
@@ -1592,9 +1716,8 @@ def _comment_evidence(runtime, active, issue_pr_map, cache_hits):
         refresh=runtime.args.refresh_comments,
         should_fetch=lambda issue: (
             should_fetch_comments(issue, issue_pr_map)
-            if review_responsibility(issue, runtime.cfg["responsibility"])["level"] in {
-                "handle", "list-only"
-            }
+            if review_responsibility(issue, runtime.cfg["responsibility"])["level"]
+            in {"handle", "list-only"}
             else (False, "responsibility_gate")
         ),
     )
@@ -1605,9 +1728,16 @@ def _comment_evidence(runtime, active, issue_pr_map, cache_hits):
 def _collect_evidence(runtime):
     active, cache_hits = _active_issues(runtime)
     if not active:
-        return {}, {"complete": True, "skipped": "responsibility_gate"}, {
-            "complete": True, "incomplete_issue_numbers": [], "skipped": "responsibility_gate"
-        }, {"skipped": "no_active_issues", "classification_cache_hits": cache_hits}
+        return (
+            {},
+            {"complete": True, "skipped": "responsibility_gate"},
+            {
+                "complete": True,
+                "incomplete_issue_numbers": [],
+                "skipped": "responsibility_gate",
+            },
+            {"skipped": "no_active_issues", "classification_cache_hits": cache_hits},
+        )
     pr_fetch_options = PRFetchOptions(
         api_base=runtime.api_base,
         repo=runtime.repo,
@@ -1617,9 +1747,7 @@ def _collect_evidence(runtime):
         rate_limiter=runtime.rate_limiter,
     )
     prs, pr_fetch_diagnostics = _batch_prs(runtime, pr_fetch_options)
-    issue_numbers = [
-        issue.get("number") or issue.get("iid") for issue in active
-    ]
+    issue_numbers = [issue.get("number") or issue.get("iid") for issue in active]
     linkage_options = LinkageOptions(
         runtime.api_base,
         runtime.repo,
@@ -1641,7 +1769,9 @@ def _collect_evidence(runtime):
     return issue_pr_map, pr_fetch_diagnostics, linkage_diagnostics, comment_diagnostics
 
 
-def _merge_direct_prs(issue_pr_map, direct_prs, linkage_diagnostics, direct_diagnostics):
+def _merge_direct_prs(
+    issue_pr_map, direct_prs, linkage_diagnostics, direct_diagnostics
+):
     for number, prs in direct_prs.items():
         normalized = _invert_pr_refs(prs, {pr["number"]: {number} for pr in prs})
         combined = {pr["pr_number"]: pr for pr in issue_pr_map.get(number, [])}
@@ -1651,7 +1781,9 @@ def _merge_direct_prs(issue_pr_map, direct_prs, linkage_diagnostics, direct_diag
     incomplete = set(linkage_diagnostics["incomplete_issue_numbers"])
     incomplete.update(direct_diagnostics["incomplete_issue_numbers"])
     linkage_diagnostics["incomplete_issue_numbers"] = sorted(incomplete, key=int)
-    linkage_diagnostics["complete"] = linkage_diagnostics["complete"] and direct_diagnostics["complete"]
+    linkage_diagnostics["complete"] = (
+        linkage_diagnostics["complete"] and direct_diagnostics["complete"]
+    )
     linkage_diagnostics["issue_pr_scan"] = direct_diagnostics
 
 
@@ -1751,23 +1883,42 @@ def classify_with_responsibility(issue, options, policy, single_mode=False):
     if exemption and not single_mode:
         result = apply_processing_mode(exemption, False)
     elif level in {"handle", "list-only"}:
+        classified = classify_one(issue, options)
+        if (
+            classified["category"] == "replied_no_owner"
+            and issue.get("operator_routing_required") is True
+        ):
+            classified = _classification_result(
+                "need_attention",
+                "operator_routing_required",
+                "已有实质回复但经核查仍需算子责任人转交；复用首响，只补指派与回查",
+            )
         result = apply_processing_mode(
-            classify_one(issue, options), single_mode if level == "handle" else False
+            classified, single_mode if level == "handle" else False
         )
         if level == "list-only":
             # Keep out-of-scope items non-actionable, but list only those that
             # would still need attention under the normal decision tree.
             result["bucket"] = "no_attention"
     else:
-        category = "responsibility_review_required" if level == "pending" else f"responsibility_{level}"
+        category = (
+            "responsibility_review_required"
+            if level == "pending"
+            else f"responsibility_{level}"
+        )
         result = apply_processing_mode(
             _classification_result(
                 "need_attention" if level == "pending" else "no_attention",
-                category, review["summary"],
-            ), False,
+                category,
+                review["summary"],
+            ),
+            False,
         )
-    result.update(responsibility=level, responsibility_summary=review["summary"],
-                  responsibility_evidence=review["evidence"])
+    result.update(
+        responsibility=level,
+        responsibility_summary=review["summary"],
+        responsibility_evidence=review["evidence"],
+    )
     return result
 
 
@@ -1778,12 +1929,15 @@ def _classify_all(runtime, issue_pr_map, pr_diagnostics, linkage_diagnostics):
     for issue in runtime.issues:
         cached = issue.get("_cached_classification")
         if cached is not None:
-            no_attention.append(dict(
-                cached, fetch_sources=issue.get("fetch_sources", []),
-                issue_age_days=issue.get("issue_age_days"),
-                first_response_sla=issue.get("first_response_sla", "unknown"),
-                followup_sla=followup_sla(cached.get("followup_pending_since")),
-            ))
+            no_attention.append(
+                dict(
+                    cached,
+                    fetch_sources=issue.get("fetch_sources", []),
+                    issue_age_days=issue.get("issue_age_days"),
+                    first_response_sla=issue.get("first_response_sla", "unknown"),
+                    followup_sla=followup_sla(cached.get("followup_pending_since")),
+                )
+            )
             continue
         number = issue.get("number") or issue.get("iid")
         comments_status = (issue.get("comments_fetch") or {}).get("status")
@@ -1798,11 +1952,17 @@ def _classify_all(runtime, issue_pr_map, pr_diagnostics, linkage_diagnostics):
             automation_policy=runtime.automation_policy,
         )
         if _explicitly_ignored(issue, runtime.cfg):
-            routed = apply_processing_mode(_classification_result(
-                "no_attention", "responsibility_ignore", "明确编号忽略规则"
-            ), False)
-            routed.update(responsibility="ignore", responsibility_summary="明确编号忽略规则",
-                          responsibility_evidence=["配置 ignored_issue_ids 精确匹配"])
+            routed = apply_processing_mode(
+                _classification_result(
+                    "no_attention", "responsibility_ignore", "明确编号忽略规则"
+                ),
+                False,
+            )
+            routed.update(
+                responsibility="ignore",
+                responsibility_summary="明确编号忽略规则",
+                responsibility_evidence=["配置 ignored_issue_ids 精确匹配"],
+            )
         else:
             routed = classify_with_responsibility(
                 issue, options, runtime.cfg["responsibility"], runtime.single_mode
@@ -1813,10 +1973,16 @@ def _classify_all(runtime, issue_pr_map, pr_diagnostics, linkage_diagnostics):
         item = _classified_item(issue, routed, issue_pr_map)
         target.append(item)
         if not runtime.args.no_cache and not runtime.single_mode:
-            save_classification(ClassificationCacheEntry(
-                runtime.cfg["cache_dir"], runtime.repo, issue,
-                runtime.cfg, _CACHE_REVISION, item,
-            ))
+            save_classification(
+                ClassificationCacheEntry(
+                    runtime.cfg["cache_dir"],
+                    runtime.repo,
+                    issue,
+                    runtime.cfg,
+                    _CACHE_REVISION,
+                    item,
+                )
+            )
     need_attention.sort(key=attention_sort_key)
     return need_attention, no_attention
 
@@ -1826,7 +1992,10 @@ def _run_output(runtime, classified, diagnostics):
     pr_diagnostics, linkage_diagnostics, comment_diagnostics = diagnostics
     listed = []
     for item in no_attention:
-        if item["responsibility"] == "list-only" and item["classification_bucket"] == "need_attention":
+        if (
+            item["responsibility"] == "list-only"
+            and item["classification_bucket"] == "need_attention"
+        ):
             listed.append(item)
     ignored = [item for item in no_attention if item["responsibility"] == "ignore"]
     visible = [item for item in no_attention if item["responsibility"] == "handle"]
@@ -1862,7 +2031,9 @@ def _run_output(runtime, classified, diagnostics):
         "responsibility_policy": runtime.cfg["responsibility"],
         "responsibility_policy_digest": policy_digest(runtime.cfg["responsibility"]),
         "by_responsibility": {
-            level: sum(i["responsibility"] == level for i in need_attention + no_attention)
+            level: sum(
+                i["responsibility"] == level for i in need_attention + no_attention
+            )
             for level in (*LEVELS, "pending")
         },
         "listed_issues": listed,
@@ -1883,10 +2054,18 @@ def _finish_run(runtime, classified, diagnostics):
     _write_stdout(json.dumps(output, indent=2, ensure_ascii=False))
     write_report(
         runtime.cfg["report_file"],
-        format_report(need_attention, visible_no_attention, runtime.since_iso, all_clear)
-        + ("\n【仅列举】\n" + "\n".join(
-            f"- [#{i['number']}]({i['url']})：{i['responsibility_summary']}" for i in listed
-        ) if listed else ""),
+        format_report(
+            need_attention, visible_no_attention, runtime.since_iso, all_clear
+        )
+        + (
+            "\n【仅列举】\n"
+            + "\n".join(
+                f"- [#{i['number']}]({i['url']})：{i['responsibility_summary']}"
+                for i in listed
+            )
+            if listed
+            else ""
+        ),
     )
 
 

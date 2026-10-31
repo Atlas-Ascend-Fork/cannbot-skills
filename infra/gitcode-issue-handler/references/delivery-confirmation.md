@@ -2,9 +2,9 @@
 
 ## 读取时机与回复检查点
 
-完成获取、分类和文字诊断后先做回复检查点；稳定复现、最小实现和验证后再做代码交付检查点。任何 GitCode 写入、暂存、提交、推送、PR 或 CI 前完整读取本文。能力输入和算子责任人请求是方案输入，不等于执行确认。首响规则以 `issue-intake.md` 和 [issue-comment-workflow.md](issue-comment-workflow.md) 为准；已有 PR/指派不能代替实质回复，自提豁免须同账号，已有响应不重发、不因补首响重新指派，`not_applicable_existing` 要有依据。
+完成获取、分类和文字诊断后先做回复检查点；稳定复现、最小实现和验证后再做代码交付检查点。任何 GitCode 写入、暂存、提交、推送、PR 或 CI 前完整读取本文。能力输入和算子责任人请求是方案输入，不等于执行确认。首响规则以 `issue-intake.md` 和 [issue-comment-workflow.md](issue-comment-workflow.md) 为准；非自提不能用已有 PR/指派代替实质回复；自提免首响，保留核验依据，已有响应不重发、不因补首响重新指派，`not_applicable_existing` 要有依据。
 
-回复检查点保存准确 URL、适用的完整正文或 `/assign` 稿、operation ID、依赖和摘要，逐项文件路径按 batch-analysis；批次可另建 `response-preview.md` 索引。它只需文字诊断证据，不等未知 owner、修复或测试；与交付预览共用授权契约但分别留证。按 [automation.md](automation.md) 开启自动首响，或当前会话已明确授权时，保存草稿后直接执行，不再询问；缺失时一次展示当前就绪回复的完整预览并取得授权，可继续独立只读分析。批准后 POST/GET，成功才开放后续操作；失败或未批准停止依赖该回复的指派、关联 PR 或 worktree。有效自提 PR 的仅分配路径按 automation 免首响，预览准确 Issue/login 后由 auto-response 或当前明确分配授权执行。明示不评论按门禁豁免记录。纯答疑完成即结束本轮，无空的代码确认。
+回复检查点保存准确 URL、完整正文或 `/assign` 稿、operation ID、依赖和摘要，逐项文件路径按 batch-analysis；批次可另建预览索引。按 `automation.md` 已获配置或会话准确授权时，保存草稿后执行；否则展示就绪预览并等待准确授权，继续独立只读分析。POST 后 GET，成功才开放依赖动作。同作者 PR 也须有效首响，已有回复直接复用；明确不评论时记录限制并保持待处理，不虚报首响。纯答疑不进入代码确认，但须核对平台负责人。
 
 使用 `response_confirmation_status`、`response_preview_path/digest` 和每项的 `authorization_evidence`（兼容 `post_analysis_execution_confirmation`，并标 `phase: response`）。
 

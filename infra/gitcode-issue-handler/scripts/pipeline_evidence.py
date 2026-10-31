@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
+#
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
-# Licensed under the CANN Open Software License Agreement Version 2.0.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+#
 """Immutable Git source facts for Issue response review; never mutate the repo."""
 
 from pathlib import Path, PurePosixPath
@@ -32,14 +39,24 @@ def _append_markdown_links(record, content, path, tracked):
             if external_link or not url.path or target.startswith("#"):
                 continue
             relative = unquote(url.path)
-            resolved = posixpath.normpath(posixpath.join(posixpath.dirname(path), relative))
-            if relative.startswith("/") or resolved == ".." or resolved.startswith("../"):
+            resolved = posixpath.normpath(
+                posixpath.join(posixpath.dirname(path), relative)
+            )
+            if (
+                relative.startswith("/")
+                or resolved == ".."
+                or resolved.startswith("../")
+            ):
                 status = "outside_repository"
-            elif resolved in tracked or any(p.startswith(resolved.rstrip("/") + "/") for p in tracked):
+            elif resolved in tracked or any(
+                p.startswith(resolved.rstrip("/") + "/") for p in tracked
+            ):
                 status = "tracked_target_exists"
             else:
                 status = "target_missing_at_revision"
-            record["links"].append({"target": target, "resolved": resolved, "status": status})
+            record["links"].append(
+                {"target": target, "resolved": resolved, "status": status}
+            )
 
 
 def _source_record(snapshot, requested, lines):
@@ -75,16 +92,26 @@ def _source_record(snapshot, requested, lines):
         selected = content.splitlines()[slice(start - 1, end)]
         excerpt = "\n".join(f"{i}: {line}" for i, line in enumerate(selected, start))
         record["excerpt"] = excerpt[:18000]
-        record["excerpt_range"] = {"start": start, "end": min(end, record["line_count"])}
-        record["excerpt_truncated"] = start > 1 or record["line_count"] > end or len(excerpt) > 18000
+        record["excerpt_range"] = {
+            "start": start,
+            "end": min(end, record["line_count"]),
+        }
+        record["excerpt_truncated"] = (
+            start > 1 or record["line_count"] > end or len(excerpt) > 18000
+        )
         _append_markdown_links(record, content, path, tracked)
     elif kind == "directory":
         record.update(files=members[:80], files_truncated=len(members) > 80)
-    history = git(root, "log", "-5", "--format=%H%x09%an%x09%ae%x09%s", commit, "--", path).decode(
-        "utf-8", errors="replace"
-    )
+    history = git(
+        root, "log", "-5", "--format=%H%x09%an%x09%ae%x09%s", commit, "--", path
+    ).decode("utf-8", errors="replace")
     record["history"] = [
-        dict(zip(("commit", "author_name", "author_email", "subject"), line.split("\t", 3)))
+        dict(
+            zip(
+                ("commit", "author_name", "author_email", "subject"),
+                line.split("\t", 3),
+            )
+        )
         for line in history.splitlines()
         if line
     ]
@@ -92,15 +119,30 @@ def _source_record(snapshot, requested, lines):
 
 
 def inspect_sources(root, repo, paths, revision="HEAD", *args, **kwargs):
-    reported_text, lines = bind_extra(args, kwargs, ("reported_text", "lines"), ("", None))
+    reported_text, lines = bind_extra(
+        args, kwargs, ("reported_text", "lines"), ("", None)
+    )
     root = Path(root).resolve()
-    if not paths or not re.fullmatch(r"[A-Za-z0-9_./~-]+", revision) or revision.startswith("-"):
+    if (
+        not paths
+        or not re.fullmatch(r"[A-Za-z0-9_./~-]+", revision)
+        or revision.startswith("-")
+    ):
         raise ValueError("source_paths_and_valid_revision_required")
-    invalid_range = lines and (len(paths) != 1 or lines[0] < 1 or lines[1] < lines[0] or lines[1] - lines[0] >= 160)
+    invalid_range = lines and (
+        len(paths) != 1
+        or lines[0] < 1
+        or lines[1] < lines[0]
+        or lines[1] - lines[0] >= 160
+    )
     if invalid_range:
         raise ValueError("source_single_path_and_valid_line_range_required")
     commit = git(root, "rev-parse", "--verify", revision + "^{commit}").decode().strip()
-    tracked = {p.decode("utf-8") for p in git(root, "ls-tree", "-r", "--name-only", "-z", commit).split(b"\0") if p}
+    tracked = {
+        p.decode("utf-8")
+        for p in git(root, "ls-tree", "-r", "--name-only", "-z", commit).split(b"\0")
+        if p
+    }
     snapshot = root, repo, commit, tracked
     records = [_source_record(snapshot, requested, lines) for requested in paths]
     # Resolve the report's named Markdown documents across the complete tree,
@@ -110,7 +152,12 @@ def inspect_sources(root, repo, paths, revision="HEAD", *args, **kwargs):
     for name in names:
         matches = sorted(p for p in tracked if PurePosixPath(p).name == name)
         documents.append(
-            {"name": name, "matches": matches[:20], "match_count": len(matches), "matches_truncated": len(matches) > 20}
+            {
+                "name": name,
+                "matches": matches[:20],
+                "match_count": len(matches),
+                "matches_truncated": len(matches) > 20,
+            }
         )
     return {
         "repository": repo,
@@ -132,7 +179,8 @@ def _identity_for_commit(session, cfg, token, sha, api_get):
         login = author.get("login")
         return (
             {"login": login, "identity_url": url}
-            if isinstance(login, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", login)
+            if isinstance(login, str)
+            and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", login)
             else {"identity_status": "no_login_in_commit_metadata"}
         )
     except Exception:
@@ -141,16 +189,16 @@ def _identity_for_commit(session, cfg, token, sha, api_get):
 
 def verify_identities(evidence, cfg):
     """Map authors using GitCode commit metadata; never guess a login from email."""
-    import os
     import sys
 
     here = Path(__file__).resolve().parent
     sys.path.insert(0, str(here.parent.parent / "gitcode-toolkit/scripts"))
-    from gitcode_client import api_get, make_session
+    from gitcode_client import api_get, make_session, resolve_token, GitCodeClientError
     from runtime_paths import rate_limit_path
 
-    token = os.environ.get("GITCODE_TOKEN")
-    if not token:
+    try:
+        token = resolve_token(repo_url=f"https://gitcode.com/{cfg['repo']}")
+    except GitCodeClientError:
         evidence["identity_status"] = "token_unavailable"
         return
     session = make_session(rate_limit_dir=rate_limit_path(cfg["cache_dir"]))
@@ -165,4 +213,6 @@ def verify_identities(evidence, cfg):
 
 
 def content_hash(value):
-    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps(value, ensure_ascii=False, sort_keys=True).encode()
+    ).hexdigest()

@@ -21,7 +21,7 @@ bash "$ISSUE_HANDLER_SKILL_ROOT/scripts/preflight.sh" --checks <groups>
 
 ## API Token
 
-按当前消息 Token、`GITCODE_TOKEN`、用户输入的顺序获取；Token 只在会话使用，不写文件或日志；只在会话中提供而未设环境变量时传 `--token-available`，报告只记来源。401/403 重新执行 `api` 检查并核对目标权限。若已确定后续有认证写操作而缺 Token，输出 `needs_user: ["token"]` 后，按 [runtime-state.md](runtime-state.md) 保存唯一输入并暂停整轮，不做 API 探测、Issue 拉取、知识刷新、代码诊断或测试读取；恢复时只重跑失败的 `api` 组。
+按当前消息 Token、`GITCODE_TOKEN`、目标仓库的 Git credential helper、用户输入的顺序获取。API 预检传目标仓库的 `--work-dir`；共享解析器非交互复用已保存的 HTTPS 凭据，报告只记 `source: git_credential` 等元数据，不把凭据写入文件或日志。只有 SSH 密钥且未存 HTTPS Token 时仍需提供 API Token。只在会话中提供而未设环境变量时传 `--token-available`，报告只记来源。凭据存在不等于目标 API 权限已通过，401/403 时核对目标权限并按 [Token 规则](../../gitcode-toolkit/references/token-config.md) 处理；不自动删除原 Git 凭据。若所有来源均不可用且后续需要认证写操作，输出 `needs_user: ["token"]` 后按 [runtime-state.md](runtime-state.md) 保存唯一输入并暂停整轮，不做 API 探测、Issue 拉取、知识刷新、代码诊断或测试读取；恢复时只重跑失败的 `api` 组。
 
 ## 其他失败路由
 

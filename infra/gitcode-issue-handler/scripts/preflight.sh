@@ -134,7 +134,14 @@ check_token() {
     elif [ "$TOKEN_AVAILABLE" = true ]; then
         printf '{"item":"token","status":"pass","detail":"available in current session","source":"session"}'
     else
-        printf '{"item":"token","status":"fail","detail":"GITCODE_TOKEN not set"}'
+        local client result
+        client="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../gitcode-toolkit/scripts" && pwd)/gitcode_client.py"
+        result=$(python3 "$client" --check-token --repository-root "$WORK_DIR" 2>/dev/null || true)
+        if [ -n "$result" ]; then
+            printf '%s' "$result"
+        else
+            printf '{"item":"token","status":"fail","detail":"GITCODE_TOKEN not set; credential lookup unavailable"}'
+        fi
     fi
 }
 

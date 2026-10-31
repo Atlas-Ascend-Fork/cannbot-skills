@@ -83,7 +83,7 @@ class TestEligibility:
         assert result["eligible"] is False
         assert result["reason"] == "reporter_replied_after_handler"
 
-    def test_unassigned_issue_with_non_reporter_answer_is_eligible(self) -> None:
+    def test_unassigned_answered_issue_still_needs_owner_before_closing(self) -> None:
         issue = question_issue(
             [
                 comment(
@@ -95,8 +95,8 @@ class TestEligibility:
 
         result = AUTO_CLOSE.evaluate_issue(issue, POLICY)
 
-        assert result["eligible"] is True
-        assert result["handler"] == "maintainer"
+        assert result["eligible"] is False
+        assert result["reason"] == "assignee_required"
 
     def test_latest_non_reporter_answer_restarts_quiet_period(self) -> None:
         issue = question_issue(
@@ -232,10 +232,17 @@ class TestEligibility:
 
         assert result["eligible"] is True
 
-    def test_local_review_is_required_and_api_review_is_not_trusted(self, tmp_path) -> None:
-        issue = question_issue([], responsibility_review={
-            "level": "handle", "summary": "api supplied", "evidence": ["api"]
-        })
+    def test_local_review_is_required_and_api_review_is_not_trusted(
+        self, tmp_path
+    ) -> None:
+        issue = question_issue(
+            [],
+            responsibility_review={
+                "level": "handle",
+                "summary": "api supplied",
+                "evidence": ["api"],
+            },
+        )
         policy = {"handle": ["question"], "list-only": [], "ignore": []}
 
         without_local = AUTO_CLOSE._apply_local_responsibility_review(issue, {})
@@ -252,9 +259,17 @@ class TestEligibility:
             "policy_digest": policy_digest(policy),
         }
         review_file = tmp_path / "reviews.json"
-        review_file.write_text(json.dumps([{
-            "iid": 42, "responsibility_review": review,
-        }]), encoding="utf-8")
+        review_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "iid": 42,
+                        "responsibility_review": review,
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
         reviews = AUTO_CLOSE._load_responsibility_reviews(str(review_file))
         reviewed = AUTO_CLOSE._apply_local_responsibility_review(issue, reviews)
         assert reviewed["responsibility_review"] == review
@@ -262,11 +277,15 @@ class TestEligibility:
 
     def test_only_handle_review_can_be_candidate(self) -> None:
         policy = {"handle": ["question"], "list-only": ["docs"], "ignore": ["spam"]}
+
         def reviewed(level):
             return {
-                "level": level, "summary": "人工审查", "evidence": ["local"],
+                "level": level,
+                "summary": "人工审查",
+                "evidence": ["local"],
                 "policy_digest": policy_digest(policy),
             }
+
         issues = [
             question_issue([], iid=1, responsibility_review=reviewed("list-only")),
             question_issue([], iid=2, responsibility_review=reviewed("ignore")),
@@ -396,3 +415,18 @@ class TestCloseWorkflow:
 
         assert result["status"] == "comment_failed"
         api_patch.assert_not_called()
+
+
+def test_watched_question_without_owner_stays_open():
+    reply_at = (NOW - timedelta(hours=72)).isoformat()
+    source = question_issue(
+        [comment("maintainer", "请补充版本信息。", NOW - timedelta(hours=72))],
+        assignee=None,
+    )
+    watch = {
+        "conversation_state": "awaiting_reporter",
+        "last_maintainer_comment_at": reply_at,
+        "waiting_since": reply_at,
+    }
+    result = AUTO_CLOSE.evaluate_issue(source, POLICY, watch)
+    assert result == {"eligible": False, "reason": "assignee_required"}

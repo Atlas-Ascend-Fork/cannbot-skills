@@ -30,7 +30,9 @@ SPEC.loader.exec_module(CLASSIFIER)
 def test_classifier_cache_resolves_shared_rate_limit_directory(tmp_path: Path) -> None:
     cache_dir = tmp_path / "cache" / "issues"
 
-    assert CLASSIFIER.rate_limit_path(cache_dir) == cache_dir.parent / "gitcode-rate-limit"
+    assert (
+        CLASSIFIER.rate_limit_path(cache_dir) == cache_dir.parent / "gitcode-rate-limit"
+    )
 
 
 def classification_options(issue_pr_map=None, **overrides):
@@ -249,9 +251,7 @@ class TestRuntimePaths:
 
         assert cfg["report_file"] == "custom/report.txt"
 
-    def test_explicit_config_never_falls_back_to_legacy(
-        self, tmp_path: Path
-    ) -> None:
+    def test_explicit_config_never_falls_back_to_legacy(self, tmp_path: Path) -> None:
         self._write(tmp_path / "classify_config.yaml", "repo: legacy/repo\n")
         custom = tmp_path / "custom/selected.yaml"
         cfg = self._load_unchanged(
@@ -281,7 +281,6 @@ class TestRuntimePaths:
                 allow_legacy=False,
             )
 
-
     def test_explicit_canonical_config_does_not_redirect_legacy_values(
         self, tmp_path: Path
     ) -> None:
@@ -310,7 +309,7 @@ class TestEffectiveComments:
             ),
             (
                 issue(comments=[comment()]),
-                "no_attention",
+                "need_attention",
                 "replied_no_owner",
             ),
             (
@@ -346,30 +345,53 @@ class TestEffectiveComments:
 
 class TestResponseScope:
     @staticmethod
-    @pytest.mark.parametrize("body,bucket", [
-        ("当前接口传入空张量后报错，能否先确认如何绕过？", "need_attention"),
-        ("请问接口是否支持空张量？", "need_attention"),
-        ("计划优化接口；当前接口仍然报错，请帮忙确认原因。", "need_attention"),
-        ("- [ ] 计划修复空张量报错。\n- [ ] 确认新增接口的支持范围。", "no_attention"),
-        ("计划确认是否支持空张量，以及如何改善错误提示。", "no_attention"),
-    ])
+    @pytest.mark.parametrize(
+        "body,bucket",
+        [
+            ("当前接口传入空张量后报错，能否先确认如何绕过？", "need_attention"),
+            ("请问接口是否支持空张量？", "need_attention"),
+            ("计划优化接口；当前接口仍然报错，请帮忙确认原因。", "need_attention"),
+            (
+                "- [ ] 计划修复空张量报错。\n- [ ] 确认新增接口的支持范围。",
+                "no_attention",
+            ),
+            ("计划确认是否支持空张量，以及如何改善错误提示。", "no_attention"),
+        ],
+    )
     def test_planning_body_distinguishes_requests_from_planned_work(body, bucket):
-        source = issue(title="Roadmap", description=f"## 总体方向\n{body}\n## 详细计划\n待办事项。")
+        source = issue(
+            title="Roadmap", description=f"## 总体方向\n{body}\n## 详细计划\n待办事项。"
+        )
         assert classify(source)["bucket"] == bucket
 
     @staticmethod
     @pytest.mark.parametrize("scan_complete", [False, True])
-    def test_pure_planning_is_exempt_despite_comment_updates_or_scan_failure(scan_complete):
-        source = followup_issue(title="Roadmap", description="## 详细计划\n计划扩展算子覆盖。")
-        assert_classification(source, "no_attention", "planning_record", options=classification_options(
-            comment_scan_complete=scan_complete, association_scan_complete=False,
-        ))
+    def test_pure_planning_is_exempt_despite_comment_updates_or_scan_failure(
+        scan_complete,
+    ):
+        source = followup_issue(
+            title="Roadmap", description="## 详细计划\n计划扩展算子覆盖。"
+        )
+        assert_classification(
+            source,
+            "no_attention",
+            "planning_record",
+            options=classification_options(
+                comment_scan_complete=scan_complete,
+                association_scan_complete=False,
+            ),
+        )
 
     @staticmethod
     def test_pure_planning_does_not_require_responsibility_investigation():
         source = issue(title="Roadmap", description="## 详细计划\n计划扩展算子覆盖。")
-        result = CLASSIFIER.classify_with_responsibility(source, classification_options(), {})
-        assert (result["bucket"], result["category"]) == ("no_attention", "planning_record")
+        result = CLASSIFIER.classify_with_responsibility(
+            source, classification_options(), {}
+        )
+        assert (result["bucket"], result["category"]) == (
+            "no_attention",
+            "planning_record",
+        )
         assert result["responsibility"] == "pending"
 
     @staticmethod
@@ -377,39 +399,64 @@ class TestResponseScope:
         source = issue(
             title="Development Roadmap (2026 Q3)",
             description="# 2026 Q3 Roadmap\n## 总体方向\n算子适配、接口与工具。\n## 详细计划\n待办事项。",
-            assignee="reporter", comments=[comment(body="/assign @reporter")],
+            assignee="reporter",
+            comments=[comment(body="/assign @reporter")],
         )
         assert_classification(source, "no_attention", "planning_record")
 
     @staticmethod
-    @pytest.mark.parametrize("type_fields", [
-        {"title": "[Requirement|需求建议]: [Roadmap] 使用 tensorapi 优化 cube 算子"},
-        {"title": "增强日志接口", "labels": [{"name": "需求建议"}]},
-        {"title": "增强日志接口", "issue_type": {"name": "Requirement"}},
-        {"title": "增强日志接口", "description": "### 需求描述\n增加日志字段。\n### 验收标准\n示例验证通过。"},
-    ])
-    @pytest.mark.parametrize("assignee,bucket,category", [
-        ("reporter", "no_attention", "self_assigned"),
-        ("someone-else", "need_attention", "our_team_needs_work"),
-    ])
+    @pytest.mark.parametrize(
+        "type_fields",
+        [
+            {
+                "title": "[Requirement|需求建议]: [Roadmap] 使用 tensorapi 优化 cube 算子"
+            },
+            {"title": "增强日志接口", "labels": [{"name": "需求建议"}]},
+            {"title": "增强日志接口", "issue_type": {"name": "Requirement"}},
+            {
+                "title": "增强日志接口",
+                "description": "### 需求描述\n增加日志字段。\n### 验收标准\n示例验证通过。",
+            },
+        ],
+    )
+    @pytest.mark.parametrize(
+        "assignee,bucket,category",
+        [
+            ("reporter", "no_attention", "self_assigned"),
+            ("someone-else", "need_attention", "our_team_needs_work"),
+        ],
+    )
     def test_requirement_uses_account_identity_not_type_exemption(
-        type_fields, assignee, bucket, category,
+        type_fields,
+        assignee,
+        bucket,
+        category,
     ) -> None:
-        source = issue(assignee=assignee, description="增强接口能力并完成验证。", **{
-            key: value for key, value in type_fields.items() if key != "description"
-        })
+        source = issue(
+            assignee=assignee,
+            description="增强接口能力并完成验证。",
+            **{
+                key: value for key, value in type_fields.items() if key != "description"
+            },
+        )
         source.update(type_fields)
         assert_classification(source, bucket, category)
 
     @staticmethod
-    @pytest.mark.parametrize("fields", [
-        {"title": "[Bug-Report|缺陷反馈]: Hist V2 确定性路径性能不达标，请优化"},
-        {"title": "Roadmap parser crashes on empty input"},
-        {"title": "[Requirement|需求建议]: 修复算子崩溃"},
-        {"title": "Development Roadmap (2026 Q3)", "labels": ["bug"]},
-        {"title": "[Requirement|需求建议]: 优化接口", "description": "### 问题描述\n输入 shape 后抛出异常。\n### 需求描述\n修复。\n### 验收标准\n通过。"},
-        {"title": "普通反馈：接口性能需要优化"},
-    ])
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            {"title": "[Bug-Report|缺陷反馈]: Hist V2 确定性路径性能不达标，请优化"},
+            {"title": "Roadmap parser crashes on empty input"},
+            {"title": "[Requirement|需求建议]: 修复算子崩溃"},
+            {"title": "Development Roadmap (2026 Q3)", "labels": ["bug"]},
+            {
+                "title": "[Requirement|需求建议]: 优化接口",
+                "description": "### 问题描述\n输入 shape 后抛出异常。\n### 需求描述\n修复。\n### 验收标准\n通过。",
+            },
+            {"title": "普通反馈：接口性能需要优化"},
+        ],
+    )
     def test_other_assignee_and_roadmap_mentions_do_not_exempt_defects(fields) -> None:
         source = issue(assignee="other-owner", description="## 总体方向\n待办事项。")
         source.update(fields)
@@ -418,23 +465,32 @@ class TestResponseScope:
     @staticmethod
     def test_unassigned_requirement_still_needs_response_and_assignment() -> None:
         assert_classification(
-            issue(title="[Requirement|需求建议]: 扩展 genop", description="增加生成模板。"),
-            "need_attention", "needs_first_look",
+            issue(
+                title="[Requirement|需求建议]: 扩展 genop", description="增加生成模板。"
+            ),
+            "need_attention",
+            "needs_first_look",
         )
 
     @staticmethod
     def test_requirement_does_not_hide_new_reporter_question() -> None:
         source = followup_issue(
-            title="[Requirement|需求建议]: 增强日志", description="增加日志字段。",
+            title="[Requirement|需求建议]: 增强日志",
+            description="增加日志字段。",
         )
         assert_classification(source, "need_attention", "reporter_followup")
 
     @staticmethod
     def test_requirement_does_not_hide_new_assignee_reply() -> None:
         source = assignee_conversation_issue(
-            comment("operator-owner", "已实现接口，请确认使用方式。", comment_id=184760300,
-                    created_at="2026-08-14T04:00:00Z"),
-            title="[Requirement|需求建议]: 增强日志", description="增加日志字段。",
+            comment(
+                "operator-owner",
+                "已实现接口，请确认使用方式。",
+                comment_id=184760300,
+                created_at="2026-08-14T04:00:00Z",
+            ),
+            title="[Requirement|需求建议]: 增强日志",
+            description="增加日志字段。",
         )
         assert_classification(source, "need_attention", "assignee_followup")
 
@@ -499,15 +555,21 @@ class TestFollowupConversation:
     @staticmethod
     @pytest.mark.parametrize("custom_state", ["挂起", "进行中"])
     def test_answered_reporter_watch_does_not_restore_old_wait(custom_state):
-        source = followup_issue(issue_state=custom_state, followup_watch={
-            "conversation_state": "awaiting_reporter",
-            "last_maintainer_comment_id": 10,
-            "last_maintainer_comment_at": "2026-08-07T08:00:00Z",
-        })
-        source["comments"].append(comment(
-            body="日志已确认，原因是输入格式不符，请按示例调整。", comment_id=12,
-            created_at="2026-08-14T08:00:00Z",
-        ))
+        source = followup_issue(
+            issue_state=custom_state,
+            followup_watch={
+                "conversation_state": "awaiting_reporter",
+                "last_maintainer_comment_id": 10,
+                "last_maintainer_comment_at": "2026-08-07T08:00:00Z",
+            },
+        )
+        source["comments"].append(
+            comment(
+                body="日志已确认，原因是输入格式不符，请按示例调整。",
+                comment_id=12,
+                created_at="2026-08-14T08:00:00Z",
+            )
+        )
         assert_classification(source, "no_attention", "our_team_replied")
         assert source["followup_watch"]["last_maintainer_comment_id"] == 10
 
@@ -538,21 +600,35 @@ class TestFollowupConversation:
             ("2026-08-14T06:00:00Z", "need_attention", "reporter_followup"),
         ],
     )
-    def test_historical_handoff_uses_latest_reply(reporter_reply_at, bucket, category, with_watch) -> None:
+    def test_historical_handoff_uses_latest_reply(
+        reporter_reply_at, bucket, category, with_watch
+    ) -> None:
         source = assignee_conversation_issue(
-            comment("operator-owner", "我来处理修复。", comment_id=184760300,
-                    created_at="2026-08-14T04:00:00Z"),
-            comment("triager", "已收到，请继续按确认的方案处理。", comment_id=184760400,
-                    created_at="2026-08-14T05:00:00Z"),
+            comment(
+                "operator-owner",
+                "我来处理修复。",
+                comment_id=184760300,
+                created_at="2026-08-14T04:00:00Z",
+            ),
+            comment(
+                "triager",
+                "已收到，请继续按确认的方案处理。",
+                comment_id=184760400,
+                created_at="2026-08-14T05:00:00Z",
+            ),
             issue_state="进行中",
         )
         if with_watch:
             source["followup_watch"] = assignee_watch()
         if reporter_reply_at:
-            source["comments"].append(comment(
-                "reporter", "补充一下复现日志。", comment_id=184760250,
-                created_at=reporter_reply_at,
-            ))
+            source["comments"].append(
+                comment(
+                    "reporter",
+                    "补充一下复现日志。",
+                    comment_id=184760250,
+                    created_at=reporter_reply_at,
+                )
+            )
 
         assert_classification(source, bucket, category)
         if bucket == "need_attention":
@@ -710,12 +786,28 @@ class TestCommentFetchPolicy:
             ),
             (
                 issue(number=2),
-                {"2": [{"pr_state": "open", "pr_merged": False, "pr_author": "developer"}]},
+                {
+                    "2": [
+                        {
+                            "pr_state": "open",
+                            "pr_merged": False,
+                            "pr_author": "developer",
+                        }
+                    ]
+                },
                 (True, "first_response_required"),
             ),
             (
                 issue(number=2, author="developer"),
-                {"2": [{"pr_state": "open", "pr_merged": False, "pr_author": "developer"}]},
+                {
+                    "2": [
+                        {
+                            "pr_state": "open",
+                            "pr_merged": False,
+                            "pr_author": "developer",
+                        }
+                    ]
+                },
                 (True, "first_response_required"),
             ),
             (
@@ -754,12 +846,15 @@ class TestTimeScope:
         ids=["fetch-since", "complete-input", "single-issue"],
     )
     def test_scope(self, raw, ignore_last_check, expected) -> None:
-        assert CLASSIFIER.resolve_time_scope(
-            raw,
-            ignore_last_check,
-            "unused.json",
-            "cann/ops-math",
-        ) == expected
+        assert (
+            CLASSIFIER.resolve_time_scope(
+                raw,
+                ignore_last_check,
+                "unused.json",
+                "cann/ops-math",
+            )
+            == expected
+        )
 
 
 class TestProcessingMode:
@@ -905,7 +1000,15 @@ class TestPullRequestAssociation:
             "need_attention",
             "needs_first_response_with_pr",
             options=classification_options(
-                {"2591": [{"pr_state": "open", "pr_merged": False, "pr_author": "developer"}]},
+                {
+                    "2591": [
+                        {
+                            "pr_state": "open",
+                            "pr_merged": False,
+                            "pr_author": "developer",
+                        }
+                    ]
+                },
                 dry_run=False,
             ),
         )
@@ -920,7 +1023,15 @@ class TestPullRequestAssociation:
             "no_attention",
             "self_assigned",
             options=classification_options(
-                {"2590": [{"pr_state": "open", "pr_merged": False, "pr_author": "developer"}]}
+                {
+                    "2590": [
+                        {
+                            "pr_state": "open",
+                            "pr_merged": False,
+                            "pr_author": "developer",
+                        }
+                    ]
+                }
             ),
         )
 
@@ -933,26 +1044,51 @@ class TestPullRequestAssociation:
         )
 
     @staticmethod
-    @pytest.mark.parametrize("assignee,pr_author,bucket,category,assignment", [
-        (None, None, "need_attention", "needs_first_look", None),
-        ("owner", None, "need_attention", "our_team_needs_work", None),
-        ("reporter", None, "no_attention", "self_assigned", None),
-        (None, "developer", "need_attention", "needs_first_response_with_pr", "developer"),
-        ("owner", "developer", "need_attention", "needs_first_response_with_pr", None),
-        ("reporter", "developer", "no_attention", "self_assigned", None),
-        (None, "reporter", "need_attention", "needs_pr_owner_handoff", "reporter"),
-        ("owner", "reporter", "no_attention", "self_assigned", None),
-        ("reporter", "reporter", "no_attention", "self_assigned", None),
-    ])
+    @pytest.mark.parametrize(
+        "assignee,pr_author,bucket,category,assignment",
+        [
+            (None, None, "need_attention", "needs_first_look", None),
+            ("owner", None, "need_attention", "our_team_needs_work", None),
+            ("reporter", None, "no_attention", "self_assigned", None),
+            (
+                None,
+                "developer",
+                "need_attention",
+                "needs_first_response_with_pr",
+                "developer",
+            ),
+            (
+                "owner",
+                "developer",
+                "need_attention",
+                "needs_first_response_with_pr",
+                None,
+            ),
+            ("reporter", "developer", "no_attention", "self_assigned", None),
+            (None, "reporter", "need_attention", "needs_pr_owner_handoff", "reporter"),
+            ("owner", "reporter", "no_attention", "self_assigned", None),
+            ("reporter", "reporter", "no_attention", "self_assigned", None),
+        ],
+    )
     def test_first_response_decision_branches_are_read_only(
-        assignee, pr_author, bucket, category, assignment,
+        assignee,
+        pr_author,
+        bucket,
+        category,
+        assignment,
     ) -> None:
         posted = []
-        linked = {"1": [{"pr_state": "open", "pr_author": pr_author}]} if pr_author else {}
+        linked = (
+            {"1": [{"pr_state": "open", "pr_author": pr_author}]} if pr_author else {}
+        )
         result = assert_classification(
-            issue(assignee=assignee), bucket, category,
+            issue(assignee=assignee),
+            bucket,
+            category,
             options=classification_options(
-                linked, dry_run=False, post_fn=lambda *args: posted.append(args),
+                linked,
+                dry_run=False,
+                post_fn=lambda *args: posted.append(args),
             ),
         )
         action = result["auto_action"]
@@ -962,12 +1098,20 @@ class TestPullRequestAssociation:
             assert action["read_only"] is True
 
     @staticmethod
-    @pytest.mark.parametrize("author,assignee", [
-        ("Reporter", "reporter"), (" reporter ", "REPORTER"),
-    ])
-    def test_no_pr_self_assignment_compares_normalized_nonempty_accounts(author, assignee) -> None:
+    @pytest.mark.parametrize(
+        "author,assignee",
+        [
+            ("Reporter", "reporter"),
+            (" reporter ", "REPORTER"),
+        ],
+    )
+    def test_no_pr_self_assignment_compares_normalized_nonempty_accounts(
+        author, assignee
+    ) -> None:
         assert_classification(
-            issue(author=author, assignee=assignee), "no_attention", "self_assigned",
+            issue(author=author, assignee=assignee),
+            "no_attention",
+            "self_assigned",
         )
 
     @staticmethod
@@ -980,46 +1124,71 @@ class TestPullRequestAssociation:
     @staticmethod
     def test_no_pr_self_assignment_does_not_hide_reporter_followup() -> None:
         assert_classification(
-            followup_issue(assignee="reporter"), "need_attention", "reporter_followup",
+            followup_issue(assignee="reporter"),
+            "need_attention",
+            "reporter_followup",
         )
 
     @staticmethod
-    @pytest.mark.parametrize("linked", [
-        [], [{"pr_state": "open"}], [{"pr_state": "unknown"}],
-        [{"pr_state": "open", "pr_author": "someone-else"}],
-    ])
+    @pytest.mark.parametrize(
+        "linked",
+        [
+            [],
+            [{"pr_state": "open"}],
+            [{"pr_state": "unknown"}],
+            [{"pr_state": "open", "pr_author": "someone-else"}],
+        ],
+    )
     @pytest.mark.parametrize("scan_complete", [False, True])
     def test_self_assignment_needs_no_pr_author_or_scan_to_exempt_first_response(
-        linked, scan_complete,
+        linked,
+        scan_complete,
     ) -> None:
         assert_classification(
-            issue(author="Reporter", assignee=" reporter "), "no_attention", "self_assigned",
-            options=classification_options({"1": linked}, association_scan_complete=scan_complete),
+            issue(author="Reporter", assignee=" reporter "),
+            "no_attention",
+            "self_assigned",
+            options=classification_options(
+                {"1": linked}, association_scan_complete=scan_complete
+            ),
         )
 
     @staticmethod
     def test_self_assignment_still_requires_complete_comment_evidence() -> None:
         assert_classification(
-            issue(assignee="reporter"), "need_attention", "comment_scan_incomplete",
-            options=classification_options(association_scan_complete=False, comment_scan_complete=False),
+            issue(assignee="reporter"),
+            "need_attention",
+            "comment_scan_incomplete",
+            options=classification_options(
+                association_scan_complete=False, comment_scan_complete=False
+            ),
         )
 
     @staticmethod
     def test_self_assignment_reporter_followup_precedes_incomplete_pr_scan() -> None:
         assert_classification(
-            followup_issue(assignee="reporter"), "need_attention", "reporter_followup",
+            followup_issue(assignee="reporter"),
+            "need_attention",
+            "reporter_followup",
             options=classification_options(association_scan_complete=False),
         )
 
     @staticmethod
     def test_self_assignment_keeps_new_reply_from_watched_assignee_actionable() -> None:
         source = assignee_conversation_issue(
-            comment("operator-owner", "已确认处理方案，请确认。", comment_id=184760300,
-                    created_at="2026-08-14T04:00:00Z"),
-            assignee="reporter", followup_watch=assignee_watch(),
+            comment(
+                "operator-owner",
+                "已确认处理方案，请确认。",
+                comment_id=184760300,
+                created_at="2026-08-14T04:00:00Z",
+            ),
+            assignee="reporter",
+            followup_watch=assignee_watch(),
         )
         assert_classification(
-            source, "need_attention", "assignee_followup",
+            source,
+            "need_attention",
+            "assignee_followup",
             options=classification_options(association_scan_complete=False),
         )
 
@@ -1027,7 +1196,9 @@ class TestPullRequestAssociation:
     @pytest.mark.parametrize("author,assignee", [(None, None), ("", ""), (" ", " ")])
     def test_empty_identity_cannot_bypass_incomplete_pr_scan(author, assignee) -> None:
         assert_classification(
-            issue(author=author, assignee=assignee), "need_attention", "association_scan_incomplete",
+            issue(author=author, assignee=assignee),
+            "need_attention",
+            "association_scan_incomplete",
             options=classification_options(association_scan_complete=False),
         )
 
@@ -1039,7 +1210,15 @@ class TestPullRequestAssociation:
             "need_attention",
             "needs_pr_owner_handoff",
             options=classification_options(
-                {"2588": [{"pr_state": "open", "pr_merged": False, "pr_author": "developer"}]},
+                {
+                    "2588": [
+                        {
+                            "pr_state": "open",
+                            "pr_merged": False,
+                            "pr_author": "developer",
+                        }
+                    ]
+                },
                 post_fn=lambda *args: posted.append(args) or True,
                 dry_run=False,
                 automation_policy={"auto_response": True, "auto_assign": False},
@@ -1059,10 +1238,20 @@ class TestPullRequestAssociation:
             "need_attention",
             "needs_pr_owner_handoff",
             options=classification_options(
-                {"2586": [
-                    {"pr_state": "open", "pr_merged": False, "pr_author": "z-owner"},
-                    {"pr_state": "open", "pr_merged": False, "pr_author": "a-owner"},
-                ]},
+                {
+                    "2586": [
+                        {
+                            "pr_state": "open",
+                            "pr_merged": False,
+                            "pr_author": "z-owner",
+                        },
+                        {
+                            "pr_state": "open",
+                            "pr_merged": False,
+                            "pr_author": "a-owner",
+                        },
+                    ]
+                },
                 post_fn=lambda *args: posted.append(args) or True,
                 dry_run=False,
                 automation_policy={"auto_response": True, "auto_assign": True},
@@ -1080,7 +1269,15 @@ class TestPullRequestAssociation:
             "need_attention",
             "needs_pr_owner_handoff",
             options=classification_options(
-                {"2585": [{"pr_state": "open", "pr_merged": False, "pr_author": "developer"}]},
+                {
+                    "2585": [
+                        {
+                            "pr_state": "open",
+                            "pr_merged": False,
+                            "pr_author": "developer",
+                        }
+                    ]
+                },
                 post_fn=lambda *args: posted.append(args) or True,
                 dry_run=False,
                 automation_policy={"auto_response": False, "auto_assign": False},
@@ -1096,7 +1293,15 @@ class TestPullRequestAssociation:
             "need_attention",
             "comment_scan_incomplete",
             options=classification_options(
-                {"2587": [{"pr_state": "open", "pr_merged": False, "pr_author": "developer"}]},
+                {
+                    "2587": [
+                        {
+                            "pr_state": "open",
+                            "pr_merged": False,
+                            "pr_author": "developer",
+                        }
+                    ]
+                },
                 comment_scan_complete=False,
                 dry_run=False,
             ),
@@ -1108,9 +1313,7 @@ class TestPullRequestAssociation:
     def test_issue_author_with_own_pr_needs_assignment_without_first_response() -> None:
         issue_data = issue(number=2592, author="developer")
         issue_pr_map = {
-            "2592": [
-                {"pr_state": "open", "pr_merged": False, "pr_author": "developer"}
-            ]
+            "2592": [{"pr_state": "open", "pr_merged": False, "pr_author": "developer"}]
         }
         posted = []
 
@@ -1125,7 +1328,9 @@ class TestPullRequestAssociation:
             ),
         )
 
-        assert result["auto_action"]["response_requirement"] == "exempt_self_authored_pr"
+        assert (
+            result["auto_action"]["response_requirement"] == "exempt_self_authored_pr"
+        )
         assert result["auto_action"]["candidate"] == "developer"
         assert posted == []
 
@@ -1192,10 +1397,9 @@ class TestPullRequestAssociation:
 
     @staticmethod
     def test_unrelated_prs_do_not_use_native_linkage_api() -> None:
-        prs = [
-            pull_request(number, title=f"Unrelated PR {number}")
-            for number in range(20)
-        ]
+        prs = []
+        for number in range(20):
+            prs.append(pull_request(number, title=f"Unrelated PR {number}"))
 
         with patch.object(CLASSIFIER, "fetch_pr_linked_issues") as fetch_linkage:
             _, diagnostics = CLASSIFIER.build_issue_pr_map(
@@ -1242,9 +1446,7 @@ class TestPullRequestAssociation:
     def test_closed_unmerged_pr_is_not_completion_evidence() -> None:
         issue_data = issue(number=4, assignee="owner")
         issue_pr_map = {
-            "4": [
-                {"pr_state": "closed", "pr_merged": False, "pr_author": "owner"}
-            ]
+            "4": [{"pr_state": "closed", "pr_merged": False, "pr_author": "owner"}]
         }
 
         assert_classification(
@@ -1306,7 +1508,9 @@ def test_responsibility_gate_prevents_assignment_even_when_authorized(level, sin
     data = issue(comments=[comment(body="/assign @developer")])
     if level != "pending":
         data["responsibility_review"] = {
-            "level": level, "summary": "核查结论", "evidence": ["具体版本 kernel 路径"],
+            "level": level,
+            "summary": "核查结论",
+            "evidence": ["具体版本 kernel 路径"],
             "policy_digest": CLASSIFIER.policy_digest(policy),
         }
     with patch.object(CLASSIFIER, "classify_one") as classify_mock:
@@ -1326,11 +1530,17 @@ def test_responsibility_gate_prevents_assignment_even_when_authorized(level, sin
 
 def test_handle_preserves_existing_first_response_classification():
     policy = {"handle": ["公共问题"], "list-only": [], "ignore": []}
-    data = issue(responsibility_review={
-        "level": "handle", "summary": "公共 API 问题", "evidence": ["接口校验源码"],
-        "policy_digest": CLASSIFIER.policy_digest(policy),
-    })
-    result = CLASSIFIER.classify_with_responsibility(data, classification_options(), policy)
+    data = issue(
+        responsibility_review={
+            "level": "handle",
+            "summary": "公共 API 问题",
+            "evidence": ["接口校验源码"],
+            "policy_digest": CLASSIFIER.policy_digest(policy),
+        }
+    )
+    result = CLASSIFIER.classify_with_responsibility(
+        data, classification_options(), policy
+    )
     assert result["responsibility"] == "handle"
     assert result["category"] == classify(data)["category"]
 
@@ -1338,16 +1548,28 @@ def test_handle_preserves_existing_first_response_classification():
 @pytest.mark.parametrize("mutation", ["config", "evidence", "summary", "level"])
 def test_stale_or_incomplete_review_requires_investigation(mutation):
     policy = {"handle": ["公共问题"], "list-only": [], "ignore": []}
-    review = {"level": "handle", "summary": "公共问题", "evidence": ["路径证据"],
-              "policy_digest": CLASSIFIER.policy_digest(policy)}
+    review = {
+        "level": "handle",
+        "summary": "公共问题",
+        "evidence": ["路径证据"],
+        "policy_digest": CLASSIFIER.policy_digest(policy),
+    }
     if mutation == "config":
         policy["handle"] = ["950 算子"]
     else:
         review[mutation] = [] if mutation == "evidence" else ""
-    assert CLASSIFIER.review_responsibility(issue(responsibility_review=review), policy)["level"] == "pending"
+    assert (
+        CLASSIFIER.review_responsibility(issue(responsibility_review=review), policy)[
+            "level"
+        ]
+        == "pending"
+    )
 
 
-@pytest.mark.parametrize("fields", [{"merged": True}, {"merged_at": "2026-09-15T00:00:00Z"}, {"state": "merged"}])
+@pytest.mark.parametrize(
+    "fields",
+    [{"merged": True}, {"merged_at": "2026-09-15T00:00:00Z"}, {"state": "merged"}],
+)
 def test_gitcode_pr_merge_variants_are_recognized(fields):
     invert_pr_refs = getattr(CLASSIFIER, "_invert_pr_refs")
     result = invert_pr_refs([pull_request(**fields)], {4487: {"1"}})
@@ -1356,9 +1578,15 @@ def test_gitcode_pr_merge_variants_are_recognized(fields):
 
 def test_recent_pr_fetch_uses_configured_token():
     options = CLASSIFIER.PRFetchOptions(
-        api_base="https://api.example.test", repo="cann/math", token="test-token", since_iso=None
+        api_base="https://api.example.test",
+        repo="cann/math",
+        token="test-token",
+        since_iso=None,
     )
-    with patch.object(CLASSIFIER, "make_session"), patch.object(CLASSIFIER, "api_get", return_value=[]) as get:
+    with (
+        patch.object(CLASSIFIER, "make_session"),
+        patch.object(CLASSIFIER, "api_get", return_value=[]) as get,
+    ):
         prs, diagnostics = CLASSIFIER.fetch_recent_prs(options)
     assert prs == []
     assert diagnostics["complete"]
@@ -1367,35 +1595,59 @@ def test_recent_pr_fetch_uses_configured_token():
 
 def test_cli_lists_only_reviewed_items_that_still_need_attention(tmp_path):
     import yaml
+
     policy = {"handle": ["公共问题"], "list-only": ["其他芯片"], "ignore": ["不处理"]}
     config = tmp_path / "config.yaml"
-    config.write_text(yaml.safe_dump({
-        "repo": "test/repo", "responsibility": policy,
-        "report_file": str(tmp_path / "classification.txt"),
-        "cache_dir": str(tmp_path / "cache"),
-        "last_check_file": str(tmp_path / "last_check.json"),
-    }), encoding="utf-8")
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "repo": "test/repo",
+                "responsibility": policy,
+                "report_file": str(tmp_path / "classification.txt"),
+                "cache_dir": str(tmp_path / "cache"),
+                "last_check_file": str(tmp_path / "last_check.json"),
+            }
+        ),
+        encoding="utf-8",
+    )
     data = []
     for number, level in enumerate(("list-only", "list-only", "ignore", "pending"), 1):
-        item = issue(number=number, title=f"Issue {number}", url=f"https://gitcode.com/test/repo/issues/{number}")
+        item = issue(
+            number=number,
+            title=f"Issue {number}",
+            url=f"https://gitcode.com/test/repo/issues/{number}",
+        )
         if number == 2:
             item.update(assignee="owner", comments=[comment()])
         if level != "pending":
             item["responsibility_review"] = {
-                "level": level, "summary": f"核查结果 {number}", "evidence": ["源码证据"],
+                "level": level,
+                "summary": f"核查结果 {number}",
+                "evidence": ["源码证据"],
                 "policy_digest": CLASSIFIER.policy_digest(policy),
             }
         data.append(item)
     source = tmp_path / "issues.json"
     source.write_text(json.dumps({"issues": data}), encoding="utf-8")
-    with patch.object(CLASSIFIER, "_write_stdout") as output, patch.object(
-        CLASSIFIER, "fetch_recent_prs", return_value=([], {"complete": True})
-    ) as fetch, patch("issue_pr_evidence.api_get", return_value=[]):
-        status = CLASSIFIER.main(["--config", str(config), "--input", str(source), "--ignore-last-check"])
+    with (
+        patch.object(CLASSIFIER, "_write_stdout") as output,
+        patch.object(
+            CLASSIFIER, "fetch_recent_prs", return_value=([], {"complete": True})
+        ) as fetch,
+        patch("issue_pr_evidence.api_get", return_value=[]),
+    ):
+        status = CLASSIFIER.main(
+            ["--config", str(config), "--input", str(source), "--ignore-last-check"]
+        )
     assert status == 0
     fetch.assert_called_once()
     result = json.loads(output.call_args.args[0])
-    assert result["by_responsibility"] == {"handle": 0, "list-only": 2, "ignore": 1, "pending": 1}
+    assert result["by_responsibility"] == {
+        "handle": 0,
+        "list-only": 2,
+        "ignore": 1,
+        "pending": 1,
+    }
     assert [entry["number"] for entry in result["listed_issues"]] == [1]
     assert [entry["number"] for entry in result["issues"]] == [4]
     assert result["ignored_count"] == 1
@@ -1408,8 +1660,13 @@ def test_classifier_conflicting_input_stops_before_evidence(tmp_path):
     config = tmp_path / "config.yaml"
     config.write_text("repo: cann/math\n")
     source = tmp_path / "input.json"
-    source.write_text(json.dumps({"filters": {"repository": "user/math"}, "issues": []}))
-    with patch.object(CLASSIFIER, "_write_stdout") as output, patch.object(CLASSIFIER, "_collect_evidence") as evidence:
+    source.write_text(
+        json.dumps({"filters": {"repository": "user/math"}, "issues": []})
+    )
+    with (
+        patch.object(CLASSIFIER, "_write_stdout") as output,
+        patch.object(CLASSIFIER, "_collect_evidence") as evidence,
+    ):
         code = CLASSIFIER.main(["--config", str(config), "--input", str(source)])
     assert code == 2
     assert json.loads(output.call_args.args[0])["status"] == "needs_selection"

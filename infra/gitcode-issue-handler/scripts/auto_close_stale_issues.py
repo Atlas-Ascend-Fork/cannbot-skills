@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
+#
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
-# Licensed under the CANN Open Software License Agreement Version 2.0.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+#
 """Close answered question Issues after a configurable quiet period.
 
 The command is conservative by design. It only selects open question-type
@@ -170,6 +177,8 @@ def _is_substantive_handler_reply(body: str, closure_comment: str) -> bool:
 def _parse_comments(issue: dict) -> list[tuple[datetime, str, str]] | None:
     parsed_comments = []
     for comment in issue.get("comments") or []:
+        if classifier.is_system_comment(comment):
+            continue
         author = _comment_author(comment)
         created_at = _comment_time(comment)
         if author is None or created_at is None:
@@ -281,9 +290,10 @@ def evaluate_issue(
     if parsed_comments is None:
         return {"eligible": False, "reason": "comment_evidence_incomplete"}
     if followup_watch:
-        return _watched_wait_decision(
+        decision = _watched_wait_decision(
             issue, followup_watch, parsed_comments, reporter, policy
         )
+        return _require_owner(issue, decision)
     handler_comment = _latest_handler_comment(
         parsed_comments, reporter, policy.closure_comment
     )
@@ -303,7 +313,13 @@ def evaluate_issue(
             "last_handler_reply_at": last_reply_at.isoformat(),
         }
 
-    return _inactive_decision(handler_comment, policy)
+    return _require_owner(issue, _inactive_decision(handler_comment, policy))
+
+
+def _require_owner(issue, decision):
+    if decision.get("eligible") and not str(issue.get("assignee") or "").strip():
+        return {"eligible": False, "reason": "assignee_required"}
+    return decision
 
 
 def issue_mentions_pr(issue: dict) -> bool:
@@ -447,7 +463,9 @@ def _load_responsibility_reviews(path: str | None) -> dict[str, dict]:
         raise ValueError(f"Error: cannot read responsibility reviews: {exc}") from exc
     entries = raw.get("issues") if isinstance(raw, dict) else raw
     if not isinstance(entries, list):
-        raise ValueError("Error: responsibility reviews JSON must contain an issues list")
+        raise ValueError(
+            "Error: responsibility reviews JSON must contain an issues list"
+        )
     reviews = {}
     for entry in entries:
         if not isinstance(entry, dict):
@@ -710,17 +728,26 @@ def _run(args) -> int:
     ]
     # Pending, list-only, and ignore routes must not enter the normal close flow.
     handle_issues = [
-        issue for issue in issues
-        if review_responsibility(issue, runtime.responsibility_policy)["level"] == "handle"
+        issue
+        for issue in issues
+        if review_responsibility(issue, runtime.responsibility_policy)["level"]
+        == "handle"
     ]
     issue_api.enrich_issues_with_comments(runtime.api, handle_issues)
     decisions, candidates = _evaluate_issues(
-        issues, runtime.policy, runtime.followup_watches, runtime.responsibility_policy,
+        issues,
+        runtime.policy,
+        runtime.followup_watches,
+        runtime.responsibility_policy,
     )
     issue_pr_map, complete, association_scan = _scan_associations(candidates, runtime)
     results = [
         _handle_issue(
-            issue, decisions[str(issue.get("iid"))], issue_pr_map, complete, runtime,
+            issue,
+            decisions[str(issue.get("iid"))],
+            issue_pr_map,
+            complete,
+            runtime,
         )
         for issue in issues
     ]

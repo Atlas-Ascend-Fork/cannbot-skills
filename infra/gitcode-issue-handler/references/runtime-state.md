@@ -16,8 +16,7 @@
 
 授权模型、回复检查点、批次批准失效条件和 direct-push 独立确认统一以 [authorization-contract.md](authorization-contract.md) 为准；本文件不重复其操作表。
 
-`response_status` 独立于首响 SLA 和解决状态。新增追问会使本轮响应重新待处理，旧评论不能自动通过门禁；`verified/reused` 必须有本轮适用的 GET 证据，`waived_by_user` 留用户原话。`exempt_self_authored_pr` 只用于已核验同作者 PR 的免首响路径，不计首响成功；由 assignee 与作者同账号确立的 `self_assigned/no_attention` 仅保留分类证据，不伪造评论结果或本轮处理记录。历史失效自提且已有负责人时保留豁免及未闭环状态。
-每个后续 operation 的 `depends_on` 引用该回复或适用的历史/豁免证据。
+`response_status` 独立于首响 SLA 和解决状态。新增追问使本轮响应重新待处理，旧评论不能自动通过跟进门禁；`verified/reused` 必须有当前适用的 GET 评论证据。`waived_by_user` 仅记录限制，不满足完成标准。`exempt_self_authored_pr` 表示已核验的自提免首响；须保留同账号或有效同作者 PR 证据。非自提缺少有效首响、或任何处理项缺少平台 assignee 时只能等待。
 
 ## 能力失败与恢复
 
@@ -39,7 +38,7 @@
 
 唯一队列：`.cannbot/gitcode-issue-handler/data/pipeline-state.json`。脚本用仓库级文件锁和原子替换维护；上一代保留为 `pipeline-state.previous.json`。损坏或不支持的状态原样保留为 `pipeline-state.invalid-*.json`，恢复上一代并要求完整扫描及未决操作审计。仓库不匹配直接报错，不覆盖。
 
-- 首次、旧记录迁移、恢复异常与每隔 24 小时执行完整 open 扫描；不以默认 7 天窗口排除旧 open Issue。
+- 仅在首次、旧记录迁移、恢复异常时执行完整 open 扫描，完成后正常运行按游标增量扫描；不以默认 7 天窗口排除旧 open Issue。
 - 同会话复用扫描检查点，新会话自动检查增量；同会话明确开始新一轮扫描用 `resume --refresh`。使用宿主的 CODEX_THREAD_ID/CODEX_SESSION_ID 识别会话，宿主不提供时退回 5 分钟检查间隔。增量游标回退 5 分钟读取并去重。
 - 拉取使用 `--defer-cursor`，队列和流水线独立游标写入同一个原子检查点；不提前修改旧 follow-up 游标。
 - 扫描失败保留旧游标；收到的部分结果仍可存入队列。不完整不等于无匹配。

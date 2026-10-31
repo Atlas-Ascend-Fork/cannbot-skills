@@ -15,15 +15,20 @@
 
 ## 首响
 
-先按 `issue-intake.md` 的五种组合判断是否需要首响：负责人或任一有效关联 PR 作者与提出者同账号即免首响；有效同作者 PR 缺负责人时只补指派。自提豁免不是一条已发布评论，也不要求为满足执行器而补发文字。已有负责人不重复指派；新追问独立跟进。
+先按 `issue-intake.md` 核对有效回复与负责人，自提免首响，已有有效回复直接复用。无负责人时按当前责任规则、有效关联 PR 或已配置兜底确定接单人；未知则等待确认，不猜测。已有负责人不重复指派；新追问独立跟进。
 
-先完成范围、分类和内容检查，每项材料按 [批量调查](delivery-reporting.md#逐项响应材料) 持久化；只分配时只需简短分析和 `assign.md`，不凑文字首响。
+需要首响时按以下依赖推进；解释或模拟处理顺序时也保留这些阶段：
+
+1. **只读分类**：分类器核对范围、有效回复和负责人，保留“需要首响”的结论；发现修复 PR 不替代首响，也不在分类阶段发布或指派。
+2. **准备回复**：读取问题与相关证据，按 `response-writing.md` 形成有依据的完整回复稿；已有有效 PR 时概述实际方案和状态。按 [逐项响应材料](delivery-reporting.md#逐项响应材料) 保存 `analysis.md`、`reply.md` 及适用的 `assign.md`。仅缺指派的自提项只保存简短分析和分配稿。
+3. **发布并回查**：按下文核对自动响应开关与会话授权，发布后 GET 确认有效首响，再进入安全关联和缺失的作者指派；失败或结果未知时先回查，不推进依赖动作。
+
 `post_triage_comment.py --config <配置> ... --apply` 根据配置执行；关闭自动响应时，用户审核通过或明确要求发送后加 `--reply-approved`，并把会话依据写入运行状态。
-仅“处理一下”不等于关闭开关时的回复批准。无 `--apply` 仅预览；未获批准继续独立调查，回复状态记 `pending_approval`。非自提项须有本轮成功或适用的历史首响回查证据才能临时指派；有效自提 PR 免首响，直接分配并回查。
+仅“处理一下”不等于关闭开关时的回复批准。无 `--apply` 仅预览；未获批准继续独立调查，回复状态记 `pending_approval`。非自提项须有本轮成功或适用的历史首响回查证据才能临时指派；同作者 PR 可凭实时核验的自提依据直接补指派。
 
 ## 已明确负责人
 
-`auto-response: true` 时，首响回查后可直接转交当前用户指定或 owner 配置中的负责人，不受 `auto-assign` 限制。沿用已有 assignee；不同账号的已有指派不自动覆盖。
+`auto-response: true` 时，首响回查后可直接转交当前用户指定、当前责任规则明确指定或适用的 owner 配置中的负责人，不受 `auto-assign` 限制。沿用已有 assignee；不同账号的已有指派不自动覆盖。
 当前用户明确决定优先于配置；已有关联修复 PR 且当前无 assignee 时按下节选择 PR 作者；不因候选 owner 配置不同退回 auto-assign。
 这些是明确负责人转交，不标为候选临时指派。
 
@@ -31,7 +36,7 @@
 
 `auto-response: true` 时，有效修复 PR 分两类处理：
 
-1. 处理前已经关联：在 response 阶段一次完成首响和缺失的作者指派。非自提无回复时先首响并回查；已有回复时复用；自提免首响。已有 assignee 则只处理必要回复，不覆盖指派。
+1. 处理前已经关联：只省略关联操作，首响依赖仍须满足。在 response 阶段先完成所需首响并 GET 回查，再补缺失的作者指派；已有有效回复时复用，自提免首响。已有 assignee 则只处理必要回复，不覆盖指派。
 2. Issue/PR 正文或评论已有明确互引，但尚未原生关联：首响回查后，先用 `associate_issue_pr.py` 关联并双向 GET 回查，再把执行器生成的 `linked-pr-file` 交给 `assign_issue.py` 临时指派 PR 作者。日常响应不额外搜索潜在修复 PR；用户明确要求查找时发现的候选仍须满足下列门禁，不能仅凭相似就关联或指派。
 
 这两类都不受 `auto-assign: false` 限制，也不要求把 PR 作者证明为算子核心贡献候选；PR 作者只因正在承接该修复而成为本 Issue 的临时负责人，不因此写入长期 owner 配置。执行器写入前重新读取真实 Issue、PR 作者/状态/base/head 和现有关联；本地快照不能替代核验。只有 open/opened 或 merged 且与本问题相关的 PR 有效；closed 未合入、已核实失效和无关 PR 不适用。已有关联不按目标分支排除；新发现 PR 的自动关联仍须满足下面的基线与完整覆盖门禁。
@@ -48,6 +53,8 @@
 GitCode 当前原生限制一个 PR 只能关联一个 Issue。若 PR 已关联另一个 Issue，默认阻断且不替换旧关系；仅当两条 Issue 已核验为同一问题、现有首响评论已公开同时链接原 Issue 与 PR、且其余安全门禁全部通过时，保留原生关系并记录 `duplicate_cross_reference` 降级关联，再临时指派 PR 作者。该降级必须实时回查原生关系和首响正文；不同问题、部分重复或缺少公开串联时不适用。不得为满足当前 Issue 而删除原 Issue 的关联。
 有效关联 PR 中只要有一条与 Issue 同作者，就走自提路径：免首次响应，无负责人时优先分配给该作者。所有有效 PR 都非自提时，Agent 阅读描述和实际 diff，选择覆盖本 Issue 诉求最多的 PR 作者；覆盖相当时优先匹配问题版本，仍相当按 PR 编号升序稳定选择，不因多个作者直接转人工。对每个有效 PR 用同一组诉求标识记录 `coverage_review.covered_issue_points`、非空 `evidence`、`target_version_match` 和已读的 `head_sha`；执行器据此选择并校验所选 head。覆盖面指实际问题覆盖，不是代码行数或文件数。作者或覆盖证据缺失时先补查，无法取得才记录阻塞。
 此例外不授权创建新 PR，也不因本轮新建 PR 触发自动指派。自动关联与作者指派均记为临时，直到维护侧确认真正责任归属。
+
+说明授权边界时同时交代适用分支：同作者有效 PR 按自提规则核验豁免；已有不同 assignee 保留原负责人；多个作者修复方向冲突时先调查冲突，未解决前不自动关联或据此指派，不能用 PR 编号排序绕过风险；新追问按 `issue-followup.md` 独立核对授权和跟进状态，不因 `auto-response` 开启就自动发送。
 
 ## 临时指派
 
@@ -67,6 +74,16 @@ Agent 按相关核心贡献与身份核验选择整条 Issue 最合适的一人�
 summary 明确写“已临时指派 @账号，请确认真正负责人”，并保留逐算子候选简表。
 真正 owner 经用户确认后才沿正常转交路径更新配置或换人。
 
+## 指派后的确认标签
+
+本次处理为非自提 Issue 成功指定责任人后，自动添加 `pending-confirmation` 标签。适用于明确 owner、核心贡献候选、有效 PR 作者和兜底接收人的指派；自提 Issue、`direct`、仅候选调查、仅回复以及指派失败/未知时不添加。仅复用处理前已有的 assignee 不补标签；续跑本次已执行的非自提指派则继续核验标签。自提判断沿用 [issue-intake.md](issue-intake.md)，执行器按 GET 回查的提出者与负责人账号核对，自提结果记录 `label_status: not_applicable`，保留已有标签。
+
+`assign_issue.py` 在 assignee GET 回查成功并核实非自提后，通过标签追加接口 POST `/repos/{owner}/{repo}/issues/{number}/labels`，JSON 正文为 `["pending-confirmation"]`，再 GET Issue 确认标签存在。该接口保留其他标签，已有同名标签则复用。依据：[GitCode 创建 Issue 标签 API](https://docs.gitcode.com/docs/apis/post-api-v-5-repos-owner-repo-issues-number-labels/)。正常 `/assign` 转交路径也在 assignee 核验后按同一规则判断是否添加标签。
+
+标签操作纳入指派的预览、授权范围和外部操作记录，准确列出 Issue 与标签名称；配置授权的自动指派同时包含该后续标签。既有仅覆盖指派的批准不冒充标签授权。标签不表示 Issue 已解决，也不替代 owner 确认或现有状态规则；本功能不自动移除标签或创建仓库级标签。
+
+执行结果用 `assignment_status` 和 `label_status` 分别记录，`confirmation_label` 固定为 `pending-confirmation`。指派成功但标签失败/未知时保留指派证据，整体不记完成；报告缺失标签或权限/API 错误。POST 前持久化 `label_started`；结果未知或中断后仅 GET 回查，禁止重发指派或标签 POST。Issue 已关闭时不补写标签。
+
 ## 执行器输入
 
 ```bash
@@ -81,7 +98,7 @@ python3 "$ISSUE_HANDLER_SKILL_ROOT/scripts/assign_issue.py" \
 无候选分支仍用 `--candidate-file`，省略 `--owner`，执行器读取 fallback 配置。
 文件保存 `target_issue_url`、`status: insufficient_evidence`、`candidates: []`、全部已调查的 `operators` 及调查缺口；只有逐项调查完成才可声明空结果。空配置或关闭 auto-assign 时返回 `skipped`，单次 `--assignment-approved` 不启用配置中的 fallback。其余首响、已有 assignee、失败恢复门禁保持一致。结果 `assignment_source: fallback_user` 须传入运行状态，summary 写“无候选，已临时指派兜底接收人 @账号，请确认真正负责人”；不要把兜底人写进候选简表。
 
-已有 PR 分支把 `--candidate-file` 换为 `--linked-pr-file`，可省略 `--owner` 由执行器按自提优先/覆盖审阅选择。快照保留全部有效关联 PR，不只传入想分配的那一个；`covers_issue: true` 在已有原生关联时表示实际关联且覆盖本问题的至少一项诉求，新增自动关联仍须完整覆盖。自提免首响时省略 `--response-result`；非自提仅预览时也可暂缺，真正执行时必须提供 `verified/reused` 结果。保存实际核验后的处理前快照：
+已有 PR 分支把 `--candidate-file` 换为 `--linked-pr-file`，可省略 `--owner` 由执行器按自提优先/覆盖审阅选择。快照保留全部有效关联 PR，不只传入想分配的那一个；`covers_issue: true` 在已有原生关联时表示实际关联且覆盖本问题的至少一项诉求，新增自动关联仍须完整覆盖。仅预览可暂缺 `--response-result`，真正执行时非自提分支须提供 `verified/reused` 结果；自提 PR 分支免评论，但须由执行器实时核验 Issue/PR 同作者及原生关联。保存实际核验后的处理前快照：
 
 ```json
 {

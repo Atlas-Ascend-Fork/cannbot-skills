@@ -16,6 +16,7 @@ The executor revalidates the live Issue, PR author/state/base/head and existing
 association, writes at most one POST, and confirms the relationship from both
 the PR and Issue directions before producing evidence usable by assign_issue.py.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -92,12 +93,17 @@ def _issue_target(issue_url: str) -> dict[str, str]:
 
 def _pr_target(pr_url: str) -> dict[str, str]:
     parsed = urlparse(pr_url)
-    if parsed.scheme != "https" or parsed.netloc.casefold() not in {"gitcode.com", "www.gitcode.com"}:
+    if parsed.scheme != "https" or parsed.netloc.casefold() not in {
+        "gitcode.com",
+        "www.gitcode.com",
+    }:
         raise AssociationError("PR URL must be an HTTPS GitCode URL")
     parts = [part for part in parsed.path.split("/") if part]
     markers = {"pull", "pulls", "merge_requests"}
     try:
-        marker = next(index for index, part in enumerate(parts) if part.casefold() in markers)
+        marker = next(
+            index for index, part in enumerate(parts) if part.casefold() in markers
+        )
         owner, repo, number = parts[marker - 2], parts[marker - 1], parts[marker + 1]
     except (StopIteration, IndexError) as exc:
         raise AssociationError("PR URL has no valid PR identity") from exc
@@ -112,10 +118,9 @@ def _pr_target(pr_url: str) -> dict[str, str]:
 
 
 def _same_repo(issue: dict[str, str], pr: dict[str, str]) -> bool:
-    return (
-        issue["owner"].casefold(), issue["repo"].casefold()
-    ) == (
-        pr["owner"].casefold(), pr["repo"].casefold()
+    return (issue["owner"].casefold(), issue["repo"].casefold()) == (
+        pr["owner"].casefold(),
+        pr["repo"].casefold(),
     )
 
 
@@ -138,7 +143,9 @@ def _response_target(response: dict[str, Any], target: dict[str, str]) -> None:
         identity = _identity_from_issue(actual)
     elif isinstance(actual, dict):
         identity = _identity_from_issue(actual.get("url"))
-        if identity is None and all(actual.get(key) is not None for key in ("owner", "repo", "issue_number")):
+        if identity is None and all(
+            actual.get(key) is not None for key in ("owner", "repo", "issue_number")
+        ):
             identity = (
                 str(actual["owner"]).casefold(),
                 str(actual["repo"]).casefold(),
@@ -146,14 +153,20 @@ def _response_target(response: dict[str, Any], target: dict[str, str]) -> None:
             )
     if identity is None:
         identity = _identity_from_issue(response.get("issue_url"))
-    expected = (target["owner"].casefold(), target["repo"].casefold(), target["issue_number"])
+    expected = (
+        target["owner"].casefold(),
+        target["repo"].casefold(),
+        target["issue_number"],
+    )
     if identity != expected:
         raise AssociationError("response result target does not match the Issue URL")
 
 
 def _check_config_target(config: dict[str, Any], target: dict[str, str]) -> None:
     if target["issue_number"] in {str(i) for i in config.get("ignored_issue_ids", [])}:
-        raise AssociationError("Issue is explicitly ignored by the current configuration")
+        raise AssociationError(
+            "Issue is explicitly ignored by the current configuration"
+        )
     configured = config.get("repo")
     if configured in (None, ""):
         return
@@ -174,26 +187,37 @@ def _duplicate_evidence(document, expected_issue):
     duplicate_identity = _identity_from_issue(duplicate_issue_url)
     if duplicate_identity is None:
         raise AssociationError("duplicate Issue URL is invalid")
-    if duplicate_identity[:2] != expected_issue[:2] or duplicate_identity[2] == expected_issue[2]:
-        raise AssociationError("duplicate Issue must be a different Issue in the same repository")
+    if (
+        duplicate_identity[:2] != expected_issue[:2]
+        or duplicate_identity[2] == expected_issue[2]
+    ):
+        raise AssociationError(
+            "duplicate Issue must be a different Issue in the same repository"
+        )
     if document.get("duplicate_relationship_verified") is not True:
         raise AssociationError("duplicate Issue relationship is not verified")
     return duplicate_issue_url, duplicate_identity[2]
 
 
-def _validate_evidence(document: Any, issue: dict[str, str], pr: dict[str, str]) -> dict[str, Any]:
+def _validate_evidence(
+    document: Any, issue: dict[str, str], pr: dict[str, str]
+) -> dict[str, Any]:
     if not isinstance(document, dict):
         raise AssociationError("association evidence must be a JSON object")
     issue_identity = _identity_from_issue(document.get("target_issue_url"))
-    expected_issue = (issue["owner"].casefold(), issue["repo"].casefold(), issue["issue_number"])
+    expected_issue = (
+        issue["owner"].casefold(),
+        issue["repo"].casefold(),
+        issue["issue_number"],
+    )
     if issue_identity != expected_issue:
         raise AssociationError("association evidence target Issue does not match")
     evidence_pr = _pr_target(document.get("pr_url", ""))
     if (
-        evidence_pr["owner"].casefold(), evidence_pr["repo"].casefold(), evidence_pr["pr_number"]
-    ) != (
-        pr["owner"].casefold(), pr["repo"].casefold(), pr["pr_number"]
-    ):
+        evidence_pr["owner"].casefold(),
+        evidence_pr["repo"].casefold(),
+        evidence_pr["pr_number"],
+    ) != (pr["owner"].casefold(), pr["repo"].casefold(), pr["pr_number"]):
         raise AssociationError("association evidence PR does not match")
     required_true = (
         "coverage_verified",
@@ -203,7 +227,9 @@ def _validate_evidence(document: Any, issue: dict[str, str], pr: dict[str, str])
     )
     missing = [key for key in required_true if document.get(key) is not True]
     if missing:
-        raise AssociationError("association evidence lacks required safety checks: " + ", ".join(missing))
+        raise AssociationError(
+            "association evidence lacks required safety checks: " + ", ".join(missing)
+        )
     if document.get("unresolved_risks") != []:
         raise AssociationError("association evidence has unresolved risks")
     if not _nonempty_list(document.get("changed_files")):
@@ -214,8 +240,12 @@ def _validate_evidence(document: Any, issue: dict[str, str], pr: dict[str, str])
     expected_head = _as_text(document.get("head_sha"))
     expected_base = _as_text(document.get("base_ref"))
     if not all((expected_author, expected_head, expected_base)):
-        raise AssociationError("association evidence requires pr_author, head_sha, and base_ref")
-    duplicate_issue_url, duplicate_issue_number = _duplicate_evidence(document, expected_issue)
+        raise AssociationError(
+            "association evidence requires pr_author, head_sha, and base_ref"
+        )
+    duplicate_issue_url, duplicate_issue_number = _duplicate_evidence(
+        document, expected_issue
+    )
     return {
         "pr_author": expected_author,
         "head_sha": expected_head,
@@ -237,15 +267,25 @@ def _numbers(payload: Any) -> set[str]:
     }
 
 
-def _live_context(issue_payload: Any, pr_payload: Any, evidence: dict[str, Any]) -> dict[str, Any]:
+def _live_context(
+    issue_payload: Any, pr_payload: Any, evidence: dict[str, Any]
+) -> dict[str, Any]:
     if not isinstance(issue_payload, dict):
         raise AssociationError("live Issue GET returned invalid data")
     if not isinstance(pr_payload, dict):
         raise AssociationError("live PR GET returned invalid data")
-    issue_author = _login(issue_payload.get("user") or issue_payload.get("author") or issue_payload.get("reporter"))
+    issue_author = _login(
+        issue_payload.get("user")
+        or issue_payload.get("author")
+        or issue_payload.get("reporter")
+    )
     pr_author = _login(pr_payload.get("user") or pr_payload.get("author"))
     state = _as_text(pr_payload.get("state") or pr_payload.get("pr_state")).casefold()
-    merged = pr_payload.get("merged") is True or pr_payload.get("pr_merged") is True or state == "merged"
+    merged = (
+        pr_payload.get("merged") is True
+        or pr_payload.get("pr_merged") is True
+        or state == "merged"
+    )
     base_ref = _as_text(
         (pr_payload.get("base") or {}).get("ref")
         if isinstance(pr_payload.get("base"), dict)
@@ -278,8 +318,12 @@ def _live_context(issue_payload: Any, pr_payload: Any, evidence: dict[str, Any])
     }
 
 
-def _base_result(issue: dict[str, str], pr: dict[str, str], evidence_file: str | Path,
-                 response_result: str | Path) -> dict[str, Any]:
+def _base_result(
+    issue: dict[str, str],
+    pr: dict[str, str],
+    evidence_file: str | Path,
+    response_result: str | Path,
+) -> dict[str, Any]:
     return {
         "target": issue,
         "pr": pr,
@@ -312,21 +356,25 @@ def _write_linked_pr_file(record: LinkedPrRecord) -> None:
         "issue_author": live["issue_author"],
         "repository": f"{issue['owner']}/{issue['repo']}",
         "association_result": str(result_file),
-        "linked_prs": [{
-            "pr_url": pr["url"],
-            "pr_author": live["pr_author"],
-            "state": live["state"],
-            "merged": live["merged"],
-            "association_verified": native_association,
-            "association_source": source,
-            "association_mode": source,
-            "public_cross_reference_verified": not native_association,
-            "native_linked_issue": native_linked_issue,
-            "association_constraint": "single_issue_limit" if not native_association else None,
-            "covers_issue": True,
-            "base_ref": live["base_ref"],
-            "head_sha": live["head_sha"],
-        }],
+        "linked_prs": [
+            {
+                "pr_url": pr["url"],
+                "pr_author": live["pr_author"],
+                "state": live["state"],
+                "merged": live["merged"],
+                "association_verified": native_association,
+                "association_source": source,
+                "association_mode": source,
+                "public_cross_reference_verified": not native_association,
+                "native_linked_issue": native_linked_issue,
+                "association_constraint": "single_issue_limit"
+                if not native_association
+                else None,
+                "covers_issue": True,
+                "base_ref": live["base_ref"],
+                "head_sha": live["head_sha"],
+            }
+        ],
     }
     _save_json(path, document)
 
@@ -366,7 +414,11 @@ def _load_previous_association(operation):
     if not operation.result_path.exists():
         return None
     old = _read_json(operation.result_path, "association result")
-    if not isinstance(old, dict) or old.get("target") != operation.issue or old.get("pr") != operation.pr:
+    if (
+        not isinstance(old, dict)
+        or old.get("target") != operation.issue
+        or old.get("pr") != operation.pr
+    ):
         raise AssociationError("association result conflicts with target Issue or PR")
     operation.result["post_started"] = bool(old.get("post_started"))
     operation.result["post_attempted"] = bool(old.get("post_attempted"))
@@ -375,11 +427,15 @@ def _load_previous_association(operation):
 
 def _association_preflight(operation):
     try:
-        issue_payload = api_get(operation.session, operation.issue_endpoint, operation.token)
+        issue_payload = api_get(
+            operation.session, operation.issue_endpoint, operation.token
+        )
         pr_payload = api_get(operation.session, operation.pr_endpoint, operation.token)
         live = _live_context(issue_payload, pr_payload, operation.evidence)
         links = api_get(
-            operation.session, operation.pr_issues_endpoint, operation.token,
+            operation.session,
+            operation.pr_issues_endpoint,
+            operation.token,
             params={"per_page": 100},
         )
         return issue_payload, live, links, None
@@ -387,7 +443,9 @@ def _association_preflight(operation):
         raise
     except Exception as exc:
         operation.result.update(
-            status="unknown", association_status="unknown", reason="live preflight GET failed",
+            status="unknown",
+            association_status="unknown",
+            reason="live preflight GET failed",
         )
         operation.result["error_type"] = type(exc).__name__
         _save_json(operation.result_path, operation.result)
@@ -399,31 +457,43 @@ def _reuse_preexisting_association(operation, live, links):
         return None
     try:
         reverse = api_get(
-            operation.session, operation.issue_prs_endpoint, operation.token,
+            operation.session,
+            operation.issue_prs_endpoint,
+            operation.token,
             params={"mode": 0, "per_page": 100},
         )
     except Exception as exc:
         operation.result.update(
-            status="unknown", association_status="unknown",
+            status="unknown",
+            association_status="unknown",
             reason="reverse association readback failed",
         )
         operation.result["error_type"] = type(exc).__name__
     else:
         if operation.pr["pr_number"] not in _numbers(reverse):
             operation.result.update(
-                status="unknown", association_status="unknown",
+                status="unknown",
+                association_status="unknown",
                 reason="association is visible only from PR side",
             )
         else:
             operation.result.update(
-                status="reused", association_status="verified",
-                association_source="preexisting", pr_author=live["pr_author"],
+                status="reused",
+                association_status="verified",
+                association_source="preexisting",
+                pr_author=live["pr_author"],
                 issue_author=live["issue_author"],
             )
-            _write_linked_pr_file(LinkedPrRecord(
-                operation.linked_path, operation.issue, operation.pr, live,
-                operation.result_path, "preexisting",
-            ))
+            _write_linked_pr_file(
+                LinkedPrRecord(
+                    operation.linked_path,
+                    operation.issue,
+                    operation.pr,
+                    live,
+                    operation.result_path,
+                    "preexisting",
+                )
+            )
     _save_json(operation.result_path, operation.result)
     return operation.result
 
@@ -432,49 +502,84 @@ def _duplicate_cross_reference(operation, live, links):
     other_links = sorted(_numbers(links) - {operation.issue["issue_number"]})
     if not other_links:
         return None
-    if len(other_links) != 1 or operation.evidence.get("duplicate_issue_number") != other_links[0]:
+    if (
+        len(other_links) != 1
+        or operation.evidence.get("duplicate_issue_number") != other_links[0]
+    ):
         operation.result.update(
-            status="blocked_existing_association", association_status="not_started",
-            association_source="preexisting_other_issue", existing_linked_issues=other_links,
+            status="blocked_existing_association",
+            association_status="not_started",
+            association_source="preexisting_other_issue",
+            existing_linked_issues=other_links,
             reason="PR already has a different native Issue association",
         )
         _save_json(operation.result_path, operation.result)
         return operation.result
     comment_id = operation.response.get("comment_id")
     if comment_id is None:
-        raise AssociationError("duplicate cross-reference requires a verified response comment ID")
+        raise AssociationError(
+            "duplicate cross-reference requires a verified response comment ID"
+        )
     try:
         comments = api_get(
-            operation.session, f"{operation.issue_endpoint}/comments", operation.token,
+            operation.session,
+            f"{operation.issue_endpoint}/comments",
+            operation.token,
             params={"per_page": 100},
         )
     except Exception as exc:
         operation.result.update(
-            status="unknown", association_status="unknown",
+            status="unknown",
+            association_status="unknown",
             reason="response cross-reference GET failed",
         )
         operation.result["error_type"] = type(exc).__name__
         _save_json(operation.result_path, operation.result)
         return operation.result
-    comment = next((
-        item for item in comments
-        if isinstance(item, dict) and str(item.get("id")) == str(comment_id)
-    ), None) if isinstance(comments, list) else None
+    comment = (
+        next(
+            (
+                item
+                for item in comments
+                if isinstance(item, dict) and str(item.get("id")) == str(comment_id)
+            ),
+            None,
+        )
+        if isinstance(comments, list)
+        else None
+    )
     body = _as_text(comment.get("body")) if isinstance(comment, dict) else ""
-    if operation.pr["url"] not in body or operation.evidence["duplicate_issue_url"] not in body:
-        raise AssociationError("verified response does not publicly cross-reference the PR and duplicate Issue")
+    if (
+        operation.pr["url"] not in body
+        or operation.evidence["duplicate_issue_url"] not in body
+    ):
+        raise AssociationError(
+            "verified response does not publicly cross-reference the PR and duplicate Issue"
+        )
     operation.result.update(
-        status="verified", association_status="verified_cross_reference",
-        association_source="duplicate_cross_reference", existing_linked_issues=other_links,
-        pr_author=live["pr_author"], issue_author=live["issue_author"],
-        reason=("GitCode permits one native Issue per PR; preserved the duplicate "
-                "Issue link and verified the public cross-reference"),
+        status="verified",
+        association_status="verified_cross_reference",
+        association_source="duplicate_cross_reference",
+        existing_linked_issues=other_links,
+        pr_author=live["pr_author"],
+        issue_author=live["issue_author"],
+        reason=(
+            "GitCode permits one native Issue per PR; preserved the duplicate "
+            "Issue link and verified the public cross-reference"
+        ),
     )
     _save_json(operation.result_path, operation.result)
-    _write_linked_pr_file(LinkedPrRecord(
-        operation.linked_path, operation.issue, operation.pr, live, operation.result_path,
-        "duplicate_cross_reference", native_linked_issue=other_links[0],
-    ))
+    _write_linked_pr_file(
+        LinkedPrRecord(
+            operation.linked_path,
+            operation.issue,
+            operation.pr,
+            live,
+            operation.result_path,
+            "duplicate_cross_reference",
+            native_linked_issue=other_links[0],
+        )
+    )
     return operation.result
 
 
@@ -482,61 +587,82 @@ def _send_association(operation):
     post_error = None
     try:
         response = api_post_json(
-            operation.session, operation.pr_issues_endpoint, operation.token,
+            operation.session,
+            operation.pr_issues_endpoint,
+            operation.token,
             json_data=[int(operation.issue["issue_number"])],
         )
         operation.result["post_http_status"] = getattr(response, "status_code", None)
-        if operation.result["post_http_status"] is not None and operation.result["post_http_status"] >= 400:
+        if (
+            operation.result["post_http_status"] is not None
+            and operation.result["post_http_status"] >= 400
+        ):
             operation.result["post_error"] = safe_error_text(response)
     except Exception as exc:
         post_error = exc
-        operation.result["post_http_status"] = getattr(getattr(exc, "response", None), "status_code", None)
+        operation.result["post_http_status"] = getattr(
+            getattr(exc, "response", None), "status_code", None
+        )
     return post_error
 
 
 def _association_readback(operation):
     try:
         pr_links = api_get(
-            operation.session, operation.pr_issues_endpoint, operation.token,
+            operation.session,
+            operation.pr_issues_endpoint,
+            operation.token,
             params={"per_page": 100},
         )
         issue_links = api_get(
-            operation.session, operation.issue_prs_endpoint, operation.token,
+            operation.session,
+            operation.issue_prs_endpoint,
+            operation.token,
             params={"mode": 0, "per_page": 100},
         )
     except Exception as exc:
         operation.result.update(
-            status="unknown", association_status="unknown",
+            status="unknown",
+            association_status="unknown",
             reason="association POST could not be verified",
         )
         operation.result["error_type"] = type(exc).__name__
         _save_json(operation.result_path, operation.result)
         return None
-    return (
-        operation.issue["issue_number"] in _numbers(pr_links)
-        and operation.pr["pr_number"] in _numbers(issue_links)
-    )
+    return operation.issue["issue_number"] in _numbers(pr_links) and operation.pr[
+        "pr_number"
+    ] in _numbers(issue_links)
 
 
 def _finish_post_association(operation, live, verified, post_error):
     if verified:
         operation.result.update(
-            status="verified", association_status="verified",
-            pr_author=live["pr_author"], issue_author=live["issue_author"],
+            status="verified",
+            association_status="verified",
+            pr_author=live["pr_author"],
+            issue_author=live["issue_author"],
         )
         _save_json(operation.result_path, operation.result)
-        _write_linked_pr_file(LinkedPrRecord(
-            operation.linked_path, operation.issue, operation.pr, live,
-            operation.result_path, "current_run",
-        ))
+        _write_linked_pr_file(
+            LinkedPrRecord(
+                operation.linked_path,
+                operation.issue,
+                operation.pr,
+                live,
+                operation.result_path,
+                "current_run",
+            )
+        )
     elif post_error is not None:
         operation.result.update(
-            status="unknown", association_status="unknown",
+            status="unknown",
+            association_status="unknown",
             reason="POST outcome unknown and association is absent",
         )
     else:
         operation.result.update(
-            status="failed", association_status="failed",
+            status="failed",
+            association_status="failed",
             reason="POST completed but bidirectional GET did not verify association",
         )
     if not verified:
@@ -546,7 +672,9 @@ def _finish_post_association(operation, live, verified, post_error):
 
 def _post_association(operation, live):
     operation.result.update(
-        post_started=True, post_attempted=True, association_source="current_run",
+        post_started=True,
+        post_attempted=True,
+        association_source="current_run",
     )
     _save_json(operation.result_path, operation.result)
     post_error = _send_association(operation)
@@ -570,7 +698,8 @@ def _apply_association(operation):
             return terminal
         if old and old.get("post_started"):
             operation.result.update(
-                status="unknown", association_status="unknown",
+                status="unknown",
+                association_status="unknown",
                 association_source="current_run",
                 reason="previous association POST result is not visible; no retry was sent",
             )
@@ -581,11 +710,19 @@ def _apply_association(operation):
         return _post_association(operation, live)
 
 
-def execute(*, config_path: str | Path, issue_url: str, pr_url: str,
-            evidence_file: str | Path, response_result: str | Path,
-            result_file: str | Path, linked_pr_file: str | Path,
-            apply: bool = False, association_approved: bool = False,
-            session: Any = None) -> dict[str, Any]:
+def execute(
+    *,
+    config_path: str | Path,
+    issue_url: str,
+    pr_url: str,
+    evidence_file: str | Path,
+    response_result: str | Path,
+    result_file: str | Path,
+    linked_pr_file: str | Path,
+    apply: bool = False,
+    association_approved: bool = False,
+    session: Any = None,
+) -> dict[str, Any]:
     issue = _issue_target(issue_url)
     pr = _pr_target(pr_url)
     if not _same_repo(issue, pr):
@@ -600,7 +737,9 @@ def execute(*, config_path: str | Path, issue_url: str, pr_url: str,
     if not isinstance(response, dict):
         raise AssociationError("response result must be a JSON object")
     _response_target(response, issue)
-    evidence = _validate_evidence(_read_json(evidence_file, "association evidence"), issue, pr)
+    evidence = _validate_evidence(
+        _read_json(evidence_file, "association evidence"), issue, pr
+    )
     result_path = Path(result_file)
     linked_path = Path(linked_pr_file)
     result = _base_result(issue, pr, evidence_file, response_result)
@@ -610,9 +749,19 @@ def execute(*, config_path: str | Path, issue_url: str, pr_url: str,
     issue_endpoint = f"{repo_endpoint}/issues/{issue['issue_number']}"
     pr_endpoint = f"{repo_endpoint}/pulls/{pr['pr_number']}"
     operation = AssociationOperation(
-        issue, pr, evidence, response, result, result_path, linked_path,
-        issue_endpoint, pr_endpoint, f"{pr_endpoint}/issues",
-        f"{issue_endpoint}/pull_requests", session, "",
+        issue,
+        pr,
+        evidence,
+        response,
+        result,
+        result_path,
+        linked_path,
+        issue_endpoint,
+        pr_endpoint,
+        f"{pr_endpoint}/issues",
+        f"{issue_endpoint}/pull_requests",
+        session,
+        "",
     )
     if not apply:
         return _preview_association(operation)
@@ -620,8 +769,10 @@ def execute(*, config_path: str | Path, issue_url: str, pr_url: str,
         raise AssociationError(
             "PR association is disabled; enable auto-response or pass --association-approved"
         )
-    token = resolve_token()
-    session = session or make_session(rate_limit_dir=rate_limit_path(config.get("cache_dir")))
+    token = resolve_token(repo_url=issue_url)
+    session = session or make_session(
+        rate_limit_dir=rate_limit_path(config.get("cache_dir"))
+    )
     operation = operation._replace(session=session, token=token)
     return _apply_association(operation)
 

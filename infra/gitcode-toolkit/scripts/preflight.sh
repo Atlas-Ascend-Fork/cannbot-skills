@@ -31,7 +31,18 @@ check_token() {
     if [ -n "${GITCODE_TOKEN:-}" ]; then
         printf '{"item":"token","status":"pass","detail":"env GITCODE_TOKEN (length=%d)","source":"env"}' "${#GITCODE_TOKEN}"
     else
-        printf '{"item":"token","status":"fail","detail":"GITCODE_TOKEN not set"}'
+        local client result
+        client="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/gitcode_client.py"
+        if [ -f "$client" ] && command -v python3 >/dev/null 2>&1; then
+            result=$(python3 "$client" --check-token --repository-root "$PWD" 2>/dev/null || true)
+            if [ -n "$result" ]; then
+                printf '%s' "$result"
+            else
+                printf '{"item":"token","status":"fail","detail":"GITCODE_TOKEN not set; credential lookup unavailable"}'
+            fi
+        else
+            printf '{"item":"token","status":"fail","detail":"GITCODE_TOKEN not set"}'
+        fi
     fi
 }
 

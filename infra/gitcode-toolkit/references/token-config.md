@@ -10,7 +10,12 @@ GitCode API Token 的获取优先级和使用方式。
 
 1. **用户在请求中直接提供** — 用户明确在消息中给出了 token
 2. **环境变量 `GITCODE_TOKEN`** — 从系统环境变量读取
-3. **询问用户** — 使用 AskUserQuestion 提示用户输入
+3. **Git credential helper** — 按目标仓库上下文读取已保存的 HTTPS 凭据
+4. **询问用户** — 以上均不可用时才提示配置
+
+共享脚本使用 `resolve_token(cli_token, repo_url=<目标仓库或 Issue URL>, repository_root=<目标仓目录>)`；未提供 URL 时读取该目录的 `origin`。通过 `git credential fill` 查询 `gitcode.com` 的仓库路径和 URL 中已有的账号，兼容路径带/不带 `.git` 的保存方式，并遵循 Git 已配置的 helper 与账号选择。只做有超时的非交互查询，不直接读取凭据文件、不调用 approve/reject，不修改 Git 配置或凭据存储。
+
+SSH remote 只用于确定仓库，仍需已有 HTTPS Token；SSH 密钥和 Git 提交身份不能转换成 API Token。helper 返回的 password 是待核验凭据，是否适用于 API、是否过期以及具体权限由目标仓库所需的只读接口核实，不以 Git 推送成功或 `/user` 的账号 scope 替代。凭据只在进程内使用，不写项目配置或报告；预检仅输出 `source: git_credential` 等可用性元数据，缺少凭据才进入原有等待流程。
 
 ---
 

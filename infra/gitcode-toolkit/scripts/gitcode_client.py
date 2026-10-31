@@ -12,7 +12,7 @@
 
 Extracted from fetch_issues.py and classify_issues.py to eliminate duplicated
 HTTP / token / URL / time utilities. This module is imported by upper-layer
-scripts via sys.path; it is NOT a standalone CLI tool.
+scripts via sys.path; its CLI only reports credential availability, never secrets.
 
 Design notes:
 - Token: passed as query param for GET (api_get), as form-data field for POST
@@ -49,6 +49,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import tempfile
 import threading
 import time
@@ -56,7 +57,7 @@ from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import NamedTuple
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import requests
 
@@ -259,19 +260,97 @@ class SharedRateLimiter:
 # --------------------------------------------------------------------------- #
 # Token resolution
 # --------------------------------------------------------------------------- #
-def resolve_token(cli_token=None):
-    """Resolve GitCode API token. Priority: CLI arg > env var > error.
+def _credential_git(args, repository_root, *, input_text=None):
+    """Read configured credentials without prompting or exposing subprocess output."""
+    env = dict(
+        os.environ,
+        GIT_TERMINAL_PROMPT="0",
+        GIT_ASKPASS="/bin/false",
+        SSH_ASKPASS="/bin/false",
+    )
+    try:
+        return subprocess.run(
+            ["git", "-c", "credential.interactive=false", *args],
+            cwd=repository_root,
+            input=input_text,
+            text=True,
+            capture_output=True,
+            timeout=5,
+            env=env,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
 
-    Aligns with token-config.md (user message > env > initial preflight). The
-    upper-layer skill asks from its initial credential preflight, or re-enters
-    that preflight after a required endpoint returns 401/403. Downstream
-    scripts fail fast instead of independently asking the user.
+
+def git_credential_token(repo_url=None, *, repository_root=None):
+    """Return an existing HTTPS GitCode credential; never store or erase it.
+
+    SSH remotes supply repository context only; an SSH key itself is not an API
+    token. The caller must still verify the required API's permissions.
+    """
+    if not repo_url:
+        remote = _credential_git(["remote", "get-url", "origin"], repository_root)
+        if remote is None or remote.returncode:
+            return None
+        repo_url = remote.stdout.strip()
+    if repo_url.startswith("git@gitcode.com:"):
+        repo_url = "ssh://git@gitcode.com/" + repo_url.split(":", 1)[1]
+    try:
+        parsed = urlparse(repo_url)
+        valid_host = parsed.hostname == "gitcode.com" and parsed.port is None
+    except ValueError:
+        return None
+    if not valid_host or parsed.scheme not in {"https", "ssh"}:
+        return None
+    parts = parsed.path.strip("/").split("/")
+    if len(parts) < 2 or not all(parts[:2]):
+        return None
+    path = unquote("/".join(parts[:2]))
+    username = unquote(parsed.username or "") if parsed.scheme == "https" else ""
+    if any(char in path + username for char in "\r\n\0"):
+        return None
+    alternate = path[:-4] if path.endswith(".git") else path + ".git"
+    for candidate in (path, alternate):
+        context = f"protocol=https\nhost=gitcode.com\npath={candidate}\n"
+        if username:
+            context += f"username={username}\n"
+        response = _credential_git(
+            ["credential", "fill"],
+            repository_root,
+            input_text=context + "\n",
+        )
+        if response is None or response.returncode:
+            continue
+        fields = {}
+        for line in response.stdout.splitlines():
+            if "=" in line:
+                key, value = line.split("=", 1)
+                fields[key] = value
+        same_context = (
+            fields.get("host", "gitcode.com") == "gitcode.com"
+            and fields.get("protocol", "https") == "https"
+            and (not username or fields.get("username") == username)
+            and (not fields.get("path") or fields["path"] == candidate)
+        )
+        if same_context and fields.get("username") and fields.get("password"):
+            return fields["password"]
+    return None
+
+
+def resolve_token(cli_token=None, *, repo_url=None, repository_root=None):
+    """Resolve API token: explicit value > environment > Git credential helper.
+
+    Repository context selects existing credentials; no network validation,
+    prompts, persistent writes or changes to Git's credential store occur here.
     """
     token = cli_token or os.environ.get("GITCODE_TOKEN")
     if not token:
+        token = git_credential_token(repo_url, repository_root=repository_root)
+    if not token:
         raise GitCodeClientError(
             "Error: API token not provided.\n"
-            "Pass --token <token> or set the GITCODE_TOKEN environment variable."
+            "Pass --token <token>, set GITCODE_TOKEN or configure a GitCode credential helper."
         )
     return token
 
@@ -657,3 +736,32 @@ def parse_iso(ts):
         return datetime.fromisoformat(ts.replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Check credential availability without printing secrets"
+    )
+    parser.add_argument("--check-token", action="store_true", required=True)
+    parser.add_argument("--repository-root")
+    parser.add_argument("--repo-url")
+    args = parser.parse_args()
+    try:
+        resolve_token(repo_url=args.repo_url, repository_root=args.repository_root)
+    except GitCodeClientError:
+        report = {
+            "item": "token",
+            "status": "fail",
+            "detail": "GITCODE_TOKEN not set; no matching Git credential",
+        }
+        print(json.dumps(report, separators=(",", ":")))
+        raise SystemExit(1)
+    report = {
+        "item": "token",
+        "status": "pass",
+        "detail": "credential available; API permissions require verification",
+        "source": "env" if os.environ.get("GITCODE_TOKEN") else "git_credential",
+    }
+    print(json.dumps(report, separators=(",", ":")))

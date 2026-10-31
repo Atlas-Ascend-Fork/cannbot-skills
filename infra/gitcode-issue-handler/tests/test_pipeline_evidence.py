@@ -1,5 +1,12 @@
+# -----------------------------------------------------------------------------------------------------------
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
-# Licensed under the CANN Open Software License Agreement Version 2.0.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# -----------------------------------------------------------------------------------------------------------
 """Facts and quality gates, including the live-evaluation false-dead-link regression."""
 
 import copy
@@ -18,8 +25,15 @@ from pipeline_store import new_state, PipelineStore
 
 @pytest.fixture
 def facts(monkeypatch, tmp_path):
-    paths = ["story/recipes/examples/quant/README.md", "story/docs/量化介绍.md", "kernel.h"]
-    contents = {paths[0]: "[量化](../../../docs/量化介绍.md)\n[坏链](missing.md)\n", paths[2]: "void copy() {}"}
+    paths = [
+        "story/recipes/examples/quant/README.md",
+        "story/docs/量化介绍.md",
+        "kernel.h",
+    ]
+    contents = {
+        paths[0]: "[量化](../../../docs/量化介绍.md)\n[坏链](missing.md)\n",
+        paths[2]: "void copy() {}",
+    }
 
     def fake_git(root, *args):
         if args[0] == "rev-parse":
@@ -47,7 +61,11 @@ def test_relative_links_resolve_from_readme_not_repo_root(facts):
 
 
 def make_result(tmp_path, facts):
-    task = {"task_id": "1/response/test", "attempt_id": "attempt1", "payload": {"issue": {"title": "README 死链"}}}
+    task = {
+        "task_id": "1/response/test",
+        "attempt_id": "attempt1",
+        "payload": {"issue": {"title": "README 死链"}},
+    }
     path = tmp_path / "facts.json"
     path.write_text(json.dumps(facts))
     state = {
@@ -65,8 +83,15 @@ def make_result(tmp_path, facts):
         "reply": "回复具体核查结果",
         "next_action": "等待提交版本",
         "source_verdict": "needs_version",
-        "owner_review": {"status": "not_needed", "reason": "当前版本无法复现，先核对提交", "candidates": []},
-        "response_review": {"checked_facts": ["目标文档存在"], "remaining_unknowns": ["报告提交"]},
+        "owner_review": {
+            "status": "not_needed",
+            "reason": "当前版本无法复现，先核对提交",
+            "candidates": [],
+        },
+        "response_review": {
+            "checked_facts": ["目标文档存在"],
+            "remaining_unknowns": ["报告提交"],
+        },
     }
     return state, task, result
 
@@ -107,7 +132,9 @@ def test_owner_login_cannot_be_guessed_from_git_email(tmp_path, facts):
 
 
 def test_directory_listing_cannot_replace_source_inspection(tmp_path, facts):
-    facts["records"] = [{"path": "story", "kind": "directory", "tracked": True, "history": []}]
+    facts["records"] = [
+        {"path": "story", "kind": "directory", "tracked": True, "history": []}
+    ]
     state, task, result = make_result(tmp_path, facts)
     with pytest.raises(pd.MaterialError) as exc:
         pd.validate_response(state, task, result, tmp_path)
@@ -160,7 +187,9 @@ def test_explicit_rejection_is_known_failure_not_unknown_write(tmp_path):
     )
     p.migrate(state, tmp_path, {"responsibility": {}})
     rejected = state["operations"]["legacy:old:old-push"]
-    assert rejected["status"] == "verified" and rejected["outcome"] == "confirmed_rejected"
+    assert (
+        rejected["status"] == "verified" and rejected["outcome"] == "confirmed_rejected"
+    )
     assert rejected["target"] == "origin/fix/old"
     assert state["operations"]["legacy:old:uncertain"]["status"] == "needs_review"
 
@@ -171,13 +200,20 @@ def _response_case_state(cfg, now, response_requirement):
 
     state = new_state("team/repo")
     state.update(migration_done=True, needs_full_scan=False)
-    state["scan"] = {"id": "testscan", "complete": True, "attempted_at": now, "completed_at": now}
+    state["scan"] = {
+        "id": "testscan",
+        "complete": True,
+        "attempted_at": now,
+        "completed_at": now,
+    }
     issue = {
         "iid": "1",
         "number": "1",
         "title": "README 死链",
         "state": "open",
-        "author": "reporter",
+        "author": "alice"
+        if response_requirement == "exempt_self_authored_pr"
+        else "reporter",
         "description": "README target not found",
         "url": "https://gitcode.com/team/repo/issues/1",
     }
@@ -194,7 +230,12 @@ def _response_case_state(cfg, now, response_requirement):
         "scope": make_entry(issue, cfg["responsibility"], review),
     }
     state["issues"]["1"] = entry
-    item = {"number": "1", "bucket": "need_attention", "category": "first_response", "responsibility": "handle"}
+    item = {
+        "number": "1",
+        "bucket": "need_attention",
+        "category": "first_response",
+        "responsibility": "handle",
+    }
     if response_requirement:
         item["auto_action"] = {
             "type": "assign_candidate",
@@ -202,6 +243,10 @@ def _response_case_state(cfg, now, response_requirement):
             "candidates": ["alice"],
             "response_requirement": response_requirement,
         }
+    if response_requirement == "exempt_self_authored_pr":
+        item["linked_prs"] = [{"pr_state": "open", "pr_author": "alice"}]
+    if response_requirement == "satisfied":
+        item["latest_maintainer_comment_id"] = "9001"
     only_assignment = pd.assignment_only(item)
     return state, entry, item, only_assignment
 
@@ -215,19 +260,32 @@ def _prepare_response_case(tmp_path, facts, monkeypatch, response_requirement):
     monkeypatch.chdir(tmp_path)
     cfg = load_handler_config(config_path)
     now = p.time.time()
-    state, entry, item, only_assignment = _response_case_state(cfg, now, response_requirement)
-    p.apply_classification(state, {"issues": [item]}, [entry], "classification.json", now)
+    state, entry, item, only_assignment = _response_case_state(
+        cfg, now, response_requirement
+    )
+    p.apply_classification(
+        state, {"issues": [item]}, [entry], "classification.json", now
+    )
     task = p.queue.claim(state, "worker", now)
     with PipelineStore(tmp_path / p.RUNTIME, "team/repo") as store:
         bundle = p.claim_bundle(task, state, tmp_path, store)
-        relative = str(Path(bundle["result_file"]).parent.relative_to(tmp_path) / "facts.json")
+        relative = str(
+            Path(bundle["result_file"]).parent.relative_to(tmp_path) / "facts.json"
+        )
         (tmp_path / relative).write_text(json.dumps(facts))
         state["source_evidence"] = {
-            relative: {"task_id": task["task_id"], "attempt_id": task["attempt_id"], "digest": pe.content_hash(facts)}
+            relative: {
+                "task_id": task["task_id"],
+                "attempt_id": task["attempt_id"],
+                "digest": pe.content_hash(facts),
+            }
         }
         _, _, result = make_result(tmp_path, facts)
         result.update(
-            decision="prepared", summary="核对版本", evidence=["Git tracked snapshot"], inspection_files=[relative]
+            decision="prepared",
+            summary="核对版本",
+            evidence=["Git tracked snapshot"],
+            inspection_files=[relative],
         )
         # not_needed may carry descriptive metadata; it is not a candidate list.
         result["owner_review"]["operators"] = [{"name": "existing owner context"}]
@@ -237,7 +295,13 @@ def _prepare_response_case(tmp_path, facts, monkeypatch, response_requirement):
             result.update(reply="", inspection_files=[])
         Path(bundle["result_file"]).write_text(json.dumps(result))
         store.save(state)
-    args = ["--repository-root", str(tmp_path), "--claim-file", bundle["claim_file"], "--offline"]
+    args = [
+        "--repository-root",
+        str(tmp_path),
+        "--claim-file",
+        bundle["claim_file"],
+        "--offline",
+    ]
     return {
         "args": args,
         "cfg": cfg,
@@ -258,7 +322,9 @@ def _assert_response_revision(tmp_path, accepted, case):
     refreshed["scan"]["id"] = "nextscan"
     refreshed["issues"]["1"].pop("classification_scan_id")
     assert pd.report_state(refreshed, tmp_path, now)["issues"] == []
-    p.apply_classification(refreshed, {"issues": [item]}, [refreshed["issues"]["1"]], "next.json", now)
+    p.apply_classification(
+        refreshed, {"issues": [item]}, [refreshed["issues"]["1"]], "next.json", now
+    )
     assert len(pd.report_state(refreshed, tmp_path, now)["issues"]) == 1
     # PR-only changes and changed issue contents both archive obsolete drafts.
     for reason in ("pr", "body"):
@@ -266,21 +332,39 @@ def _assert_response_revision(tmp_path, accepted, case):
         changed_entry = changed["issues"]["1"]
         if reason == "pr":
             updated = dict(item, linked_prs=[{"number": 9, "state": "open"}])
-            p.apply_classification(changed, {"issues": [updated]}, [changed_entry], "new.json", now)
+            p.apply_classification(
+                changed, {"issues": [updated]}, [changed_entry], "new.json", now
+            )
         else:
             changed_entry["issue"]["description"] += " new evidence"
             p.synchronize(changed, cfg, now)
         assert "prepared_response" not in changed_entry
-        assert changed_entry["response_history"][-1]["result"]["summary"] == result["summary"]
+        assert (
+            changed_entry["response_history"][-1]["result"]["summary"]
+            == result["summary"]
+        )
         assert not pd.report_state(changed, tmp_path, now)["issues"]
         assert "delivery_report" not in changed
         with pytest.raises(ValueError, match="stale_claim_file"):
             p.open_claim(p.parser().parse_args(["check", *args]), changed, tmp_path)
-    original_reply = Path(accepted["issues"]["1"]["response_file_map"]["assign.md" if only_assignment else "reply.md"])
+    original_reply = Path(
+        accepted["issues"]["1"]["response_file_map"][
+            "assign.md" if only_assignment else "reply.md"
+        ]
+    )
     before = original_reply.read_text()
     p.run(
         p.parser().parse_args(
-            ["revise", "--iid", "1", "--reason", "事实需要修正", "--repository-root", str(tmp_path), "--offline"]
+            [
+                "revise",
+                "--iid",
+                "1",
+                "--reason",
+                "事实需要修正",
+                "--repository-root",
+                str(tmp_path),
+                "--offline",
+            ]
         )
     )
     with PipelineStore(tmp_path / p.RUNTIME, "team/repo") as store:
@@ -292,13 +376,17 @@ def _assert_response_revision(tmp_path, accepted, case):
     assert revised["tasks"][task["task_id"]]["status"] == "superseded"
 
 
-@pytest.mark.parametrize("response_requirement", [None, "exempt_self_authored_pr", "satisfied", "required"])
+@pytest.mark.parametrize(
+    "response_requirement", [None, "exempt_self_authored_pr", "satisfied", "required"]
+)
 def test_response_accept_generates_strict_report_and_revision_preserves_original(
     tmp_path, facts, monkeypatch, response_requirement
 ):
     case = _prepare_response_case(tmp_path, facts, monkeypatch, response_requirement)
     args, cfg, now, item = (case[key] for key in ("args", "cfg", "now", "item"))
-    result, only_assignment, task = (case[key] for key in ("result", "only_assignment", "task"))
+    result = case["result"]
+    only_assignment = case["only_assignment"]
+    task = case["task"]
     p.run(p.parser().parse_args(["submit", *args]))
     output = p.run(p.parser().parse_args(["accept", *args]))
     report = Path(output["delivery_report"])
@@ -306,18 +394,34 @@ def test_response_accept_generates_strict_report_and_revision_preserves_original
     report_json = json.loads((report.parent / "_internal/run_state.json").read_text())
     assert report_json["run"]["report_generated"] is True
     assert report_json["issues"][0]["response_status"] == (
-        "exempt_self_authored_pr" if response_requirement == "exempt_self_authored_pr" else "prepared"
+        "not_applicable_existing"
+        if response_requirement == "satisfied"
+        else (
+            "exempt_self_authored_pr"
+            if response_requirement == "exempt_self_authored_pr"
+            else "prepared"
+        )
     )
     assert bool(report_json["issues"][0]["related_code"]) is (not only_assignment)
     if only_assignment:
         assert "reply.md" not in report_json["issues"][0]["response_artifacts"]
     if response_requirement:
-        assignment_file = Path(report_json["issues"][0]["response_artifacts"]["assign.md"])
+        assignment_file = Path(
+            report_json["issues"][0]["response_artifacts"]["assign.md"]
+        )
         assert assignment_file.read_text() == "/assign @alice\n"
     assert "owner_candidate_analysis" not in report_json["issues"][0]
     with PipelineStore(tmp_path / p.RUNTIME, "team/repo") as store:
         accepted = store.load()
-    case = dict(item=item, cfg=cfg, now=now, result=result, args=args, task=task, only_assignment=only_assignment)
+    case = dict(
+        item=item,
+        cfg=cfg,
+        now=now,
+        result=result,
+        args=args,
+        task=task,
+        only_assignment=only_assignment,
+    )
     _assert_response_revision(tmp_path, accepted, case)
 
 
@@ -353,7 +457,7 @@ def test_assignment_preparation_uses_verified_classifier_candidate(tmp_path):
             "type": "assign_candidate",
             "candidate": "author",
             "candidates": ["author", "other"],
-            "response_requirement": "exempt_self_authored_pr",
+            "response_requirement": "satisfied",
         }
     }
     result = pd.response_template(classification)
@@ -389,8 +493,18 @@ def test_malformed_review_fields_fail_before_report(tmp_path, facts):
 @pytest.mark.parametrize(
     "owner",
     [
-        {"status": "candidates", "operators": ["kernel"], "reason": "证据", "candidates": [{"login": ["bad"]}]},
-        {"status": "unresolved", "operators": ["kernel"], "reason": "缺身份", "candidates": [{"operators": [{}]}]},
+        {
+            "status": "candidates",
+            "operators": ["kernel"],
+            "reason": "证据",
+            "candidates": [{"login": ["bad"]}],
+        },
+        {
+            "status": "unresolved",
+            "operators": ["kernel"],
+            "reason": "缺身份",
+            "candidates": [{"operators": [{}]}],
+        },
     ],
 )
 def test_invalid_candidate_shapes_return_material_errors(tmp_path, facts, owner):
@@ -400,7 +514,9 @@ def test_invalid_candidate_shapes_return_material_errors(tmp_path, facts, owner)
         pd.validate_response(state, task, result, tmp_path)
 
 
-def test_inspect_explicit_line_range_preserves_fixed_revision_and_full_links(monkeypatch, tmp_path):
+def test_inspect_explicit_line_range_preserves_fixed_revision_and_full_links(
+    monkeypatch, tmp_path
+):
     content = "\n".join(f"line {i}" for i in range(1, 301)) + "\n[late](late.md)"
 
     def fake_git(root, *args):
@@ -433,7 +549,9 @@ def test_inspect_explicit_line_range_preserves_fixed_revision_and_full_links(mon
             pe.inspect_sources(tmp_path, "team/repo", paths, lines=lines)
 
 
-def test_existing_evidence_paging_does_not_collect_or_rewrite_state(tmp_path, facts, monkeypatch):
+def test_existing_evidence_paging_does_not_collect_or_rewrite_state(
+    tmp_path, facts, monkeypatch
+):
     monkeypatch.chdir(tmp_path)
     config = tmp_path / p.RUNTIME / "config/classify_config.yaml"
     config.parent.mkdir(parents=True)
@@ -448,7 +566,9 @@ def test_existing_evidence_paging_does_not_collect_or_rewrite_state(tmp_path, fa
         before = store.path.read_bytes()
 
     def unexpected(*args, **kwargs):
-        raise AssertionError("existing evidence must not collect, synchronize or migrate")
+        raise AssertionError(
+            "existing evidence must not collect, synchronize or migrate"
+        )
 
     monkeypatch.setattr(p, "inspect_sources", unexpected)
     monkeypatch.setattr(p, "synchronize", unexpected)
@@ -477,19 +597,38 @@ def test_existing_evidence_paging_does_not_collect_or_rewrite_state(tmp_path, fa
 
 
 def test_material_links_deduplicate_same_revision_but_keep_distinct_versions(tmp_path):
-    record = {"path": "kernel.h", "url": "https://example.test/a/kernel.h", "kind": "file", "revision": "a" * 40}
+    record = {
+        "path": "kernel.h",
+        "url": "https://example.test/a/kernel.h",
+        "kind": "file",
+        "revision": "a" * 40,
+    }
     second = {**record, "revision": "b" * 40, "url": "https://example.test/b/kernel.h"}
     result = pd.response_template()
     result["analysis"] = "Static source review"
     with PipelineStore(tmp_path / p.RUNTIME, "team/repo") as store:
-        files, related = pd.materialize(result, [record, record, second], store, Path("reports/test"))
+        files, related = pd.materialize(
+            result, [record, record, second], store, Path("reports/test")
+        )
     assert related == [record, second]
-    assert Path(files["analysis.md"]).read_text().count("https://example.test/a/kernel.h") == 1
+    assert (
+        Path(files["analysis.md"]).read_text().count("https://example.test/a/kernel.h")
+        == 1
+    )
 
 
-def test_response_claim_discloses_validator_enums_and_next_command_preserves_context(tmp_path):
+def test_response_claim_discloses_validator_enums_and_next_command_preserves_context(
+    tmp_path,
+):
     state = new_state("team/repo")
-    p.queue.ensure_task(state, "1", "response", "digest", {"issue": {"iid": "1"}, "classification": {}}, 1)
+    p.queue.ensure_task(
+        state,
+        "1",
+        "response",
+        "digest",
+        {"issue": {"iid": "1"}, "classification": {}},
+        1,
+    )
     task = p.queue.claim(state, "worker", 2)
     with PipelineStore(tmp_path / p.RUNTIME, "team/repo") as store:
         bundle = p.claim_bundle(task, state, tmp_path, store)
@@ -497,7 +636,14 @@ def test_response_claim_discloses_validator_enums_and_next_command_preserves_con
     assert contract["source_verdict"] == list(pd.SOURCE_VERDICTS)
     assert contract["owner_review.status"] == list(pd.OWNER_STATUSES)
     args = p.parser().parse_args(
-        ["check", "--claim-file", bundle["claim_file"], "--offline", "--config", str(tmp_path / "custom.yaml")]
+        [
+            "check",
+            "--claim-file",
+            bundle["claim_file"],
+            "--offline",
+            "--config",
+            str(tmp_path / "custom.yaml"),
+        ]
     )
     command = p.command_argv("submit", tmp_path, args)
     parsed = p.parser().parse_args(command[2:])
@@ -508,6 +654,14 @@ def test_response_claim_discloses_validator_enums_and_next_command_preserves_con
 
 def test_next_submit_preserves_checked_result_override(tmp_path):
     result = tmp_path / "corrected.json"
-    args = p.parser().parse_args(["check", "--claim-file", str(tmp_path / "claim.json"), "--result-file", str(result)])
+    args = p.parser().parse_args(
+        [
+            "check",
+            "--claim-file",
+            str(tmp_path / "claim.json"),
+            "--result-file",
+            str(result),
+        ]
+    )
     followup = p.parser().parse_args(p.command_argv("submit", tmp_path, args)[2:])
     assert followup.result_file == str(result)
