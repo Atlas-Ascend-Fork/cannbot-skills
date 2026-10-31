@@ -1,0 +1,59 @@
+{
+  "eval_mode": "text",
+  "skill_name": "ge-inductor-autofuse-analysis",
+  "evals": [
+    {
+      "id": 1,
+      "title": "单模式融合分析的流程与口径",
+      "config": {
+        "ascend_platforms": ["A2"],
+        "max_tokens": 180000,
+        "eval_mode": "text",
+        "distractor_skills": [
+          "ge-fusion-pass-skill",
+          "ge-stream-log-analysis",
+          "torch-npugraph-ex-performance-diagnosis"
+        ]
+      },
+      "prompt": "我有一份开启 AutoFuse 后的 Profiling 输出目录，想分析自动融合的效果、找出可融但未融合的片段。请先选择最匹配的 Skill，再只返回文字分析计划：说明如何判定融合模式、如何确定每迭代耗时口径、以及脚本子命令该怎么跑。当前不实际执行脚本，也不要假设我提供了 Dump 图。",
+      "expected_output": "回复应正确激活 ge-inductor-autofuse-analysis，给出基于 op_statistic 融合算子前缀的模式判定方法、迭代次数口径（优先 step_trace，缺失时回退推断）、每迭代耗时用 op_statistic Total Time 求和除以迭代数的约定，并给出 profile/all 子命令的用法。不能凭空编造 Profiling 中的具体算子数据。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 2,
+      "title": "融合前后对比定位劣化片段",
+      "config": {
+        "ascend_platforms": ["A2"],
+        "max_tokens": 180000,
+        "eval_mode": "text",
+        "distractor_skills": [
+          "ge-fusion-pass-skill",
+          "torch-npugraph-ex-compile-error-diagnosis"
+        ]
+      },
+      "prompt": "同一张网络，我有一组开启融合前的 baseline Profiling 和一组开启 AutoFuse 后的 Profiling，想知道融合后哪些融合片段变慢了。请只返回文字方案：用哪个脚本子命令、需要哪些必选输入、报告里应重点看哪些结论。不要执行命令，也不要虚构耗时数字。",
+      "expected_output": "回复应激活 ge-inductor-autofuse-analysis 并给出 compare --mode before-after 的用法与 before/after Profiling 目录必选输入，说明重点看融合劣化片段、劣化影响排序与劣化原因分类；缺少数据时如实说明，而不是编造具体劣化数值。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 3,
+      "title": "双模式对比（Triton/DVM → AutoFuse）",
+      "config": {
+        "ascend_platforms": ["A2"],
+        "max_tokens": 180000,
+        "eval_mode": "text",
+        "distractor_skills": [
+          "ge-fusion-pass-skill",
+          "ge-memory-analysis",
+          "torch-npugraph-ex-performance-diagnosis"
+        ]
+      },
+      "prompt": "模型从 Inductor+DVM 后端切换到 AutoFuse 后性能下降，我手上有两组 Profiling。请选择最匹配的 Skill，只返回文字分析思路：如何做两种融合模式对比、怎样区分融合范围差异和相同融合范围内的算子性能差异。不要运行脚本。",
+      "expected_output": "回复应激活 ge-inductor-autofuse-analysis，给出 compare --mode cross-mode 的双模式输入（两组 Profiling 及模式名称），说明需要区分融合范围差异与相同融合范围的算子性能差异，并能给出后续定位优化点的方向；不得虚构具体性能数据。",
+      "files": [],
+      "expectations": []
+    }
+  ]
+}
