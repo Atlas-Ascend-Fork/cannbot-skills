@@ -7,7 +7,7 @@ Torch 中无对应、面向 NPU 硬件能力的接口。算子涉及量化数据
 | 接口 | 功能 | 平台约束 | 性能场景 |
 |------|------|---------|---------|
 | `scaled_mm` | mx 量化矩阵乘 `out=(mat_a*scale_a)@(mat_b*scale_b)`，`out_dtype` 必填，支持 a/b 及其 scale 的转置标志 | 仅 950PR/DT | FP8/MXFP8 量化 matmul 融合（gym：DeepSeek MLA prolog 的 q_a_proj / compressed_kv / q_b_proj 量化投影、quant_grouped_matmul） |
-| `quant_mx` | `quant_mx(input, quant_dtype, mode, axis)` 高精度→MX 量化，返回（量化结果， 共享指数 scale）；输入 FP16/BF16/FP32，输出 FP8E4M3 / FP4_E2M1X2（FP4 仅 FP16/BF16 输入） | 仅 950PR/DT | MXFP8/FP4 量化数据流生成（gym：MLA prolog 中 RmsNorm 输出按 block 量化为 FP8E4M3 供 `scaled_mm` 消费） |
+| `quant_mx` | `quant_mx(input, quant_dtype, mode, axis)` 高精度→MX 量化，返回（量化结果，共享指数 scale）；输入 FP16/BF16/FP32，输出 FP8E4M3 / FP4_E2M1X2（FP4 仅 FP16/BF16 输入） | 仅 950PR/DT | MXFP8/FP4 量化数据流生成（gym：MLA prolog 中 RmsNorm 输出按 block 量化为 FP8E4M3 供 `scaled_mm` 消费） |
 | `quantize` | `quantize(input, scale, otype, axis, zero_points)` FP32→INT8 对称量化 | 全平台 | 量化数据流入口 |
 | `dequantize` | `dequantize(input, scale, otype, axis, zero_points)` INT8/INT16→FP32，应用 scale 与 zero_points | 全平台 | 量化数据流出口 |
 | `atomic_add` | `atomic_add(src, offsets, dst)` 以 offsets 为基准把 src 区域原子累加到 dst | 全平台 | 多核分块写同一输出免串行（gym：flash_attention_mha_grad 中 dq/dk/dv 梯度按序列位置原子累加回 GM） |

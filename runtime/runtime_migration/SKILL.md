@@ -15,7 +15,7 @@ description: 将用户合法拥有或已获授权的 CUDA 应用中的 Runtime �
 在满足上述授权与使用边界的前提下，本技能只负责将 CUDA 应用程序的 Runtime 层迁移到华为昇腾 NPU 的 CANN Runtime。基于 `assets/src` 目录下的兼容层源码，提供两种迁移方式：
 
 1. **兼容层方式**：替换头文件并链接兼容库，最小代码修改
-   说明：默认使用兼容层方式,除非用户明确要求“直接迁移方式、直接改成 CANN API”， 并遵守以下约束：
+   说明：默认使用兼容层方式,除非用户明确要求“直接迁移方式、直接改成 CANN API”，并遵守以下约束：
     - **尽量保持用户源码不变**：优先只替换 include、构建配置和 CUDA 编译器专用语法；不要无故重写控制流、变量名、输出文本、错误处理风格。
     - **不要主动引入新风格**：原代码没有 `CUDA_CHECK`、RAII、异常、封装类、`std::vector` 改写时，不要为了“更规范”而加入。
     - **CANN 细节不泄漏到业务源码**：兼容层方式下，业务源码不应直接 include `acl/acl.h`、`aclnnop/*.h`，也不应自己创建/销毁 `aclTensor`、`aclScalar`、workspace。
@@ -25,7 +25,7 @@ description: 将用户合法拥有或已获授权的 CUDA 应用中的 Runtime �
     - **每次迁移都要编译并运行最小验证**：不能只改代码不验证；如机器有坏卡或需指定设备，用环境变量如 `ASCEND_RT_VISIBLE_DEVICES` 限制可见设备。
 
 2. **直接迁移方式**：将 CUDA API 调用改写为 CANN Runtime API, 
-  说明： 直接迁移方式适用于需要深度适配或优化的场景，或应用使用部分不支持 API 需自定义实现的情况。直接迁移方式下，程序需要将 CUDA API 调用改写为 CANN Runtime API 调用，并处理参数差异、错误码映射等细节。直接迁移方式的改写步骤包括：
+  说明：直接迁移方式适用于需要深度适配或优化的场景，或应用使用部分不支持 API 需自定义实现的情况。直接迁移方式下，程序需要将 CUDA API 调用改写为 CANN Runtime API 调用，并处理参数差异、错误码映射等细节。直接迁移方式的改写步骤包括：
    - API 映射对照：参考 `references ` 中的 API 支持状态表、接口文档等文件，了解哪些 CUDA API 有对应的 CANN API 支持，不支持的接口如何处理，并查看 `assets/src` 中的实现示例。
    - 类型映射：了解 CUDA 类型与 CANN 类型的映射关系，如 `cudaStream_t` 映射为 `aclrtStream`。
    - 错误码转换：参考 `references/error_mapping.md` 进行错误码映射，将 CANN 错误码转换为 CUDA 错误码。  
