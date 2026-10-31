@@ -66,6 +66,20 @@ platform_ascendc::SocVersion socVer = ascendcPlatform.GetSocVersion();
 | 同步机制 | BufferID 替代 set/wait 强配对 |
 | 编程模型 | 新增 SIMT、SIMD-Regbase、NDDMA、CCU 通算融合 |
 
+## Vector 单元架构
+
+Ascend NPU 的 Vector 单元当前共有 3 种架构形态：**SIMD-Membase**（指令直接操作 UB 地址）架构、**SIMD-Regbase**（数据加载进向量寄存器后计算）架构、**SIMD-Regbase + SIMT**（在 SIMD-Regbase 基础上增加 SIMT 标量线程执行，Warp 调度）混合架构。
+
+| NpuArch | Vector 单元架构 |
+|---|---|
+| DAV_2201 | SIMD-Membase |
+| DAV_3003 / DAV_3113 | SIMD-Regbase |
+| DAV_3510 | SIMD-Regbase + SIMT |
+
+- SIMD-Regbase 平台可以通过实现层包装兼容 MemBase API（「加载 → 寄存器计算 → 写回」循环），MemBase 风格算子可直接编译运行，但性能敏感场景应直接使用 RegBase 编程。
+- RegBase 开发细节（API 约束、陷阱、参考算子）见 `/ascendc-regbase-best-practice` skill。
+- 架构定义与兼容机制详见 [`npu-arch-guide.md` §6 Vector 单元架构](references/npu-arch-guide.md#vector-单元架构)。
+
 ## 详细文档索引
 
 `references/` 按需加载：
@@ -76,6 +90,7 @@ platform_ascendc::SocVersion socVer = ascendcPlatform.GetSocVersion();
   - **典型硬件参数与获取方式**：核数 / Buffer 容量典型值，`GetCoreNumA*` / `GetCoreMemSize` / `aclrtGetDeviceInfo` 接口用法（含硬编码反例）
   - **DAV_3510 微架构**：AI Core Buffer 层级、MTE 引擎、CV 数据通路改动、BufferID 同步
   - **SIMT vs SIMD**：硬件能力差异与适用场景
+  - **Vector 单元架构**：SIMD-Membase/SIMD-Regbase/SIMT 三类架构定义、架构支持矩阵、MemBase API 兼容机制
   - **SIMD-Regbase**：寄存器组、核心优势、代码形态变化
   - **数据格式扩展**：完整数据类型表、C++ 类型名映射、MXFP Tiling 约束
   - **NDDMA / CCU**：高维 DMA 用法、CCU 三种通信范式、KFC 调度模型

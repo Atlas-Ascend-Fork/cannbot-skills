@@ -1,0 +1,20 @@
+{
+  "eval_mode": "text",
+  "evals": [
+    {
+      "id": 1,
+      "title": "Kirin 平台不支持 npusim 的正确仿真方式",
+      "config": {
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "当前环境目标芯片是 Kirin9030，没有 NPU 硬件，需要运行仿真验证算子功能。可以用 npusim record -s Kirin9030 吗？应该怎么做？不需要执行任何工具调用。",
+      "expected_output": "回复应明确：Kirin 平台（Kirin9030/KirinX90）不支持 npusim/cannsim 命令，npusim record -s Kirin9030 会失败；应使用算子工程一键脚本 bash run.sh -r sim -v Kirin9030（-v 指 SoC 版本，-r sim 走 simulator 库）。并说明 Kirin 无 npusim 的 summary.json/trace 报告，精度验证读 output/*.bin、性能从 sim 日志解析；可指向 references/kirin-simulator-guide.md。",
+      "expectations": [],
+      "files": []
+    }
+  ],
+  "skill_name": "ops-kirin-simulator"
+}

@@ -1,6 +1,6 @@
 ---
 name: ops-simulator
-description: NPU 仿真器技能。提供 CANN Simulator 的使用指导，包括精度仿真、性能仿真、流水线分析。当需要在无 NPU 硬件环境下验证算子功能、分析性能瓶颈、定位精度问题时使用。也用于分析已有的 npusim 性能报告（summary.json）并给出优化建议。
+description: 昇腾平台 NPU 仿真器技能。提供 CANN Simulator 的使用指导，包括精度仿真、性能仿真、流水线分析。当需要在无 NPU 硬件环境下验证算子功能、分析性能瓶颈、定位精度问题时使用。也用于分析已有的 npusim 性能报告（summary.json）并给出优化建议。
 ---
 
 # NPU 仿真器使用指南

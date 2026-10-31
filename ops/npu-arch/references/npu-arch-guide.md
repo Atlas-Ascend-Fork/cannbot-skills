@@ -11,12 +11,13 @@
 3. [典型硬件参数与获取方式](#典型硬件参数与获取方式)
 4. [DAV_3510 微架构与编程影响](#dav_3510-微架构与编程影响)
 5. [SIMT vs SIMD 硬件能力差异](#simt-vs-simd-硬件能力差异)
-6. [SIMD-Regbase 架构](#simd-regbase-架构)
-7. [DAV_3510 数据格式扩展](#dav_3510-数据格式扩展)
-8. [NDDMA 高维 DMA 指令](#nddma-高维-dma-指令)
-9. [CCU 通算融合开发模型](#ccu-通算融合开发模型)
-10. [架构兼容性检查清单](#架构兼容性检查清单)
-11. [参考信息来源](#参考信息来源)
+6. [Vector 单元架构](#vector-单元架构)
+7. [SIMD-Regbase 架构](#simd-regbase-架构)
+8. [DAV_3510 数据格式扩展](#dav_3510-数据格式扩展)
+9. [NDDMA 高维 DMA 指令](#nddma-高维-dma-指令)
+10. [CCU 通算融合开发模型](#ccu-通算融合开发模型)
+11. [架构兼容性检查清单](#架构兼容性检查清单)
+12. [参考信息来源](#参考信息来源)
 
 ---
 
@@ -328,9 +329,43 @@ DAV_3510 上 SIMT 提供 `__global__` 核函数语法和 `<<<...>>>` 启动方�
 
 ---
 
+## Vector 单元架构
+
+Ascend NPU 的 Vector 单元当前共有 3 种架构形态：
+
+| 架构 | 计算方式 | 典型代码形态 |
+|---|---|---|
+| **SIMD-Membase** | 指令直接以 UB 地址为操作数（block/repeat + stride 参数） | `LocalTensor` + vector API |
+| **SIMD-Regbase** | 数据先加载进向量寄存器，寄存器内计算后写回 | `RegTensor` + `MaskReg` + 显式 for-loop |
+| **SIMD-Regbase + SIMT** | 在 SIMD-Regbase 基础上增加 SIMT（标量多线程视角） | `__global__ __aicore__` 核函数内混合调用 `__simd_vf__` 与 `__simt_vf__` |
+
+### 架构支持矩阵
+
+| NpuArch | Vector 单元架构 |
+|---|---|
+| DAV_2201 | SIMD-Membase |
+| DAV_3003 / DAV_3113 | SIMD-Regbase |
+| DAV_3510 | SIMD-Regbase + SIMT |
+
+### MemBase API 的兼容机制
+
+RegBase 平台上，MemBase 风格的公开 vector API（`__ubuf__` 指针 + calCount 参数）并非硬件原生路径，而是由实现层包装为「加载 → 寄存器内计算 → 写回」的显式循环：
+
+```
+for (i = 0; i < repeatTime; ++i) {
+    加载 src0/src1 到 RegTensor       // LoadAlign / DataCopy(vreg, src)
+    寄存器内计算                        // Reg::Add / Add(vreg2, vreg0, vreg1, preg)
+    写回 dst                           // StoreAlign / DataCopy(dst, vreg)
+}
+```
+
+因此 RegBase 平台上按 MemBase 风格编写的算子代码可直接编译运行；但包装层引入额外的加载/写回，性能敏感场景应直接使用 RegBase 编程（开发细节见 `/ascendc-regbase-best-practice` skill）。
+
+---
+
 ## SIMD-Regbase 架构
 
-DAV_3510 在 Vector 单元上引入 Regbase 架构，与传统 Membase 并存（白皮书 §3 确认"双发射 Register-Based SIMD 新架构"，§4.1.3 确认乱序执行（OOO），§4.1.2 确认 UB 与 Vector ALU 之间引入 RegFile 寄存器作临时存储）。
+DAV_3510 与 Kirin 端侧平台（DAV_3003/3113）的 Vector 单元均为 SIMD-Regbase 架构，同时通过实现层包装兼容 MemBase 编程（兼容机制见 [Vector 单元架构](#vector-单元架构)）。其中 DAV_3510 的 RegBase 架构已由 950 白皮书证实（§3 确认"双发射 Register-Based SIMD 新架构"，§4.1.3 确认乱序执行（OOO），§4.1.2 确认 UB 与 Vector ALU 之间引入 RegFile 寄存器作临时存储）。
 
 **新增寄存器组**：VFScalar / 地址寄存器 / 对齐寄存器 / 掩码寄存器 / 向量寄存器
 

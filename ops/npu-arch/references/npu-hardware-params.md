@@ -42,7 +42,7 @@
 | L0B | `[AICoreSpec] l0_b_size` | 64 KB (65536) | Cube 右矩阵操作数 |
 | Cube MAC 阵列 | `cube_m_size / cube_k_size / cube_n_size` | 16×16×16 | 一个周期完成 4096 次 MAC |
 
-> **注意**：即便以上参数通常一致，代码中仍应通过 `GetCoreMemSize` 获取，避免硬编码。Kirin 端侧平台（DAV_3003/DAV_3113）Cube MAC 阵列不同，DAV_3113 L0A/L0B 更小，详见 §2.6/§2.7。
+> **注意**：即便以上参数通常一致，代码中仍应通过 `GetCoreMemSize` 获取，避免硬编码。Kirin 端侧平台中，DAV_3003/DAV_3113 的 Cube MAC 阵列与服务器版一致（16×16×16）；DAV_3113 的 L0A/L0B 更小，详见 §2.6、§2.7。
 
 ---
 
@@ -127,28 +127,27 @@
 
 > **重要说明**：KirinX90 端侧平台使用，架构代号 `dav-l300`。
 
-| 参数 | INI 字段 | 值 | 与服务器版差异 |
+| 参数 | INI 字段 | 值 | 备注 |
 |------|---------|:---:|------|
-| NpuArch | `NpuArch` | 3003 | 新架构，不在旧版映射表中 |
-| AIC_version | `AIC_version` | AIC-L-300 | 端侧专用版本标识 |
-| 核数 | `ai_core_cnt` | 1 | **单核**（服务器版多核） |
-| VectorCore | `vector_core_cnt` | 1 | 单 VectorCore |
-| L1 | `l1_size` | 1 MB (1048576) | 与 DAV_1001/2002/3002 相同 |
-| L0A | `l0_a_size` | 64 KB (65536) | **与服务器版相同**（DAV_3113 为 32 KB） |
-| L0B | `l0_b_size` | 64 KB (65536) | **与服务器版相同**（DAV_3113 为 32 KB） |
-| L0C | `l0_c_size` | 128 KB (131072) | 与 DAV_2201/3002 相同 |
-| UB | `ub_size` | 128 KB (131072) | **比服务器版小**（DAV_2201=192KB, DAV_3510=248KB） |
+| NpuArch | `NpuArch` | 3003 |  |
+| AIC_version | `AIC_version` | AIC-L-300 |  |
+| 核数 | `ai_core_cnt` | 1 | **单核** |
+| VectorCore | `vector_core_cnt` | 1 |  |
+| L1 | `l1_size` | 1 MB (1048576) |  |
+| L0A | `l0_a_size` | 64 KB (65536) |  |
+| L0B | `l0_b_size` | 64 KB (65536) |  |
+| L0C | `l0_c_size` | 128 KB (131072) |  |
+| UB | `ub_size` | 120 KB (122880) | 用户可用值；total_ub_size=128 KB (131072) |
 | L2 | `l2_size` | 0 | **无 L2 Cache** |
-| BT | `bt_size` | 1 KB (1024) | 与 DAV_2201/3002/3113 相同 |
-| Cube MAC 阵列 | `cube_m/n/k_size` | 16×8×16 | **N 维减半，服务器版为 16×16×16** |
-| 稀疏 | `sparsity` | 1（支持 4:2） | 与 DAV_2201/3002/3113 相同 |
+| BT | `bt_size` | 1 KB (1024) |  |
+| Cube MAC 阵列 | `cube_m/n/k_size` | 16×16×16 |  |
+| 稀疏 | `sparsity` | 0 | 端侧不涉及 |
 | 核心类型 | `core_type_list` | `AICore,VectorCore` | Cube 功能集成在 AICore 内 |
-| vec_calc_size | `vec_calc_size` | 128 | 向量计算单元大小 |
+| vec_calc_size | `vec_calc_size` | 128 | 向量计算单元并行度 (Byte) |
 
 > **开发注意事项**：
-> - UB 容量仅 128 KB，Tiling 设计时需特别注意 UB 切分大小
+> - UB 容量仅 120 KB，Tiling 设计时需特别注意 UB 切分大小
 > - 无 L2 Cache，数据搬运策略需考虑 GM 直通
-> - Cube 阵列 N=8（而非 16），矩阵乘法输出维度不同
 > - 单核设计，无多核切分需求
 > - L0A/L0B 与服务器版相同（64KB），但 UB/L0C 较小，需注意 Cube 输出到 UB 的搬运策略
 
@@ -158,28 +157,27 @@
 
 > **重要说明**：Kirin 端侧平台使用 `mobile-station` 版 CANN，开发依赖 simulator 而非实际硬件。架构代号 `dav-l311`，`__NPU_ARCH__=3113`。
 
-| 参数 | INI 字段 | 值 | 与服务器版差异 |
+| 参数 | INI 字段 | 值 | 备注 |
 |------|---------|:---:|------|
-| NpuArch | `NpuArch` | 3113 | 新架构，不在旧版映射表中 |
-| AIC_version | `AIC_version` | AIC-L-311 | 端侧专用版本标识 |
-| 核数 | `ai_core_cnt` | 1 | **单核**（服务器版多核） |
-| VectorCore | `vector_core_cnt` | 1 | 单 VectorCore |
-| L1 | `l1_size` | 512 KB (524288) | 与 DAV_2201/3510 相同 |
-| L0A | `l0_a_size` | 32 KB (32768) | **服务器版的一半** |
-| L0B | `l0_b_size` | 32 KB (32768) | **服务器版的一半** |
-| L0C | `l0_c_size` | 64 KB (65536) | **服务器版的一半** |
-| UB | `ub_size` | 128 KB (131072) | **比 DAV_2201(192KB) 和 DAV_3510(248KB) 都小** |
+| NpuArch | `NpuArch` | 3113 |  |
+| AIC_version | `AIC_version` | AIC-L-311 |  |
+| 核数 | `ai_core_cnt` | 1 | **单核** |
+| VectorCore | `vector_core_cnt` | 1 |  |
+| L1 | `l1_size` | 512 KB (524288) |  |
+| L0A | `l0_a_size` | 32 KB (32768) |  |
+| L0B | `l0_b_size` | 32 KB (32768) |  |
+| L0C | `l0_c_size` | 64 KB (65536) |  |
+| UB | `ub_size` | 120 KB (122880) | 用户可用值；total_ub_size=128 KB (131072) |
 | L2 | `l2_size` | 0 | **无 L2 Cache** |
-| BT | `bt_size` | 1 KB (1024) | 与 DAV_2201/3002 相同 |
-| Cube MAC 阵列 | `cube_m/n/k_size` | 16×8×16 | **服务器版 16×16×16 的变体，N 维减半** |
-| 稀疏 | `sparsity` | 1（支持 4:2） | 与 DAV_2201/3002 相同 |
+| BT | `bt_size` | 1 KB (1024) |  |
+| Cube MAC 阵列 | `cube_m/n/k_size` | 16×16×16 |  |
+| 稀疏 | `sparsity` | 0 | 端侧不涉及 |
 | 核心类型 | `core_type_list` | `AICore,VectorCore` | Cube 功能集成在 AICore 内 |
-| vec_calc_size | `vec_calc_size` | 128 | 向量计算单元大小 |
+| vec_calc_size | `vec_calc_size` | 128 | 向量计算单元并行度 (Byte) |
 
 > **开发注意事项**：
-> - UB 容量仅 128 KB，Tiling 设计时需特别注意 UB 切分大小
+> - UB 容量 AICore 仅 120 KB，Tiling 设计时需特别注意 UB 切分大小
 > - 无 L2 Cache，数据搬运策略需考虑 GM 直通
-> - Cube 阵列 N=8（而非 16），矩阵乘法输出维度不同
 > - 单核设计，无多核切分需求
 
 > **关于 UB 容量**：表内值为 INI `ub_size` 字段，即 `GetCoreMemSize(CoreMemType::UB, ...)` 返回的用户可用容量。**运行时始终以该接口返回值分块**，禁止硬编码。
@@ -215,15 +213,16 @@
 | 特征 | DAV_1001 | DAV_2002 | DAV_2201 | DAV_3002 | DAV_3510 | DAV_3003 (Kirin) | DAV_3113 (Kirin) |
 |------|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
 | 核心类型 | AICore | AICore+VectorCore | CubeCore+VectorCore | AICore+VectorCore+CubeCore | CubeCore+VectorCore | AICore+VectorCore | AICore+VectorCore |
-| Cube:Vec 比例 | N/A (无Vec) | 非 1:2 | 1:2 | N/A (单核) | 1:2 | N/A (单核) | N/A (单核) |
+| Cube:Vec 比例 | N/A (无Vec) | 非 1:2 | 1:2 | N/A (单核) | 1:2 | N/A (耦合架构) | N/A (耦合架构) |
 | L1 | 1 MB | 1 MB | 512 KB | 1 MB | 512 KB | 1 MB | 512 KB |
 | L0A | 64 KB | 64 KB | 64 KB | 64 KB | 64 KB | 64 KB | **32 KB** |
 | L0B | 64 KB | 64 KB | 64 KB | 64 KB | 64 KB | 64 KB | **32 KB** |
 | L0C | 256 KB | 256 KB | 128 KB | 128 KB | 256 KB | 128 KB | 64 KB |
-| UB | 256 KB | 256 KB | 192 KB | 248 KB | 248 KB | 128 KB | 128 KB |
+| UB | 256 KB | 256 KB | 192 KB | 248 KB | 248 KB | 120 KB | 120 KB |
 | BT | — | — | 1 KB | 1 KB | 4 KB | 1 KB | 1 KB |
-| 稀疏 4:2 | — | — | 支持 | 支持 | 不支持 | 支持 | 支持 |
-| Cube 阵列 | 16³ | 16³ | 16³ | 16³ | 16³ | **16×8×16** | **16×8×16** |
+| 稀疏 4:2 | — | — | 支持 | 支持 | 不支持 | 不支持 | 不支持 |
+| Cube 阵列 | 16³ | 16³ | 16³ | 16³ | 16³ | 16³ | 16³ |
+| Vector 单元架构 | 待确认 | 待确认 | SIMD-Membase | 待确认 | SIMD-Regbase + SIMT | SIMD-Regbase | SIMD-Regbase |
 
 ---
 
@@ -242,9 +241,9 @@
 | 5 | L1→GM 和 GM→L0A/L0B 通路已删除 | Guide §4 关键数据通路改动 | 公开资料 / 经验值 |
 | 6 | BufferID 取代 set/wait 同步 | Guide §4 指令序列与 BufferID 同步 / SKILL.md §DAV_3510 关键变化 | 950白皮书 §4.1.6 |
 | 7 | 多核同时访问 GM 同地址性能优化 | Guide §4 MTE 数据搬运引擎 | 公开资料 / 经验值 |
-| 8 | SIMD-Regbase：OOO 指令双发 | Guide §6 SIMD-Regbase | 950白皮书 §3/§4.1.2/§4.1.3 |
+| 8 | SIMD-Regbase：OOO 指令双发 | Guide §7 SIMD-Regbase | 950白皮书 §3/§4.1.2/§4.1.3 |
 | 9 | Warp Scheduler 每 AIV 4 个 | Guide §5 SIMT vs SIMD | 公开资料 / 经验值 |
-| 10 | NDDMA + ND-DMA Cache 规格 | Guide §8 NDDMA 高维 DMA | 950白皮书 §4.1.5 |
-| 11 | CCU 三种通信范式及 KFC 调度变化 | Guide §9 CCU 通算融合 | CCU 硬件架构与算法支持：950白皮书 §4.6.4；三种通信范式与 KFC 调度细节：公开资料 / 经验值 |
+| 10 | NDDMA + ND-DMA Cache 规格 | Guide §9 NDDMA 高维 DMA | 950白皮书 §4.1.5 |
+| 11 | CCU 三种通信范式及 KFC 调度变化 | Guide §10 CCU 通算融合 | CCU 硬件架构与算法支持：950白皮书 §4.6.4；三种通信范式与 KFC 调度细节：公开资料 / 经验值 |
 | 12 | Vector 算力 950PR Server=54T / PCIE=47T：基准 27T/23.7T × 双发 2，但并非所有 Vector 指令均支持双发 | Guide §3 算力与系统规格 → Vector 算力推导 | 950白皮书 表3-1 + §3/§4.1.2/§4.1.3 |
 | 13 | Memory 带宽 Server 1.6 TB/s / PCIE 1.4 TB/s | Guide §3 算力与系统规格 | 950白皮书 表3-1/§4.3.1；910B2 带宽仍为公开资料 / 经验值 |
