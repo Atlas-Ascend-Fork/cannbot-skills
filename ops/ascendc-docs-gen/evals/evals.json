@@ -259,6 +259,66 @@
       "expected_output": "应区分写作规范和算子事实：先完整读取 Skill 内的 references/source-extraction-guide.md、references/aclnn-api-doc-template.md、references/operator-readme-template.md、references/example-aclnn-md.md、references/example-readme.md；grep 章节标题不能代替完整读取，源码缺失不影响读取这些参考。随后说明待获取源码后的接口声明、对应实现、def、infershape、tiling、kernel、config 和样例核验计划，示例不能作为 Foo 的参数或平台事实。当前只能交付流程、读取状态和缺失证据清单，请求正确源码目录，不能声称已核验或生成最终文档，也不能拿其他算子源码替代；后续经要求草拟时，未经核验字段标注待确认。",
       "expectations": [],
       "files": []
+    },
+    {
+      "id": 18,
+      "prompt": "使用 ascendc-docs-gen 为 aclnnDemo 生成 API 文档。尚未执行外部预处理，也未提供预处理产物。",
+      "expected_output": "先获取缺失的算子源码目录；输入齐备后由父入口主 Agent 执行预处理、分析、候选组装、完整审阅和最终化。不要求用户先手动执行预处理，不生成虚构的最终文档；仅在用户明确选择手动模式时交接工具步骤。",
+      "expectations": [
+        {
+          "type": "contains",
+          "pattern": "预处理",
+          "description": "输出说明当前输入或流程关口"
+        }
+      ],
+      "title": "完整生成流程：ascendc-docs-gen workflow case 1",
+      "config": {
+        "max_tokens": 8192,
+        "eval_mode": "text"
+      },
+      "files": []
+    },
+    {
+      "id": 19,
+      "prompt": "使用 ascendc-docs-gen 解释：5_review_patch.json 的 status 为 fail 时，可以直接使用 4_generate.md 交付吗？",
+      "expected_output": "拒绝将未审阅正文作为最终交付物，说明必须修复失败原因并重新通过审阅。",
+      "expectations": [
+        {
+          "type": "contains",
+          "pattern": "review",
+          "description": "输出说明当前输入或流程关口"
+        }
+      ],
+      "title": "完整生成流程：ascendc-docs-gen workflow case 2",
+      "config": {
+        "max_tokens": 8192,
+        "eval_mode": "text"
+      },
+      "files": []
+    },
+    {
+      "id": 20,
+      "title": "局部文字修订不强制迁移完整格式",
+      "config": {
+        "max_tokens": 160000,
+        "eval_mode": "text"
+      },
+      "prompt": "已有 ACLNN 文档中包含 <!-- npu=\"A3,910b\" id7 --> 的产品段落。本次只将功能说明中的一个错别字改正，产品信息和原型均未变化。请说明修改范围及是否需要先运行完整生成工具。",
+      "expected_output": "只修正目标文字，保留未受影响的产品段落和原型，不要求完整生成会话或运行全量格式检查；不把旧标签与完整生成格式不同直接等同为技术内容错误。",
+      "expectations": [],
+      "files": []
+    },
+    {
+      "id": 21,
+      "title": "完整流程与 README 组合交付约定",
+      "config": {
+        "max_tokens": 160000,
+        "eval_mode": "text"
+      },
+      "prompt": "我同时要求生成某算子的完整 ACLNN API 文档和 README。请先说明完整生成完成后正式文档、过程产物和 README 应分别放在哪里，以及多接口如何核对；本轮不要生成文件。",
+      "expected_output": "先读取适用的父级指南、模板和示例。过程产物保留 outputs/<interface>，正式文档为算子目录下 docs/<interface>.md，README 在算子根目录；README 逐一列出全部接口及实际文档和样例链接，不链接过程目录，不因仅重生成单个接口而删除其他入口。咨询不运行生成工具。",
+      "expectations": [],
+      "files": []
     }
   ],
   "skill_name": "ascendc-docs-gen"

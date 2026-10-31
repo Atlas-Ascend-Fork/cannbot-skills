@@ -3,6 +3,9 @@
 > **记录规则**：单条不超过 **200 字**，按【领域】+ 问题 + 修复要点组织；技术细节、验证数据与发布过程放 PR 描述 / commit message，不写入日志。
 
 ### 【2026-10-30】
+#### 新特性 New Features
+- 【算子文档】在既有 `ascendc-docs-gen`、`ascendc-api-docs-gen` 的 references 下新增 ACLNN 与 AscendC 完整 API 文档生成流程，提供源码取证、分阶段生成、审阅与交付校验，保留原有写作和局部修订能力。
+
 #### 变更 Changes
 - 【算子】`ascendc-tensor-api-best-practice` 新增 L3 算法实现路由、本地官方源码仓映射、路径一致性检查与 cannbot-knowledge 检索证据规则，并澄清 A5 UB 容量口径与默认 .asc 工程结构。
 

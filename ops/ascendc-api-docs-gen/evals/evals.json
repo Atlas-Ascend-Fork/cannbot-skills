@@ -60,6 +60,60 @@
       "expected_output": "回复应完整列出 Ascend C API 参考文档的标准章节及写作要求：\n\n- 功能描述：一句话说明 API 功能，必要时给出计算公式\n- 函数原型：与头文件声明一致，按芯片架构区分支持情况\n- 参数说明：表格形式（参数名/输入/输出/描述），描述数据类型与约束\n- 返回值：说明返回值含义及异常行为\n- 约束说明：数据类型支持、对齐要求、平台限制等\n- 支持的芯片型号/产品型号：明确列出，未验证的不得标注支持\n- 调用示例：完整可参考的 Kernel 侧代码示例\n\n并应说明文档内容必须来源于头文件等可信代码，禁止臆造 API 行为。",
       "files": [],
       "expectations": []
+    },
+    {
+      "id": 5,
+      "prompt": "使用 ascendc-api-docs-gen 为 Demo 生成文档。我提供的 manifest.json 文件不存在。",
+      "expected_output": "说明提供的 manifest 不可读取，暂停完整生成并请用户提供可读路径；当前不得新建、覆盖或绕过已有清单，也不得推测接口内容。允许说明取得可读清单后如何继续；仅提及 manifest.json 而没有停止或补充输入的处理不算满足。",
+      "expectations": [
+        {
+          "type": "skill_activated",
+          "pattern": "ascendc-api-docs-gen",
+          "description": "核对父 Skill 路由；停止及不覆盖行为由 expected_output 语义评审"
+        }
+      ],
+      "title": "完整生成流程：ascendc-api-docs-gen workflow case 1",
+      "config": {
+        "max_tokens": 8192,
+        "eval_mode": "text"
+      },
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "使用 ascendc-api-docs-gen。我还没提供 API 名称、接口文件或代码仓，请帮我开始生成接口文档。",
+      "expected_output": "当前轮应询问缺少的目标 API 名称、接口文件和代码仓路径，并等待用户补充，不得捏造输入、创建清单或生成最终文档。可以说明取得必要输入后统一通过 create-manifest 入口创建 v2 清单的后续步骤，但本用例未提供下一轮输入，不要求当前完成创建。追问可合并表达，不要求固定句式；仅重复 API 等关键词不算满足。",
+      "expectations": [
+        {
+          "type": "skill_activated",
+          "pattern": "ascendc-api-docs-gen",
+          "description": "核对父 Skill 路由；当前追问与后续创建的阶段边界由 expected_output 语义评审"
+        }
+      ],
+      "title": "完整生成流程：ascendc-api-docs-gen workflow case 2",
+      "config": {
+        "max_tokens": 8192,
+        "eval_mode": "text"
+      },
+      "files": []
+    },
+    {
+      "id": 7,
+      "title": "局部修订不依赖完整生成会话",
+      "config": {
+        "max_tokens": 160000,
+        "eval_mode": "text"
+      },
+      "prompt": "已有设备侧 API 文档，只需将参数 count 的已确认上限从 128 修改为 256，原型和产品范围不变。请说明本次修订范围；不要改写整篇或要求创建 manifest。",
+      "expected_output": "本轮只要求说明局部修订范围，应说明仅将 count 的已确认上限由 128 调整为 256，并同步直接受影响的描述；原型、产品范围及其他未受影响内容保持原样。不得将新建完整生成会话、manifest、资料冻结或全量章节及产品检查作为本次修订前提，不应改写整篇或声称已修改未提供的文件。允许解释无需创建 manifest，不能因出现 manifest 一词就判失败。本例评审的是范围说明，不将文字承诺等同为已经验证文件修改或未创建会话。",
+      "expectations": [
+        {
+          "type": "skill_activated",
+          "pattern": "ascendc-api-docs-gen",
+          "description": "核对父 Skill 路由；局部修订范围和流程前提由 expected_output 语义评审"
+        }
+      ],
+      "files": []
     }
   ],
   "skill_name": "ascendc-api-docs-gen"
