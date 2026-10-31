@@ -1,0 +1,76 @@
+{
+  "skill_name": "docs-translation",
+  "eval_mode": "text",
+  "evals": [
+    {
+      "id": 1,
+      "title": "交互式获取本地仓库路径，不从远程地址推断",
+      "config": {
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "用 docs-translation 把我这个仓库的文档翻译成英文：https://gitcode.com/cann/metadef.git",
+      "expected_output": "回复应说明不会通过远程地址推断本地仓库路径，而是使用交互式提问工具向用户索取需要翻译的本地仓库路径；并说明会校验该路径存在且为 git 仓库（存在 .git 目录），校验失败则重新提示输入；后续扫描、翻译、提交均以该路径为仓库根目录。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 2,
+      "title": "非 docs 目录文档的翻译路径与命名",
+      "config": {
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "本地仓库路径为 D:\\WorkSpace\\metadef_trunk，根目录的 README.md 需要翻译，英文文件放哪里、叫什么名字？",
+      "expected_output": "回复应说明非 docs 目录文档与原文件放在同级目录，命名为 <原文件名>_en.md，因此 README.md 的英文文件为仓库根目录下的 README_en.md。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 3,
+      "title": "docs 下 zh 目录文档的翻译路径与命名",
+      "config": {
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "本地仓库路径为 D:\\WorkSpace\\metadef_trunk，docs/zh/api/quantize.md 需要翻译（不在排除列表），英文文件应该放在哪个路径？",
+      "expected_output": "回复应说明文档位于 docs 目录内的 zh 文件夹下，需在与 zh 同级的 en 目录中按相同层级存放，文件名为原文件名（不加 _en 后缀），即 docs/en/api/quantize.md。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 4,
+      "title": "排除列表按 repoName 模糊匹配",
+      "config": {
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "本地仓库路径是 D:\\WorkSpace\\ge_test，exclude_docs.json 中配置了 repoName 为 ge 的条目，docs/graph_engine_api 下的文档需要翻译吗？",
+      "expected_output": "回复应说明将本地仓库路径与 repoName 做模糊匹配，路径中包含 repoName 关键字即匹配成功（D:\\WorkSpace\\ge_test 包含 ge，匹配成功），匹配后按 excludeDocsPaths 跳过对应子路径；若 docs/graph_engine_api 在该列表中则跳过不翻译，其他 docs 路径仍照常翻译。",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 5,
+      "title": "已存在英文文档时的增量翻译",
+      "config": {
+        "ascend_platforms": [
+          "A2"
+        ],
+        "eval_mode": "text"
+      },
+      "prompt": "某个中文文档已经有对应的 _en.md 文件了，但中文文档最近又改动了，docs-translation 会怎么处理？",
+      "expected_output": "回复应说明会先检查英文翻译文件是否存在，存在时再检查中文文档是否有变更；有变更时执行增量翻译：获取中文文档的 diff、分析变更点、将变更点翻译为英文并用 edit 工具更新对应英文文档，而不是重写整个文件；无变更则跳过该文件。",
+      "files": [],
+      "expectations": []
+    }
+  ]
+}

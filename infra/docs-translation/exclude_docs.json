@@ -1,0 +1,8 @@
+{
+    "mapping": [
+        {
+            "repoName": "ge",
+            "excludeDocsPaths": ["docs/dflow_api", "docs/graph_engine_api", "docs/llm_datadist_api"]
+        }
+    ]
+}
